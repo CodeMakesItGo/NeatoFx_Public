@@ -7,7 +7,7 @@
 #   reset_score_script  - Zeroes score/hit labels
 #   shot_game           - End-check handler for shot-count games
 #
-# Included by: display_7in_main.yaml
+# Included by: main.yaml
 # ==============================================================================
 
 # ==============================================================================
