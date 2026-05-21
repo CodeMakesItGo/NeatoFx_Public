@@ -15,7 +15,7 @@ packages:
 # DASHBOARD IMPORT - Made for ESPHome
 # ==============================================================================
 dashboard_import:
-  package_import_url: github://CodeMakesItGo/esphome/Targets/NeatoTargetIR/main.yaml@main
+  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Targets/NeatoTargetIR/main.yaml@main
   import_full_config: true
 
 # ==============================================================================
