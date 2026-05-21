@@ -12,5 +12,9 @@ _shared/secrets.yaml
 # macOS metadata
 .DS_Store
 
+# IDE
+.vscode/
+*.code-workspace
+
 # Claude Code worktrees
 .claude/
