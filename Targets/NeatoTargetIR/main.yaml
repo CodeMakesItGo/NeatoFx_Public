@@ -38,9 +38,9 @@ packages:
 
   # Change this manually when changing target_type:
   # - For standalone: uncomment the next line
-  config_file: !include configs/standalone.yaml
-  # - For networked: uncomment the next two lines
-  #config_file: !include configs/networked.yaml
+  #config_file: !include configs/standalone.yaml
+  # - For networked: uncomment the next line
+  config_file: !include configs/networked.yaml
 
   # IR receiver configuration
   #ir_receiver: !include protocols/ir_nec.yaml

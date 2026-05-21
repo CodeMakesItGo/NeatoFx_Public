@@ -26,8 +26,8 @@ packages:
   rftx:           !include boards/rftx_outputs.yaml
 
   # Network / standalone mode — swap these lines to switch:
-  config_file:    !include configs/standalone.yaml
-  #config_file:   !include configs/networked.yaml
+  #config_file:   !include configs/standalone.yaml
+  config_file:    !include configs/networked.yaml
 
   # Optional integrations (uncomment to enable):
   #fpp_file:      !include integrations/speaker_fpp.yaml
