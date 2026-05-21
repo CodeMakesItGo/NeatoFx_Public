@@ -49,7 +49,7 @@ script:
       # Apply hit effect
       - if:
           condition:
-            lambda: 'return id(hit_effect_select).state == "Solid Color";'
+            lambda: 'return id(hit_effect_select).current_option() == "Solid Color";'
           then:
             - light.turn_on:
                 id: led_strip
@@ -60,11 +60,11 @@ script:
                 then:
                   - select.set:
                       id: led_strip_color_preset
-                      option: !lambda 'return id(led_strip_color_preset).state;'
+                      option: !lambda 'return id(led_strip_color_preset).current_option();'
           else:
             - light.turn_on:
                 id: led_strip
-                effect: !lambda 'return id(hit_effect_select).state;'
+                effect: !lambda 'return id(hit_effect_select).current_option();'
 
       # Activate outputs with error checking
       - lambda: |-

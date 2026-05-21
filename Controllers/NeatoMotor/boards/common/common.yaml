@@ -149,7 +149,7 @@ script:
             # Bi-direction: pause, reverse, run return trip for same timer
             - if:
                 condition:
-                  lambda: 'return id(travel_mode_select).state == "Bi-direction";'
+                  lambda: 'return id(travel_mode_select).current_option() == "Bi-direction";'
                 then:
                   - delay: !lambda 'return (uint32_t)id(toggle_delay_control).state;'
                   # Flip for return trip

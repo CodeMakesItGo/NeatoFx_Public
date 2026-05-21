@@ -135,7 +135,7 @@ binary_sensor:
           state: OPEN
       - if:
           condition:
-            lambda: 'return id(travel_mode_select).state == "1 Direction";'
+            lambda: 'return id(travel_mode_select).current_option() == "1 Direction";'
           then:
             # 1 Direction: stop and stay open
             - logger.log: "Open limit: 1 Direction — stopping"
