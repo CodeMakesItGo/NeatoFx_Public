@@ -10,15 +10,15 @@ const CONFIG = {
   // HOME ASSISTANT CONNECTION
   // ----------------------------------------------------------------------------
   ha_url: "http://homeassistant.local:8123",
-  ha_token: "REDACTED_HA_TOKEN",   // HA → Profile → Long-Lived Access Tokens
+  ha_token: "",   // HA → Profile → Long-Lived Access Tokens
   // ----------------------------------------------------------------------------
   // DISPLAY
   // ----------------------------------------------------------------------------
   // Background image — place file in assets/backgrounds/
-  background: "assets/backgrounds/IMG_1387.JPG",
+  background: "",
 
   // Title shown at the top of the scoreboard
-  title: "DigTown Shooting Gallery",
+  title: "Shooting Gallery",
 
   // Display mode:
   //   "score"            — show score only

@@ -89,19 +89,19 @@ light:
 # FONTS
 # ==============================================================================
 font:
-  - file: "fonts/arialbd.ttf"
+  - file: "fonts/Roboto-Bold.ttf"
     id: shot_font
     size: 100
 
-  - file: "fonts/arialbd.ttf"
+  - file: "fonts/Roboto-Bold.ttf"
     id: hit_font
     size: 100
 
-  - file: "fonts/arialbd.ttf"
+  - file: "fonts/Roboto-Bold.ttf"
     id: score_font
     size: 100
 
-  - file: "fonts/arial.ttf"
+  - file: "fonts/Roboto-Regular.ttf"
     id: small_font
     size: 24
 

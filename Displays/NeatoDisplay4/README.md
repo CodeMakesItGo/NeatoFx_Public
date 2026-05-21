@@ -29,8 +29,8 @@ SmartDisplay/
 ### Fonts (`fonts/`)
 | File | Used for |
 |---|---|
-| `WesternBangBang-Regular.ttf` | Score, hit, shot counter labels |
-| `arial.ttf` | Small UI text |
+| `Roboto-Bold.ttf` | Score, hit, shot counter labels |
+| `Roboto-Regular.ttf` | Small UI text |
 
 ### Images (`images/`)
 | File | Screen |
