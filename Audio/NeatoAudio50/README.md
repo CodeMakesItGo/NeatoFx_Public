@@ -1,6 +1,6 @@
-# SmartSpeaker - WiFi Audio Control Module
+# NEATO Audio 50 - WiFi Audio Controller
 
-The NEATO-FX SmartSpeaker is a modular WiFi-enabled audio controller designed for interactive shooting galleries, escape rooms, and entertainment attractions. It delivers synchronized sound effects triggered by external inputs, with flexible audio output controls and game integration capabilities.
+The NEATO Audio 50 is a modular WiFi-enabled audio controller designed for interactive shooting galleries, escape rooms, and entertainment attractions. It delivers synchronized sound effects triggered by external inputs, with flexible audio output controls and game integration capabilities.
 
 ## Table of Contents
 
@@ -101,35 +101,45 @@ Each speaker features multiple input channels, selectable audio outputs, backgro
 
 ### Step 2: Flash Firmware
 1. Connect ESP32 to computer via USB
-2. Choose operating mode in `speaker_main.yaml`:
+2. Choose operating mode in `main.yaml`:
    ```yaml
    # For networked mode (with Home Assistant):
-   config_file: !include configs/speaker_networked_config.yaml
+   config_file: !include configs/networked.yaml
 
    # For standalone mode (WiFi AP only):
-   #config_file: !include configs/speaker_standalone_config.yaml
+   #config_file: !include configs/standalone.yaml
    ```
 
-3. For networked mode, create `configs/secrets.yaml`:
+3. Optionally select board revision and RFTX mode in `main.yaml`:
    ```yaml
-   wifi_ssid: "YourWiFiNetwork"
-   wifi_password: "YourPassword"
+   # Rev 2.4/2.5/2.6 (current production):
+   board: !include boards/rev2_4.yaml
+   # Rev 2.3 (legacy):
+   #board: !include boards/rev2_3.yaml
+
+   # RFTX connector as RF transmitter outputs (default):
+   rftx: !include boards/rftx_outputs.yaml
+   # RFTX connector as 4 trigger inputs:
+   #rftx: !include boards/rftx_inputs.yaml
    ```
 
-4. Flash to device:
+4. Place your WiFi credentials in `secrets.yaml` (one directory above this repo).
+   See [`_shared/secrets.template.yaml`](../../_shared/secrets.template.yaml).
+
+5. Flash to device:
    ```bash
-   # For speaker ID 1
-   esphome -s id 1 run SmartSpeaker/speaker_main.yaml
+   # Compile and flash audio ID 1
+   esphome -s id 1 run Audio/NeatoAudio50/main.yaml
 
    # Or compile + upload separately
-   esphome -s id 1 compile SmartSpeaker/speaker_main.yaml
-   esphome -s id 1 upload SmartSpeaker/speaker_main.yaml
+   esphome -s id 1 compile Audio/NeatoAudio50/main.yaml
+   esphome -s id 1 upload Audio/NeatoAudio50/main.yaml
    ```
 
 ### Step 3: Initial Configuration
 1. **Networked Mode**: Device appears in Home Assistant after connection
 2. **Standalone Mode**:
-   - Connect to WiFi SSID: `speaker-1` (or your ID)
+   - Connect to WiFi SSID: `audio-1` (or your ID)
    - Password: `neato123`
    - Open browser to: `http://192.168.4.1`
 
@@ -217,7 +227,7 @@ Background Loop: Enable ambient music with varying intensity
 
 ## Web Interface
 
-Access at: `http://speaker-1.local` or IP address in networked mode
+Access at: `http://audio-1.local` or IP address in networked mode
 
 ### Dashboard Sections
 
@@ -370,7 +380,7 @@ Speaker has 30 volume levels (0-30):
 4. Restart WiFi router
 5. Factory reset and reconfigure:
    - Power off device for 10 seconds
-   - Power on and look for `speaker-X` AP
+   - Power on and look for `audio-<ID>` AP
    - Connect and set WiFi credentials again
 
 ### Relay Not Activating

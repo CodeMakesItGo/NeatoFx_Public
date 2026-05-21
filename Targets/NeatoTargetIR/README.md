@@ -1,4 +1,4 @@
-# 🎯 NEATO-FX SmartTarget System
+# NEATO Target IR
 
 The Smart Target is a modular WiFi enabled target for shooting galleries, interactive attractions, and advanced automation entertainment applications. 
 These targets are unique in that it is an all-in-one solution to control props with colorful eye-catching visuals.
@@ -81,117 +81,83 @@ Each target features infrared detection, customizable LED effects, relay outputs
 
 ### Modular File Structure
 ```
-SmartTarget/
-├── target_main.yaml                 # Main configuration assembly
+Targets/NeatoTargetIR/
+├── main.yaml                          ← Entry point — set ID and select options here
 ├── boards/
-│   ├── target_rev1_x.yaml          # Rev 1.x hardware definition
-│   ├── target_rev3_x.yaml          # Rev 3.x hardware definition
+│   ├── rev3.yaml                      ← Rev 3.x hardware (current production)
+│   ├── rev1.yaml                      ← Rev 1.x hardware (legacy)
 │   └── common/
-│       ├── target_common.yaml      # Shared components
-│       ├── target_hit_script.yaml  # Hit processing logic
-│       ├── color_controls.yaml     # LED color management
-│       ├── custom.css              # Web UI styling
-│       └── custom.js               # Web UI functionality
+│       ├── common.yaml                ← Shared sensors and components
+│       ├── color_controls.yaml        ← LED color management
+│       └── custom_ui.js               ← Web UI customization
 ├── configs/
-│   ├── target_networked_config.yaml # Home Assistant integration
-│   ├── target_standalone_config.yaml # Independent operation
-│   └── secrets.yaml               # WiFi credentials
+│   ├── networked.yaml                 ← Home Assistant integration
+│   └── standalone.yaml                ← Independent AP mode
 ├── protocols/
-│   ├── ir_laser_tag.yaml          # Laser tag IR protocol
-│   ├── ir_nec.yaml                # NEC IR protocol  
-│   └── ir_raw.yaml                # Raw IR capture
+│   ├── ir_laser_tag.yaml              ← Laser tag (default)
+│   ├── ir_nec.yaml                    ← NEC remotes
+│   ├── ir_raw.yaml                    ← Raw IR capture
+│   └── ir_custom.yaml                 ← Custom protocol
 ├── integrations/
-│   └── target_fpp.yaml            # Falcon Player integration
-└── README.md                      # This file
+│   └── target_fpp.yaml               ← Falcon Player integration
+├── scripts/
+│   ├── hit_script.yaml               ← Hit behavior
+│   ├── servo_movement_script.yaml    ← Servo drop movement
+│   └── servo_stubs.yaml              ← No-servo stub
+└── docs/
+    ├── Smart Target Rev1.x Manual.pdf
+    └── Smart Target Rev3.x Manual.pdf
 ```
 
 ## 🚀 Installation
 
 ### Prerequisites
-1. **ESPHome**: Install via pip or Home Assistant add-on
-2. **ESP32 Board**: Rev 3.x (Wemos D1 Mini32) 
-3. **Hardware Setup**: Connect components according to pin configuration
+1. **ESPHome** 2025.8.0+ — install via pip or Home Assistant add-on
+2. **Smart Target PCB** (Rev 3.x current, Rev 1.x legacy)
+3. **WiFi credentials** in `secrets.yaml` — see [`_shared/secrets.template.yaml`](../../_shared/secrets.template.yaml)
 
 ### Quick Start
-1. **Clone Repository**:
+
+1. **Configure Target ID** — the default is `1`; override on the command line:
    ```bash
-   git clone https://github.com/CodeMakesItGo/SmartTarget.git
-   cd SmartTarget/esphome/SmartTarget
+   esphome -s id 1 compile Targets/NeatoTargetIR/main.yaml
    ```
 
-2. **Configure Target ID**:
-   Edit `target_main.yaml` to set your unique target ID:
-   ```yaml
-   substitutions:
-     id: "0001"  # Change to your target number (0001-9999)
-   ```
-
-3. **Select Hardware Revision**:
-   Uncomment the appropriate line in `target_main.yaml`:
+2. **Select Hardware Revision** — edit `main.yaml` and uncomment the correct board:
    ```yaml
    packages:
-     # For Rev 1.x targets uncomment the next line
-     #target_rev_file: !include boards/target_rev1_x.yaml
-     # For Rev 3.x targets uncomment the next line  
-     target_rev_file: !include boards/target_rev3_x.yaml
+     target_rev_file: !include boards/rev3.yaml    # Rev 3.x (current production)
+     #target_rev_file: !include boards/rev1.yaml   # Rev 1.x (legacy)
    ```
 
-4. **Choose Operating Mode**:
-   Select standalone or networked mode:
+3. **Choose Operating Mode** — default is networked (Home Assistant):
    ```yaml
-   # Standalone mode (independent operation)
-   #config_file: !include configs/target_standalone_config.yaml
-   # Networked mode (Home Assistant integration)
-   config_file: !include configs/target_networked_config.yaml
+     #config_file: !include configs/standalone.yaml
+     config_file:  !include configs/networked.yaml
    ```
 
-5. **Configure WiFi**:
-   Edit `configs/secrets.yaml`:
+4. **Select IR Protocol** — default is laser tag:
    ```yaml
-   wifi_ssid: "YourWiFiNetwork"
-   wifi_password: "YourPassword"
+     ir_receiver: !include protocols/ir_laser_tag.yaml
+     #ir_receiver: !include protocols/ir_nec.yaml
+     #ir_receiver: !include protocols/ir_raw.yaml
    ```
 
-6. **Select IR Protocol**:
-   Choose your IR receiver protocol:
-   ```yaml
-   # Laser tag protocol (recommended)
-   ir_receiver: !include protocols/ir_laser_tag.yaml
-   # NEC protocol (TV remotes)
-   #ir_receiver: !include protocols/ir_nec.yaml
-   # Raw capture (development)
-   #ir_receiver: !include protocols/ir_raw.yaml
-   ```
-
-7. **Compile and Flash**:
+5. **Compile and Flash**:
    ```bash
-   # Compile configuration
-   esphome -s id 0001 compile target_main.yaml
-   
-   # Flash to device
-   esphome -s id 0001 upload target_main.yaml
-   
-   # Monitor logs
-   esphome -s id 0001 logs target_main.yaml
+   esphome -s id 1 run Targets/NeatoTargetIR/main.yaml
    ```
 
-8. **Access Web Interface**:
-   - Find device at `http://target-0001.local` or IP address
-   - Use the 🔥 FIRE button to test target functionality
+6. **Access Web Interface**:
+   - Browse to `http://target-1.local` (replace `1` with your ID)
+   - Use the FIRE button to test target functionality
 
 ### Optional: FPP Integration
-For Falcon Player light show synchronization:
+For Falcon Player light show synchronization, uncomment in `main.yaml`:
 ```yaml
-# Uncomment in target_main.yaml
-fpp_file: !include integrations/target_fpp.yaml
-
-# Enable FPP script execution
-script:
-  - id: run_hit_script
-    then:
-      - script.execute: target_hit_script
-      - script.execute: fpp_start_playlist  # Uncomment this line
+  fpp_file: !include integrations/target_fpp.yaml
 ```
+And uncomment the `fpp_start_playlist` line in the `run_hit_script` block.
 
 ## 🎮 Usage
 
@@ -312,7 +278,7 @@ logger:
 ### Factory Reset
 To reset configuration:
 1. Power cycle device 3 times rapidly (within 10 seconds)
-2. Device will create WiFi access point "SmartTarget-XXXX"
+2. Device will create WiFi access point `target-<ID>`
 3. Connect and reconfigure via captive portal
 4. Or reflash firmware via USB
 
@@ -372,12 +338,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Contributors**: Everyone who has helped improve this project
 
 ## 📞 Support
-- **Issues**: [GitHub Issues](https://github.com/CodeMakesItGo/SmartTarget/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/CodeMakesItGo/SmartTarget/discussions)
-- **Documentation**: [Documents Folder](./documents/)
-- **Email**: [jason.altice@codemakesitgo.com](mailto:jason.altice@codemakesitgo.com)
+- **Issues**: [GitHub Issues](https://github.com/CodeMakesItGo/NeatoFx_Public/issues)
+- **Documentation**: [Device Manuals](./docs/)
 
 ---
 
 **Made with ❤️ by the NEATO-FX Team**
-*Last updated: September 2025*

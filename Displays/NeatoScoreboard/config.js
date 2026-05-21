@@ -38,7 +38,7 @@ const CONFIG = {
   //   target_ids  - List of target IDs whose hits count for this player
   //                 Use ["*"] to count all targets for every player
   // ----------------------------------------------------------------------------
-  // Player colors — match SmartDisplay colors:
+  // Player colors — match NeatoDisplay4 colors:
   //   Yellow: #FFE000  |  Green: #00E000  |  Blue: #00BFFF  |  Orange: #FF6000
   players: [
     {

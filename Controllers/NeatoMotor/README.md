@@ -1,6 +1,6 @@
-# SmartMotor - WiFi Bidirectional Motor Controller
+# NEATO Motor - WiFi Bidirectional Motor Controller
 
-The NEATO-FX SmartMotor is a professional-grade WiFi-enabled motor controller designed for interactive attractions, escape rooms, and entertainment systems. It provides precise bidirectional control of DC motors, with limit switch support, current monitoring, and full automation integration.
+The NEATO Motor is a professional-grade WiFi-enabled motor controller designed for interactive attractions, escape rooms, and entertainment systems. It provides precise bidirectional control of DC motors, with limit switch support, current monitoring, and full automation integration.
 
 ## Table of Contents
 
@@ -122,29 +122,29 @@ Each motor controller features dual H-bridge outputs, limit switch inputs, real-
 
 1. Connect ESP32 to computer via USB
 
-2. Choose operating mode in `motor_main.yaml`:
+2. Choose variant and operating mode in `main.yaml` (or `main_winch.yaml` for the encoder winch):
    ```yaml
    # For networked mode (with Home Assistant):
-   config: !include configs/motor_networked_config.yaml
+   config: !include configs/networked.yaml
 
    # For standalone mode (WiFi AP only):
-   #config: !include configs/motor_standalone_config.yaml
+   #config: !include configs/standalone.yaml
    ```
 
-3. For networked mode, create `configs/secrets.yaml`:
-   ```yaml
-   wifi_ssid: "YourWiFiNetwork"
-   wifi_password: "YourPassword"
-   ```
+3. Place your WiFi credentials in `secrets.yaml` (one directory above this repo).
+   See [`_shared/secrets.template.yaml`](../../_shared/secrets.template.yaml).
 
 4. Flash to device:
    ```bash
-   # For motor ID 1
-   esphome -s id 1 run SmartMotor/motor_main.yaml
+   # Standard motor controller, ID 1
+   esphome -s id 1 run Controllers/NeatoMotor/main.yaml
+
+   # Winch/encoder variant, ID 1
+   esphome -s id 1 run Controllers/NeatoMotor/main_winch.yaml
 
    # Or compile + upload separately
-   esphome -s id 1 compile SmartMotor/motor_main.yaml
-   esphome -s id 1 upload SmartMotor/motor_main.yaml
+   esphome -s id 1 compile Controllers/NeatoMotor/main.yaml
+   esphome -s id 1 upload Controllers/NeatoMotor/main.yaml
    ```
 
 ### Step 3: Initial Configuration
@@ -458,7 +458,7 @@ data:
 3. Ensure 2.4GHz WiFi (ESP32 doesn't support 5GHz)
 4. Factory reset:
    - Power cycle device 3 times rapidly
-   - Device creates AP: `motor-1`
+   - Device creates AP: `motor-<ID>`
    - Connect and reconfigure WiFi
 
 ### Web Interface Not Loading

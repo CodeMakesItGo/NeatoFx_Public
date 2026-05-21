@@ -5,12 +5,9 @@
 # winches, animatronic props, automated doors, and reversible DC motor loads.
 #
 # Usage:
-#   esphome -s id <id> run SmartMotor/motor_main.yaml
-#   esphome -s id <id> logs SmartMotor/motor_main.yaml
-#   esphome -s id <id> compile SmartMotor/motor_main.yaml
-#
-# Substitutions:
-#   id    - Unique device number (e.g., 0001)
+#   esphome -s id <id> run Controllers/NeatoMotor/main.yaml
+#   esphome -s id <id> logs Controllers/NeatoMotor/main.yaml
+#   esphome -s id <id> compile Controllers/NeatoMotor/main.yaml
 # ==============================================================================
 
 # ==============================================================================

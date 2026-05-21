@@ -1,27 +1,23 @@
-# NEATO Smart Display
+# NEATO Display 4
 
 A modular ESPHome project for the 480×480 touch-screen game display station.
 
 ## Folder Structure
 
 ```
-SmartDisplay/
-├── display_main.yaml               ← Entry point — set station ID here
+Displays/NeatoDisplay4/
+├── main.yaml                          ← Entry point — set station ID and color here
 ├── boards/
-│   ├── display_rev1_x.yaml        ← Hardware: ESP32-S3, ST7701S display, GT911 touch
+│   ├── rev1.yaml                      ← Hardware: ESP32-S3, ST7701S display, GT911 touch
 │   └── common/
-│       ├── display_common.yaml    ← Shared: ESPHome config, OTA, external components
-│       ├── display_screens.yaml   ← LVGL UI, screen definitions, template sensors
-│       ├── custom.css             ← Web interface styling
-│       └── custom.js              ← Web interface scripting
+│       ├── common.yaml                ← Shared: ESPHome config, OTA, external components
+│       └── screens.yaml               ← LVGL UI, screen definitions, template sensors
 ├── configs/
-│   ├── display_networked_config.yaml  ← WiFi, API services, web server, diagnostics
-│   └── secrets.yaml               ← WiFi credentials (not committed to git)
+│   └── networked.yaml                 ← WiFi, API services, web server, diagnostics
 ├── scripts/
-│   └── game_scripts.yaml          ← Game logic: reset, shot-count game, timed game
-├── fonts/                         ← Font files (add manually — see below)
-├── images/                        ← Screen background PNGs (add manually — see below)
-└── documents/
+│   └── game_scripts.yaml              ← Game logic: reset, shot-count game, timed game
+├── fonts/                             ← Font files (add manually — see below)
+└── images/                            ← Screen background PNGs (add manually — see below)
 ```
 
 ## Required Assets
@@ -63,32 +59,32 @@ Pass `-s color` and `-s font_color` on the command line:
 
 ```bash
 # Station 1 — Yellow
-esphome -s id 1 -s color YLW -s font_color 0xFFE000 run ./SmartDisplay/display_main.yaml
+esphome -s id 1 -s color YLW -s font_color 0xFFE000 run Displays/NeatoDisplay4/main.yaml
 
 # Station 4 — Green
-esphome -s id 4 -s color GRN -s font_color 0x00E000 run ./SmartDisplay/display_main.yaml
+esphome -s id 4 -s color GRN -s font_color 0x00E000 run Displays/NeatoDisplay4/main.yaml
 
 # Station 2 — Blue
-esphome -s id 2 -s color BLU -s font_color 0x00BFFF run ./SmartDisplay/display_main.yaml
+esphome -s id 2 -s color BLU -s font_color 0x00BFFF run Displays/NeatoDisplay4/main.yaml
 
 # Station 3 — Orange
-esphome -s id 3 -s color ORG -s font_color 0xFF6000 run ./SmartDisplay/display_main.yaml
+esphome -s id 3 -s color ORG -s font_color 0xFF6000 run Displays/NeatoDisplay4/main.yaml
 ```
 
 ### Batch Programming
 
-Use the helper script to compile and upload multiple displays in sequence.
+Use `program.sh` from the parent repo to compile and upload multiple displays.
 Colors are assigned automatically by ID (1→YLW, 2→GRN, 3→BLU, 4→ORG, cycling):
 
 ```bash
 # Compile + upload displays 1–4
-bash program_displays.sh 1 4
+./program.sh display 1 4
 
 # Compile only
-bash program_displays.sh compile 1 4
+./program.sh display compile
 
 # Upload only (already compiled)
-bash program_displays.sh upload 1 4
+./program.sh display upload
 ```
 
 ## Home Assistant Services

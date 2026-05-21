@@ -10,8 +10,8 @@
 # SUBSTITUTIONS - Network Addressing Defaults
 # ==============================================================================
 # ip_base and ip_addr provide default static IP values used by the optional
-# manual_ip block below. Each device type overrides ip_addr with its own
-# subnet offset (e.g. SmartDisplay uses ${ip_base}20${id}).
+# manual_ip block below. Each device can override ip_addr with its own
+# subnet offset in its networked config substitutions.
 #
 # Override ip_addr in your device's networked config substitutions, or pass
 # it on the command line:  esphome -s ip_addr 192.168.8.5 run ...
