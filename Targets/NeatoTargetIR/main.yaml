@@ -6,9 +6,9 @@
 # and optional integrations like FPP (Falcon Player) support.
 #
 # Usage:
-#   esphome run target_main.yaml                    (starts with ID 0000)
-#   esphome -s id 0001 run target_main.yaml        (starts with ID 0001)
-#   Then adjust Target ID via web interface number control
+#   esphome -s id 1 compile main.yaml
+#   esphome -s id 1 run     main.yaml
+#   esphome -s id 1 logs    main.yaml
 # ==============================================================================
 
 # ==============================================================================
@@ -19,22 +19,17 @@ substitutions:
   id: "1"                     # Default target ID
   name: target-${id}             
   friendly_name: "NEATO Target ${id}"
-  # Servo PWM effect on hit - set when servo_pwm_effects package is enabled
-  # Options: servo_pwm_sawzall | servo_pwm_flicker  (servo_pwm_none is the default)
+  # Servo PWM effect — only used when servo_pwm_effects package is enabled below
+  # Options: servo_pwm_sawzall | servo_pwm_flicker
   # servo_pwm_script: "servo_pwm_flicker"
 
 # ==============================================================================
 # EXTERNAL PACKAGES
 # ==============================================================================
 packages:
-  # - For Rev 1.x targets uncomment the next line
-  #target_rev_file: !include boards/rev1.yaml
-  # - For Rev 3.x targets uncomment the next line
-  target_rev_file: !include boards/rev3.yaml
-  # - For Rev 3.x PWM train uncomment the next line
-  #target_rev_file: !include boards/rev3_pwm.yaml
-  # - For Rev 3.x LCD face (GC9A01 240x240 round TFT) uncomment the next line
-  #target_rev_file: !include boards/rev3_lcd.yaml
+  # Hardware — select one board revision:
+  target_rev_file: !include boards/rev3.yaml    # Rev 3.x (current production)
+  #target_rev_file: !include boards/rev1.yaml   # Rev 1.x (legacy)
 
   # Change this manually when changing target_type:
   # - For standalone: uncomment the next line

@@ -38,5 +38,5 @@ packages:
   audio_scripts:   !include scripts/audio_control.yaml
 
 logger:
-  level: DEBUG
+  level: WARN
   baud_rate: 0
