@@ -20,7 +20,7 @@ wifi:
   # AP configuration for standalone mode
   ap:
     ssid: "${name}"
-    password: !secret ap_password
+    password: "neato123"
     ap_timeout: 1min
 
   # Disable station mode and prevent network scanning
