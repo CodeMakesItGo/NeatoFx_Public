@@ -1,0 +1,222 @@
+# ==============================================================================
+# SMART WINCH CONTROLLER - HARDWARE DEFINITION (REV 3.0 BOARD, WINCH MODE)
+# ==============================================================================
+# Hardware: Wemos D1 Mini ESP32 + 2× BTN8962TA H-bridge
+#
+# This board file wires the Rev 3.0 hardware for WINCH operation.
+# It is intentionally separate from motor_rev3_0.yaml (linear actuator mode)
+# so that winch-specific control logic can be included without conflict.
+#
+# Motor H-bridge (BTN8962TA):
+#   GPIO19 - R_PWM  — Reel OUT (pay out rope / cable)
+#   GPIO18 - L_PWM  — Reel IN  (take up rope / cable)
+#   GPIO17 - R_EN   — Right H-bridge enable
+#   GPIO16 - L_EN   — Left H-bridge enable
+#   GPIO34 - R_IS   — Reel-out current sense (ADC, input-only)
+#   GPIO35 - L_IS   — Reel-in  current sense (ADC, input-only)
+#
+# Hall Effect Quadrature Encoder (8 magnets at 45° spacing):
+#   GPIO4  - Hall A (sensor at 0°)
+#   GPIO13 - Hall B (sensor at 22.5°) — 90° electrical phase offset vs A
+#   Swap hall_a_pin / hall_b_pin substitutions if reel-out counts backwards.
+#
+# Joystick Inputs (hold to run, release to stop):
+#   GPIO32 - Joystick reel OUT
+#   GPIO27 - Joystick reel IN
+#
+# Limit Switch:
+#   GPIO26 - HOME limit switch (reel fully retracted = length 0)
+#            Repurposed from status LED — wire limit switch here.
+#
+# Count explanation: 8 magnets × 4 quadrature transitions (A↑ A↓ B↑ B↓)
+# = 32 counts per revolution.  Use resolution:1 for 8 counts/rev if preferred.
+# ==============================================================================
+
+# ==============================================================================
+# PACKAGES
+# ==============================================================================
+packages:
+  common: !include common/winch_control.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS - Hardware Pin Assignments
+# ==============================================================================
+substitutions:
+  project_name: "CodeMakesItGo.WinchMotor"
+  hall_a_pin: "GPIO13"  # Swapped: reel-out now counts up (positive)
+  hall_b_pin: "GPIO4"
+
+# ==============================================================================
+# CORE CONFIGURATION
+# ==============================================================================
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  project:
+    name: ${project_name}
+    version: "1.0.0"
+  on_boot:
+    - priority: 900   # Earliest — disable H-bridge before GPIO init completes
+      then:
+        - output.turn_off: motor_r_en
+        - output.turn_off: motor_l_en
+        - output.turn_off: motor_rpwm
+        - output.turn_off: motor_lpwm
+        - logger.log: "Boot: H-bridge disabled — winch safe"
+    - priority: -100  # After all components initialised
+      then:
+        - delay: 100ms   # Let delayed_on filters evaluate initial GPIO state
+        - logger.log: "Boot: Starting auto-home sequence (reeling in at slow speed)"
+        - script.execute: winch_home_script
+
+esp32:
+  board: wemos_d1_mini32
+  framework:
+    type: arduino
+    version: recommended
+
+# ==============================================================================
+# MOTOR OUTPUTS - BTN8962TA H-Bridge
+# ==============================================================================
+output:
+  # Reel-out direction PWM
+  - platform: ledc
+    id: motor_rpwm
+    pin: GPIO19
+    frequency: 1000 Hz
+
+  # Reel-in direction PWM
+  - platform: ledc
+    id: motor_lpwm
+    pin: GPIO18
+    frequency: 1000 Hz
+
+  # H-bridge enable lines (both must be ON for motor to run)
+  - platform: gpio
+    id: motor_r_en
+    pin: GPIO17
+
+  - platform: gpio
+    id: motor_l_en
+    pin: GPIO16
+
+# ==============================================================================
+# BINARY SENSORS - Home Limit Switch & Joystick
+# ==============================================================================
+binary_sensor:
+  # ---------------------------------------------------------------------------
+  # Home limit switch — reel fully retracted, length = 0
+  # GPIO26 repurposed from status LED output to digital input.
+  # Wire a normally-open switch between GPIO26 and GND.
+  # ---------------------------------------------------------------------------
+  - platform: gpio
+    pin:
+      number: GPIO26
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Home Limit Switch"
+    id: limit_home
+    device_class: opening
+    filters:
+      - delayed_on: 20ms
+    on_press:
+      - logger.log: "Home limit: stopping motor and resetting length to 0"
+      - script.stop: winch_home_script
+      - script.stop: winch_reel_in_script
+      - lambda: 'id(motor_running) = false;'
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      - output.turn_off: motor_r_en
+      - output.turn_off: motor_l_en
+      - lambda: |-
+          id(winch_count_global) = 0;
+          id(winch_homed) = true;
+          id(winch_homing) = false;
+
+  # ---------------------------------------------------------------------------
+  # Joystick reel OUT — hold to pay out rope, release to stop
+  # ---------------------------------------------------------------------------
+  - platform: gpio
+    pin:
+      number: GPIO32
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Joystick Reel Out"
+    id: joystick_out
+    filters:
+      - delayed_on: 20ms
+    on_press:
+      - logger.log: "Joystick: reel out"
+      - script.execute: winch_reel_out_script
+    on_release:
+      - logger.log: "Joystick: released — stopping"
+      - script.execute: winch_stop_script
+
+  # ---------------------------------------------------------------------------
+  # Joystick reel IN — hold to take up rope, release to stop
+  # ---------------------------------------------------------------------------
+  - platform: gpio
+    pin:
+      number: GPIO27
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Joystick Reel In"
+    id: joystick_in
+    filters:
+      - delayed_on: 20ms
+    on_press:
+      - logger.log: "Joystick: reel in"
+      - script.execute: winch_reel_in_script
+    on_release:
+      - logger.log: "Joystick: released — stopping"
+      - script.execute: winch_stop_script
+
+# ==============================================================================
+# SENSORS - Current Monitoring & Stall Detection
+# ==============================================================================
+sensor:
+  # R_IS (GPIO34) — reel-out current sense
+  # BTN8962TA: ~0.12V/A with 1kΩ IS resistor; multiply ×8.5 ≈ amps
+  - platform: adc
+    pin: GPIO34
+    id: motor_current_forward_raw
+    internal: true
+    update_interval: 50ms
+    filters:
+      - multiply: 8.5
+      - lambda: 'return std::max(0.0f, x);'
+      - sliding_window_moving_average:
+          window_size: 3
+          send_every: 1
+    on_value_range:
+      - above: 8.0
+        then:
+          - logger.log: "WARNING: Stall detected (reel-out) — emergency stop"
+          - script.execute: winch_stop_script
+
+  # L_IS (GPIO35) — reel-in current sense
+  - platform: adc
+    pin: GPIO35
+    id: motor_current_reverse_raw
+    internal: true
+    update_interval: 50ms
+    filters:
+      - multiply: 8.5
+      - lambda: 'return std::max(0.0f, x);'
+      - sliding_window_moving_average:
+          window_size: 3
+          send_every: 1
+    on_value_range:
+      - above: 8.0
+        then:
+          - logger.log: "WARNING: Stall detected (reel-in) — emergency stop"
+          - script.execute: winch_stop_script
+
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s

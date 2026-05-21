@@ -1,0 +1,284 @@
+# ==============================================================================
+# SMART MOTOR CONTROLLER - HARDWARE DEFINITION (REV 3.0)
+# ==============================================================================
+# Hardware: Wemos D1 Mini ESP32 + 2× BTN8962TA H-bridge
+# Schematic: motor_ctrl_rev3.2
+#
+# Motor Control (BTN8962TA H-bridge):
+#   GPIO19 - R_PWM (IN)  - Right H-bridge (12V-A)
+#   GPIO18 - L_PWM (IN)  - Left H-bridge  (12V-B)
+#   GPIO17 - R_EN  (INH) - Right H-bridge enable
+#   GPIO16 - L_EN  (INH) - Left H-bridge enable
+#   GPIO34 - R_IS        - Right H-bridge current sense (ADC input-only)
+#   GPIO35 - L_IS        - Left H-bridge current sense  (ADC input-only)
+#
+# Limit Switches:
+#   GPIO4  - OPEN_SWITCH  (fully open / forward end)
+#   GPIO13 - CLOSED_SWITCH (fully closed / reverse end)
+#
+# Toggle Inputs:
+#   GPIO32 - TOGGLE_1 (momentary switch input 1)
+#   GPIO27 - TOGGLE_2 (momentary switch input 2)
+#
+# Outputs:
+#   GPIO26 - STATUS LED (external via connector)
+#
+# Behavior is configured via web UI:
+#   Motor Timer      - 0 = run until limit/toggle; >=10 ms = timed run
+#   Toggle Delay     - pause (ms) between stop and start on direction change
+#   Open Switch Enabled  - whether open limit switch affects motor
+#   Closed Switch Enabled - whether closed limit switch affects motor
+#   Travel Mode      - "1 Direction" (stop at end) or "Bi-direction" (reverse at end)
+#   Default Direction - startup direction when timer = 0
+# ==============================================================================
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  common: !include common/common.yaml
+
+# ==============================================================================
+# CORE CONFIGURATION
+# ==============================================================================
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  project:
+    name: "CodeMakesItGo.Motor"
+    version: "3.0.0"
+  on_boot:
+    - priority: 900   # Earliest — hold H-bridge safe before GPIO init
+      then:
+        - output.turn_off: motor_r_en
+        - output.turn_off: motor_l_en
+        - output.turn_off: motor_rpwm
+        - output.turn_off: motor_lpwm
+        - logger.log: "Boot: H-bridge disabled — motor safe"
+    - priority: -100  # After all components initialized
+      then:
+        - light.turn_on:
+            id: status_led
+            effect: "Heartbeat"
+        - logger.log: "Boot: Motor stopped — press toggle to start (first run: Forward)"
+
+esp32:
+  board: wemos_d1_mini32
+  framework:
+    type: arduino
+    version: recommended
+
+# ==============================================================================
+# MOTOR OUTPUTS - BTN8962TA H-Bridge
+# ==============================================================================
+output:
+  # Direction PWM (ledc — R=right H-bridge/12V-A, L=left H-bridge/12V-B)
+  - platform: ledc
+    id: motor_rpwm
+    pin: GPIO19
+    frequency: 1000 Hz
+
+  - platform: ledc
+    id: motor_lpwm
+    pin: GPIO18
+    frequency: 1000 Hz
+
+  # Half-bridge enable lines (digital)
+  - platform: gpio
+    id: motor_r_en
+    pin: GPIO17
+
+  - platform: gpio
+    id: motor_l_en
+    pin: GPIO16
+
+  - platform: ledc
+    id: status_led_output
+    pin: GPIO26
+    frequency: 1000 Hz
+
+# ==============================================================================
+# STATUS LED
+# ==============================================================================
+light:
+  - platform: monochromatic
+    name: "Status LED"
+    id: status_led
+    output: status_led_output
+    internal: true
+    effects:
+      - pulse:
+          name: "Heartbeat"
+          transition_length: 500ms
+          update_interval: 1500ms
+
+# ==============================================================================
+# BINARY SENSORS - Limit Switches + Toggle Button
+# ==============================================================================
+binary_sensor:
+  # Open / forward end limit switch
+  - platform: gpio
+    pin:
+      number: GPIO4
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Open Limit Switch"
+    id: limit_open
+    device_class: opening
+    filters:
+      - delayed_on: 50ms
+    on_press:
+      - logger.log: "Open limit switch triggered"
+      - cover.template.publish:
+          id: wench_motor
+          state: OPEN
+      - if:
+          condition:
+            lambda: 'return id(travel_mode_select).state == "1 Direction";'
+          then:
+            # 1 Direction: stop and stay open
+            - logger.log: "Open limit: 1 Direction — stopping"
+            - script.stop: motor_run_cycle
+            - lambda: 'id(motor_running) = false;'
+            - output.set_level:
+                id: motor_rpwm
+                level: 0%
+            - output.set_level:
+                id: motor_lpwm
+                level: 0%
+            - output.turn_off: motor_r_en
+            - output.turn_off: motor_l_en
+          else:
+            # Bi-direction: hold then auto-close (or immediate reverse if no hold time)
+            - if:
+                condition:
+                  lambda: 'return (int)id(open_hold_time_control).state >= 10;'
+                then:
+                  - logger.log: "Open limit: Bi-direction — holding then auto-close"
+                  - script.execute: motor_open_dwell
+                else:
+                  - logger.log: "Open limit: Bi-direction — reversing immediately"
+                  - script.execute: motor_limit_reverse
+
+  # Closed / reverse end limit switch
+  - platform: gpio
+    pin:
+      number: GPIO13
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Closed Limit Switch"
+    id: limit_closed
+    device_class: opening
+    filters:
+      - delayed_on: 50ms
+    on_press:
+      - logger.log: "Closed limit switch triggered"
+      - cover.template.publish:
+          id: wench_motor
+          state: CLOSED
+      - logger.log: "Closed limit: stopping"
+      - script.stop: motor_run_cycle
+      - script.stop: motor_limit_reverse
+      - lambda: 'id(motor_running) = false;'
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      - output.turn_off: motor_r_en
+      - output.turn_off: motor_l_en
+
+  # Toggle input 1 (TOGGLE_1) — momentary switch
+  - platform: gpio
+    pin:
+      number: GPIO32
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Toggle 1"
+    id: toggle_button
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 500ms
+    on_press:
+      - logger.log: "Toggle 1 pressed"
+      - script.execute: do_toggle
+
+  # Toggle input 2 (TOGGLE_2) — momentary switch
+  - platform: gpio
+    pin:
+      number: GPIO27
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Toggle 2"
+    id: toggle_button_2
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 500ms
+    on_press:
+      - logger.log: "Toggle 2 pressed"
+      - script.execute: do_toggle
+
+# ==============================================================================
+# SENSORS - Current Monitoring & Stall Detection (Hardware-Specific)
+# ==============================================================================
+sensor:
+  # ---------------------------------------------------------------------------
+  # R_IS (GPIO34) — Right H-bridge current sense, fast sampling for stall detection
+  # BTN8962TA IS pin: 1A motor ≈ 0.12V with 1kΩ IS resistor; 8A stall ≈ 0.94V
+  # ---------------------------------------------------------------------------
+  - platform: adc
+    pin: GPIO34
+    id: motor_current_forward_raw
+    internal: true
+    update_interval: 50ms
+    filters:
+      - multiply: 8.5
+      - lambda: 'return std::max(0.0f, x);'
+    on_value_range:
+      - above: 8.0
+        then:
+          - logger.log: "WARNING: Stall detected (forward direction) — stopping"
+          - script.stop: motor_run_cycle
+          - script.stop: motor_limit_reverse
+          - lambda: 'id(motor_running) = false;'
+          - output.set_level:
+              id: motor_rpwm
+              level: 0%
+          - output.set_level:
+              id: motor_lpwm
+              level: 0%
+          - output.turn_off: motor_r_en
+          - output.turn_off: motor_l_en
+
+  # ---------------------------------------------------------------------------
+  # L_IS (GPIO35) — Left H-bridge current sense, fast sampling for stall detection
+  # ---------------------------------------------------------------------------
+  - platform: adc
+    pin: GPIO35
+    id: motor_current_reverse_raw
+    internal: true
+    update_interval: 50ms
+    filters:
+      - multiply: 8.5
+      - lambda: 'return std::max(0.0f, x);'
+    on_value_range:
+      - above: 8.0
+        then:
+          - logger.log: "WARNING: Stall detected (reverse direction) — stopping"
+          - script.stop: motor_run_cycle
+          - script.stop: motor_limit_reverse
+          - lambda: 'id(motor_running) = false;'
+          - output.set_level:
+              id: motor_rpwm
+              level: 0%
+          - output.set_level:
+              id: motor_lpwm
+              level: 0%
+          - output.turn_off: motor_r_en
+          - output.turn_off: motor_l_en
+
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s

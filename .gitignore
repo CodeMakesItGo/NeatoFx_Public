@@ -1,0 +1,16 @@
+# ESPHome build artifacts
+.esphome/
+build/
+
+# Virtual environment
+.venv/
+
+# Secrets — never commit real credentials
+secrets.yaml
+_shared/secrets.yaml
+
+# macOS metadata
+.DS_Store
+
+# Claude Code worktrees
+.claude/

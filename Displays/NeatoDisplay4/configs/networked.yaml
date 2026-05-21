@@ -1,0 +1,165 @@
+# ==============================================================================
+# NETWORKED DISPLAY CONFIGURATION
+# ==============================================================================
+# Sets up the display in networked mode with Home Assistant integration.
+# Provides WiFi, API services for score updates, web server, and diagnostics.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  networked_base: !include ../../../_shared/networked_base.yaml
+  network_sensors: !include ../../../_shared/network_sensors.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS - Network Configuration
+# ==============================================================================
+substitutions:
+  # ip_base and ip_addr defaults are set in _shared/networked_base.yaml.
+  # Override ip_addr here if a static subnet offset is needed.
+
+# ==============================================================================
+# API - Home Assistant Integration + Score Update Services
+# ==============================================================================
+api:
+  reboot_timeout: 5min
+  homeassistant_services: true
+  services:
+    # Called by Home Assistant to update the player's score label
+    - service: set_score
+      variables:
+        score_value: int
+      then:
+        - sensor.template.publish:
+            id: player_${id}_score
+            state: !lambda 'return score_value;'
+        - lvgl.label.update:
+            id: player_score
+            text:
+              format: "%d"
+              args: [ '(int)id(player_${id}_score).state' ]
+        - if:
+            condition:
+              lambda: 'return id(game_over_active);'
+            then:
+              - lvgl.label.update:
+                  id: game_over_score
+                  text:
+                    format: "%d"
+                    args: [ 'score_value' ]
+
+    # Called by Home Assistant (via pump gun start button) to start the game
+    - service: start_game
+      then:
+        - globals.set:
+            id: game_over_active
+            value: 'false'
+        - lvgl.widget.hide: boot_screen
+        - lvgl.widget.show: game_screen
+        - lvgl.widget.show: game_shot_screen
+        - script.execute: reset_score_script
+        - lvgl.label.update:
+            id: player_shot
+            text: !lambda 'return std::to_string(id(g_max_shots));'
+        - homeassistant.service:
+            service: input_boolean.turn_on
+            data:
+              entity_id: input_boolean.player_${id}_active
+
+    # Called by Home Assistant to update the hit count label
+    - service: set_hit
+      variables:
+        score_value: int
+      then:
+        - sensor.template.publish:
+            id: player_${id}_hit
+            state: !lambda 'return score_value;'
+        - lvgl.label.update:
+            id: player_hit
+            text:
+              format: "%d"
+              args: [ '(int)id(player_${id}_hit).state' ]
+
+    # Called by Home Assistant to update the remaining shots label
+    - service: set_shot
+      variables:
+        score_value: int
+      then:
+        - if:
+            condition:
+              lambda: 'return score_value > 0 && !id(game_over_active) && !lv_obj_has_flag(id(boot_screen), LV_OBJ_FLAG_HIDDEN);'
+            then:
+              - lvgl.label.update:
+                  id: player_score
+                  text: "0"
+              - lvgl.label.update:
+                  id: player_hit
+                  text: "0"
+              - lvgl.label.update:
+                  id: player_shot
+                  text: !lambda 'return std::to_string(id(g_max_shots));'
+              - lvgl.label.update:
+                  id: game_over_score
+                  text: ""
+              - lvgl.widget.hide: boot_screen
+              - lvgl.widget.show: game_screen
+              - lvgl.widget.show: game_shot_screen
+              - script.execute: reset_score_script
+              - homeassistant.service:
+                  service: input_boolean.turn_on
+                  data:
+                    entity_id: input_boolean.player_${id}_active
+        - sensor.template.publish:
+            id: player_${id}_shot
+            state: !lambda 'return score_value;'
+        - lvgl.label.update:
+            id: player_shot
+            text:
+              format: "%d"
+              args: [ 'std::max(0, id(g_max_shots) - (int)score_value)' ]
+        - if:
+            condition:
+              lambda: 'return score_value >= id(g_max_shots);'
+            then:
+              - homeassistant.service:
+                  service: input_boolean.turn_off
+                  data:
+                    entity_id: input_boolean.player_${id}_active
+              - globals.set:
+                  id: game_over_active
+                  value: 'true'
+              - lvgl.widget.hide: game_screen
+              - lvgl.widget.hide: game_shot_screen
+              - lvgl.label.update:
+                  id: game_over_score
+                  text:
+                    format: "%d"
+                    args: [ '(int)id(player_${id}_score).state' ]
+              - lvgl.widget.show: game_over_screen
+              - script.execute: game_over_transition_script
+
+# ==============================================================================
+# SENSORS - System Monitoring & Game State from Home Assistant
+# ==============================================================================
+sensor:
+  - platform: uptime
+    name: "Uptime Sensor"
+    update_interval: 600s
+
+  - platform: homeassistant
+    id: max_shots_ha
+    entity_id: input_number.max_shots
+    internal: true
+    on_value:
+      - globals.set:
+          id: g_max_shots
+          value: !lambda 'return (int)x;'
+
+# ==============================================================================
+# BINARY SENSORS - Status
+# ==============================================================================
+binary_sensor:
+  - platform: status
+    name: "Status"
+    entity_category: diagnostic
+# Serial-based WiFi provisioning (Made for ESPHome requirement)
+improv_serial:

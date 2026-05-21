@@ -1,0 +1,169 @@
+# ==============================================================================
+# INFRARED RECEIVER - LASER TAG TEAM DETECTION
+# ==============================================================================
+remote_receiver:
+  pin:
+    number: ${ir_gpio}
+    inverted: true      # Keep this for most IR receiver modules (TSOP, etc.)
+    mode:
+      input: true
+      pullup: true
+  tolerance: 25%
+  filter: 100us          # Filter noise
+  idle: 4ms             # Signal end detection
+  buffer_size: 10kB     # Large buffer for complex signals
+  
+  # Dump raw timing for analysis (comment out in production)
+  # dump: raw
+  
+  # RAW IR timing automation 
+  on_raw:
+    then:
+      - if:
+          condition:
+            - lambda: 'return id(ir_enabled);'
+          then:
+            - lambda: |-
+                id(ir_command) = 0;
+                std::vector<long int> raw_data = x;
+                ESP_LOGI("IR", "RAW signal received, length: %zu", raw_data.size());
+                
+                // Skip if signal too short
+                if (raw_data.size() < 15) {
+                  ESP_LOGD("IR", "Signal too short, ignoring");
+                  return;
+                }
+                
+                // Decode IR timing to binary using BOTH pulse and space patterns
+                std::string pulse_bits = "";
+                std::string space_bits = "";
+                std::string debug_pulses = "PULSES: ";
+                std::string debug_spaces = "SPACES: ";
+                
+                for (int i = 0; i < raw_data.size() - 1; i += 2) {
+                  int pulse = abs(raw_data[i]);     // IR ON duration (microseconds)
+                  int space = abs(raw_data[i + 1]); // IR OFF duration (microseconds)
+                  
+                  // Log both pulse and space timing for analysis
+                  debug_pulses += str_sprintf("%d,", pulse);
+                  debug_spaces += str_sprintf("%d,", space);
+                  
+                  // Process PULSES: Skip very long header pulses (> 1500μs) but decode normal ones
+                  if (pulse <= 1500) {
+                  // Decode PULSES: Short pulse (~400-460μs) = '0', Long pulse (~790-860μs) = '1'
+                  if (pulse < 600) {
+                    pulse_bits += "0";
+                  } else if (pulse > 700) {
+                    pulse_bits += "1";
+                  }
+                  }
+                  
+                  // Process SPACES: Skip very long header spaces (> 1500μs) but decode normal ones
+                  if (space <= 1500) {
+                  // Decode SPACES: Short space (~335-406μs) = '0', Long space (~710-748μs) = '1'
+                  if (space < 500) {
+                    space_bits += "0";
+                  } else if (space > 650) {
+                    space_bits += "1";
+                  }
+                  }
+                }
+                
+                ESP_LOGI("IR", "%s", debug_pulses.c_str());
+                ESP_LOGI("IR", "%s", debug_spaces.c_str());
+                        
+                // Reverse bit strings if data is LSB-first
+                std::reverse(pulse_bits.begin(), pulse_bits.end());
+                std::reverse(space_bits.begin(), space_bits.end());
+                
+                ESP_LOGI("IR", "PULSE bits (reversed): %s", pulse_bits.c_str());
+                ESP_LOGI("IR", "SPACE bits (reversed): %s", space_bits.c_str());
+                
+                // Convert both pulse and space bits to hex for team identification
+                std::string pulse_hex = "";
+                std::string space_hex = "";
+                
+                // Convert PULSE bits to hex
+                if (pulse_bits.length() >= 4) {
+                  // Pad the binary string to a multiple of 4 bits from the left
+                  std::string padded_pulse = pulse_bits;
+                  while (padded_pulse.length() % 4 != 0) {
+                  padded_pulse = "0" + padded_pulse;
+                  }
+                  
+                  for (int i = 0; i < padded_pulse.length(); i += 4) {
+                  std::string nibble = padded_pulse.substr(i, 4);
+                  
+                  int val = 0;
+                  for (int j = 0; j < 4; j++) {
+                    val = val * 2 + (nibble[j] == '1' ? 1 : 0);
+                  }
+                  char hex_char = (val < 10) ? ('0' + val) : ('A' + val - 10);
+                  pulse_hex += hex_char;
+                  }
+                }
+                
+                // Convert SPACE bits to hex
+                if (space_bits.length() >= 4) {
+                  // Pad the binary string to a multiple of 4 bits from the left
+                  std::string padded_space = space_bits;
+                  while (padded_space.length() % 4 != 0) {
+                  padded_space = "0" + padded_space;
+                  }
+                  
+                  for (int i = 0; i < padded_space.length(); i += 4) {
+                  std::string nibble = padded_space.substr(i, 4);
+                  
+                  int val = 0;
+                  for (int j = 0; j < 4; j++) {
+                    val = val * 2 + (nibble[j] == '1' ? 1 : 0);
+                  }
+                  char hex_char = (val < 10) ? ('0' + val) : ('A' + val - 10);
+                  space_hex += hex_char;
+                  }
+                }
+                
+                ESP_LOGI("IR", "PULSE HEX: 0x%s", pulse_hex.c_str());
+                ESP_LOGI("IR", "SPACE HEX: 0x%s", space_hex.c_str());
+                
+                // Segment-based timing analysis for cleaner team detection
+                ESP_LOGI("IR", "RAW timing analysis - length: %zu", raw_data.size());
+                
+                // Log the complete raw sequence for analysis
+                std::string raw_sequence = "";
+                for (int i = 0; i < raw_data.size() && i < 20; i++) {  // First 20 values
+                  raw_sequence += str_sprintf("%d,", (int)raw_data[i]);
+                }
+                ESP_LOGI("IR", "RAW SEQUENCE: %s", raw_sequence.c_str());
+                
+                 // Convert hex strings to integers for bit manipulation               
+                if (pulse_hex.length() >= 3 && space_hex.length() >= 3) {
+                  // Convert hex strings to integers for bit manipulation
+                  uint32_t pulse_val = 0;
+                  uint32_t space_val = 0;
+                  
+                  // Parse pulse hex string
+                  for (char c : pulse_hex) {
+                  pulse_val = pulse_val * 16 + (c <= '9' ? c - '0' : c - 'A' + 10);
+                  }
+                  
+                  // Parse space hex string  
+                  for (char c : space_hex) {
+                  space_val = space_val * 16 + (c <= '9' ? c - '0' : c - 'A' + 10);
+                  }
+                  
+                  ESP_LOGI("IR", "HEX PATTERNS: PULSE=0x%02X, SPACE=0x%02X", pulse_val, space_val);
+
+                } else {
+                  ESP_LOGI("IR", "HEX CONVERSION ERROR: pulse_len=%zu, space_len=%zu", pulse_hex.length(), space_hex.length());
+                }
+                
+                id(ir_command) = 1;  // Dummy non-zero command to indicate detection
+            - if:
+                condition:
+                  lambda: 'return id(ir_command) != 0;'
+                then:
+                  - script.execute: run_hit_script
+          else:
+            - lambda: 'ESP_LOGI("IR", "IR_DISABLED");'
+            

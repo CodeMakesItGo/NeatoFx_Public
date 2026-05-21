@@ -1,0 +1,43 @@
+# ==============================================================================
+# SMART MOTOR CONTROLLER - NETWORKED CONFIGURATION
+# ==============================================================================
+# This configuration sets up the motor controller in networked mode with Home
+# Assistant integration. In networked mode, the device communicates with a
+# central controller and can be managed through Home Assistant.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  networked_base: !include ../../../_shared/networked_base.yaml
+  network_sensors: !include ../../../_shared/network_sensors.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS - Configuration Variables
+# ==============================================================================
+substitutions:
+  # ip_addr default (${ip_base}${id}) is set in _shared/networked_base.yaml.
+  # Override here only if this device type needs a different subnet offset.
+
+# ==============================================================================
+# API & REMOTE ACCESS - Home Assistant Integration
+# ==============================================================================
+api:
+  reboot_timeout: 5min
+
+# ==============================================================================
+# MOTOR IDLE EVENT - Home Assistant Integration
+# ==============================================================================
+binary_sensor:
+  - platform: template
+    id: motor_idle_event
+    internal: true
+    lambda: 'return id(motor_idle).state;'
+    on_press:
+      # Motor transitioned to idle — notify Home Assistant
+      - homeassistant.event:
+          event: esphome.motor-idle
+          data:
+            address: ${id}
+
+# Serial-based WiFi provisioning (requires logger baud_rate != 0)
+improv_serial:

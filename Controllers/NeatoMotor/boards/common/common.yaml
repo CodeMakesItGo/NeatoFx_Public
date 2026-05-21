@@ -1,0 +1,438 @@
+# ==============================================================================
+# SMART MOTOR CONTROLLER - COMMON COMPONENTS
+# ==============================================================================
+# This file contains shared components used by all motor hardware revisions.
+# It includes common scripts, controls, and logic that are consistent across
+# different hardware versions. Hardware-specific GPIO mappings remain in the
+# individual board files.
+#
+# Included by: motor_rev3_0.yaml (and future revisions)
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  esphome_base: !include ../../../../_shared/esphome_base.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS - Shared Configuration Variables
+# ==============================================================================
+substitutions:
+  # Project Information
+  project_name: "CodeMakesItGo.Motor"
+
+# ==============================================================================
+# COVER - Home Assistant integration (gate device class)
+# ==============================================================================
+cover:
+  - platform: template
+    name: "Motor"
+    id: wench_motor
+    device_class: gate
+    optimistic: false
+
+    # HA open command — stop scripts, force forward direction, run cycle
+    open_action:
+      - script.stop: motor_run_cycle
+      - script.stop: motor_limit_reverse
+      - globals.set:
+          id: current_direction
+          value: 'true'
+      - script.execute: motor_run_cycle
+
+    # HA close command — stop scripts, force reverse direction, run cycle
+    close_action:
+      - script.stop: motor_run_cycle
+      - script.stop: motor_limit_reverse
+      - globals.set:
+          id: current_direction
+          value: 'false'
+      - script.execute: motor_run_cycle
+
+    # HA stop command — cancel all scripts, brake motor
+    stop_action:
+      - script.stop: motor_run_cycle
+      - script.stop: motor_limit_reverse
+      - script.stop: motor_open_dwell
+      - lambda: 'id(motor_running) = false;'
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      - output.turn_off: motor_r_en
+      - output.turn_off: motor_l_en
+      - logger.log: "Motor: Stopped (HA command)"
+
+    # Position from limit switches
+    lambda: |-
+      if (id(limit_open).state)   return COVER_OPEN;
+      if (id(limit_closed).state) return COVER_CLOSED;
+      return {};
+
+# ==============================================================================
+# GLOBAL VARIABLES
+# ==============================================================================
+globals:
+  # true = forward (open direction), false = reverse (close direction)
+  # Not persisted — reset from default_direction on every boot
+  - id: current_direction
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+  # true = motor outputs are energised, false = motor is braked/stopped
+  - id: motor_running
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+
+# ==============================================================================
+# SCRIPTS - Motor Control Logic
+# ==============================================================================
+script:
+  # ---------------------------------------------------------------------------
+  # motor_run_cycle
+  # Starts motor in current_direction. If timer >= 10 ms, runs for that
+  # duration then stops. In Bi-direction mode with timer, also runs the
+  # return trip. In timer=0 mode, runs indefinitely until stopped externally.
+  # ---------------------------------------------------------------------------
+  - id: motor_run_cycle
+    mode: restart
+    then:
+      # Start motor in current_direction
+      - if:
+          condition:
+            lambda: 'return id(current_direction);'
+          then:
+            - logger.log: "Motor: Forward"
+            - output.turn_on: motor_r_en
+            - output.turn_on: motor_l_en
+            - output.set_level:
+                id: motor_rpwm
+                level: !lambda 'return id(motor_speed_control).state / 100.0f;'
+            - output.set_level:
+                id: motor_lpwm
+                level: 0%
+            - lambda: 'id(motor_running) = true;'
+          else:
+            - logger.log: "Motor: Reverse"
+            - output.turn_on: motor_r_en
+            - output.turn_on: motor_l_en
+            - output.set_level:
+                id: motor_rpwm
+                level: 0%
+            - output.set_level:
+                id: motor_lpwm
+                level: !lambda 'return id(motor_speed_control).state / 100.0f;'
+            - lambda: 'id(motor_running) = true;'
+
+      # Timer mode: run for configured duration then stop
+      - if:
+          condition:
+            lambda: 'return (int)id(motor_timer_control).state >= 10;'
+          then:
+            - delay: !lambda 'return (uint32_t)id(motor_timer_control).state;'
+            # Brake after first leg
+            - logger.log: "Motor: Timer expired — stopping"
+            - lambda: 'id(motor_running) = false;'
+            - output.set_level:
+                id: motor_rpwm
+                level: 0%
+            - output.set_level:
+                id: motor_lpwm
+                level: 0%
+            - output.turn_off: motor_r_en
+            - output.turn_off: motor_l_en
+
+            # Bi-direction: pause, reverse, run return trip for same timer
+            - if:
+                condition:
+                  lambda: 'return id(travel_mode_select).state == "Bi-direction";'
+                then:
+                  - delay: !lambda 'return (uint32_t)id(toggle_delay_control).state;'
+                  # Flip for return trip
+                  - lambda: 'id(current_direction) = !id(current_direction);'
+                  - if:
+                      condition:
+                        lambda: 'return id(current_direction);'
+                      then:
+                        - logger.log: "Motor: Bi-direction return — Forward"
+                        - output.turn_on: motor_r_en
+                        - output.turn_on: motor_l_en
+                        - output.set_level:
+                            id: motor_rpwm
+                            level: 100%
+                        - output.set_level:
+                            id: motor_lpwm
+                            level: 0%
+                        - lambda: 'id(motor_running) = true;'
+                      else:
+                        - logger.log: "Motor: Bi-direction return — Reverse"
+                        - output.turn_on: motor_r_en
+                        - output.turn_on: motor_l_en
+                        - output.set_level:
+                            id: motor_rpwm
+                            level: 0%
+                        - output.set_level:
+                            id: motor_lpwm
+                            level: 100%
+                        - lambda: 'id(motor_running) = true;'
+                  - delay: !lambda 'return (uint32_t)id(motor_timer_control).state;'
+                  # Brake after return trip
+                  - logger.log: "Motor: Bi-direction cycle complete — stopping"
+                  - lambda: 'id(motor_running) = false;'
+                  - output.set_level:
+                      id: motor_rpwm
+                      level: 0%
+                  - output.set_level:
+                      id: motor_lpwm
+                      level: 0%
+                  - output.turn_off: motor_r_en
+                  - output.turn_off: motor_l_en
+                  # Reset so next toggle always starts Forward
+                  - lambda: 'id(current_direction) = false;'
+
+  # ---------------------------------------------------------------------------
+  # motor_limit_reverse
+  # Called when a limit switch fires in Bi-direction mode. Stops the cycle,
+  # brakes, waits toggle delay, flips direction, starts motor WITHOUT timer.
+  # ---------------------------------------------------------------------------
+  - id: motor_limit_reverse
+    mode: restart
+    then:
+      - script.stop: motor_run_cycle
+      # Brake
+      - lambda: 'id(motor_running) = false;'
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      - output.turn_off: motor_r_en
+      - output.turn_off: motor_l_en
+      - logger.log: "Motor: Limit switch — braking before direction change"
+      - delay: !lambda 'return (uint32_t)id(toggle_delay_control).state;'
+      # Flip direction
+      - lambda: 'id(current_direction) = !id(current_direction);'
+      # Start in new direction (no timer — runs until next limit switch or toggle)
+      - if:
+          condition:
+            lambda: 'return id(current_direction);'
+          then:
+            - logger.log: "Motor: Limit reverse — Forward"
+            - output.turn_on: motor_r_en
+            - output.turn_on: motor_l_en
+            - output.set_level:
+                id: motor_rpwm
+                level: !lambda 'return id(motor_speed_control).state / 100.0f;'
+            - output.set_level:
+                id: motor_lpwm
+                level: 0%
+            - lambda: 'id(motor_running) = true;'
+          else:
+            - logger.log: "Motor: Limit reverse — Reverse"
+            - output.turn_on: motor_r_en
+            - output.turn_on: motor_l_en
+            - output.set_level:
+                id: motor_rpwm
+                level: 0%
+            - output.set_level:
+                id: motor_lpwm
+                level: !lambda 'return id(motor_speed_control).state / 100.0f;'
+            - lambda: 'id(motor_running) = true;'
+
+  # ---------------------------------------------------------------------------
+  # motor_open_dwell
+  # Called when the open limit switch fires and Open Hold Time > 0.
+  # Stops the motor, waits the hold time, then runs in reverse to close.
+  # ---------------------------------------------------------------------------
+  - id: motor_open_dwell
+    mode: restart
+    then:
+      - script.stop: motor_run_cycle
+      # Brake
+      - lambda: 'id(motor_running) = false;'
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      - output.turn_off: motor_r_en
+      - output.turn_off: motor_l_en
+      - logger.log: "Open limit: holding before auto-close"
+      - delay: !lambda 'return (uint32_t)id(open_hold_time_control).state;'
+      # Flip to close direction and run
+      - lambda: 'id(current_direction) = !id(current_direction);'
+      - logger.log: "Open hold complete — closing"
+      - script.execute: motor_run_cycle
+
+  # ---------------------------------------------------------------------------
+  # do_toggle
+  # Stops all running scripts, brakes motor, waits toggle delay, flips
+  # direction, then executes motor_run_cycle (which respects timer setting).
+  # ---------------------------------------------------------------------------
+  - id: do_toggle
+    mode: restart
+    then:
+      - script.stop: motor_run_cycle
+      - script.stop: motor_limit_reverse
+      - script.stop: motor_open_dwell
+      # Brake
+      - lambda: 'id(motor_running) = false;'
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      - output.turn_off: motor_r_en
+      - output.turn_off: motor_l_en
+      - logger.log: "Toggle: Motor stopped"
+      - delay: !lambda 'return (uint32_t)id(toggle_delay_control).state;'
+      # Flip direction and start cycle
+      - lambda: 'id(current_direction) = !id(current_direction);'
+      - script.execute: motor_run_cycle
+
+# ==============================================================================
+# NUMBER CONTROLS
+# ==============================================================================
+number:
+  # Motor run timer. 0 = no timer (run until limit switch or toggle).
+  # >= 10 = run for this many milliseconds then stop.
+  - platform: template
+    name: "Motor Timer"
+    id: motor_timer_control
+    min_value: 0
+    max_value: 60000
+    step: 100
+    initial_value: 0
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "ms"
+    icon: "mdi:timer-outline"
+
+  # Motor speed as a percentage of full power.
+  - platform: template
+    name: "Motor Speed"
+    id: motor_speed_control
+    min_value: 1
+    max_value: 100
+    step: 1
+    initial_value: 100
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "%"
+    icon: "mdi:speedometer"
+
+  # How long to hold at the open position before automatically closing.
+  # 0 = disabled (no auto-close). >= 10 = wait this long then reverse.
+  - platform: template
+    name: "Open Hold Time"
+    id: open_hold_time_control
+    min_value: 0
+    max_value: 60000
+    step: 100
+    initial_value: 0
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "ms"
+    icon: "mdi:timer-pause"
+
+  # Pause between stop and start when changing direction.
+  - platform: template
+    name: "Toggle Delay"
+    id: toggle_delay_control
+    min_value: 50
+    max_value: 5000
+    step: 50
+    initial_value: 500
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "ms"
+    icon: "mdi:timer-pause-outline"
+
+# ==============================================================================
+# SELECT CONTROLS
+# ==============================================================================
+select:
+  # 1 Direction: limit switch stops the motor.
+  # Bi-direction: limit switch stops then reverses the motor.
+  - platform: template
+    name: "Travel Mode"
+    id: travel_mode_select
+    options:
+      - "1 Direction"
+      - "Bi-direction"
+    initial_option: "1 Direction"
+    restore_value: true
+    optimistic: true
+    icon: "mdi:swap-horizontal"
+
+# ==============================================================================
+# BINARY SENSORS - Motor Idle State
+# ==============================================================================
+binary_sensor:
+  # Motor idle state — true when motor outputs are not energised
+  - platform: template
+    name: "Motor Idle"
+    id: motor_idle
+    device_class: running
+    lambda: 'return !id(motor_running);'
+
+# ==============================================================================
+# TEXT SENSORS - Motor Direction Indicator
+# ==============================================================================
+text_sensor:
+  - platform: template
+    name: "Motor Direction"
+    id: motor_direction
+    update_interval: 200ms
+    icon: "mdi:arrow-decision"
+    lambda: |-
+      if (!id(motor_running)) return {"Stopped"};
+      if (id(current_direction)) return {"Forward"};
+      return {"Reverse"};
+
+# ==============================================================================
+# SENSORS - Motor Current Display
+# ==============================================================================
+sensor:
+  # IC1 — forward direction, averaged for display
+  - platform: template
+    name: "Motor Current Forward"
+    id: motor_current_forward
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+    update_interval: 500ms
+    lambda: 'return id(motor_current_forward_raw).state;'
+    filters:
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+
+  # IC2 — reverse direction, averaged for display
+  - platform: template
+    name: "Motor Current Reverse"
+    id: motor_current_reverse
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+    update_interval: 500ms
+    lambda: 'return id(motor_current_reverse_raw).state;'
+    filters:
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+
+# ==============================================================================
+# INTERVAL - Push motor_idle updates
+# ==============================================================================
+interval:
+  - interval: 200ms
+    then:
+      - binary_sensor.template.publish:
+          id: motor_idle
+          state: !lambda 'return !id(motor_running);'

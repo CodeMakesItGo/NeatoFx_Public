@@ -1,0 +1,184 @@
+# ==============================================================================
+# NEATO SMART DISPLAY - HARDWARE DEFINITION (REV 1.X)
+# ==============================================================================
+# Defines all hardware for the Rev 1.x display board.
+#
+# Hardware Features:
+# - ESP32-S3 with 16MB flash + octal PSRAM
+# - ST7701S 480x480 RGB display via SPI
+# - GT911 capacitive touchscreen via I2C
+# - LEDC backlight control (GPIO38)
+# - Internal relay (GPIO40)
+# - WesternBangBang + Arial fonts
+#
+# Included by: display_main.yaml
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Rev 1.x Specific Configuration Variables
+# ==============================================================================
+substitutions:
+  project_version: "1.0.0"
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  # Include common components shared across all display revisions
+  common_components: !include common/common.yaml
+
+# ==============================================================================
+# CORE CONFIGURATION - Rev 1.x Boot Sequence
+# ==============================================================================
+esphome:
+  min_version: 2025.8.2
+  on_boot:
+    priority: 300   # Let LVGL and the display initialize first
+    then:
+      - logger.log: "Booting up..."
+      - lvgl.widget.show: boot_screen
+      - lvgl.widget.hide: game_screen
+      - lvgl.widget.hide: game_shot_screen
+      - lvgl.widget.hide: game_over_screen
+
+# ==============================================================================
+# ESP32-S3 FRAMEWORK
+# ==============================================================================
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      COMPILER_OPTIMIZATION_SIZE: y
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: y
+      CONFIG_SPIRAM_RODATA: y
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+# ==============================================================================
+# OUTPUTS - Backlight PWM and Internal Relay
+# ==============================================================================
+output:
+  - platform: ledc
+    pin: GPIO38
+    id: GPIO38
+    frequency: 100Hz
+
+  - id: internal_relay_1
+    platform: gpio
+    pin: 40
+
+# ==============================================================================
+# LIGHTING - Display Backlight
+# ==============================================================================
+light:
+  - platform: monochromatic
+    output: GPIO38
+    name: Backlight
+    id: backlight
+    restore_mode: ALWAYS_ON
+
+# ==============================================================================
+# FONTS
+# ==============================================================================
+font:
+  - file: "fonts/arialbd.ttf"
+    id: shot_font
+    size: 100
+
+  - file: "fonts/arialbd.ttf"
+    id: hit_font
+    size: 100
+
+  - file: "fonts/arialbd.ttf"
+    id: score_font
+    size: 100
+
+  - file: "fonts/arial.ttf"
+    id: small_font
+    size: 24
+
+# ==============================================================================
+# I2C - GT911 Touchscreen Bus
+# ==============================================================================
+i2c:
+  - id: bus_a
+    sda: GPIO19
+    scl: GPIO45
+
+touchscreen:
+  platform: gt911
+  transform:
+    mirror_x: false
+    mirror_y: false
+  id: my_touchscreen
+  display: my_display
+  on_touch:
+    - logger.log:
+        format: Touch at (%d, %d)
+        args: [touch.x, touch.y]
+
+# ==============================================================================
+# SPI + DISPLAY - ST7701S 480x480
+# ==============================================================================
+spi:
+  - id: lcd_spi
+    clk_pin: GPIO48
+    mosi_pin: GPIO47
+
+display:
+  - platform: st7701s
+    id: my_display
+    update_interval: never
+    auto_clear_enabled: False
+    spi_mode: MODE3
+    data_rate: 2MHz
+    color_order: RGB
+    invert_colors: False
+    dimensions:
+      width: 480
+      height: 480
+    cs_pin: 39
+    de_pin: 18
+    hsync_pin: 16
+    vsync_pin: 17
+    pclk_pin: 21
+    pclk_frequency: 12MHz
+    pclk_inverted: False
+    hsync_pulse_width: 8
+    hsync_front_porch: 10
+    hsync_back_porch: 20
+    vsync_pulse_width: 8
+    vsync_front_porch: 10
+    vsync_back_porch: 10
+    init_sequence:
+      - 1
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x10] # CMD2_BKSEL_BK0
+      - [0xCD, 0x00]                           # disable MDT flag
+    data_pins:
+      red:
+        - 11 #r1
+        - 12 #r2
+        - 13 #r3
+        - 14 #r4
+        - 0  #r5
+      green:
+        - 8  #g0
+        - 20 #g1
+        - 3  #g2
+        - 46 #g3
+        - 9  #g4
+        - 10 #g5
+      blue:
+        - 4  #b1
+        - 5  #b2
+        - 6  #b3
+        - 7  #b4
+        - 15 #b5

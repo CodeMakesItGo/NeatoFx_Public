@@ -1,0 +1,59 @@
+# ==============================================================================
+# NEATO SMART TARGET - HARDWARE DEFINITION (REV 3.X BASELINE)
+# ==============================================================================
+# Baseline board variant for Rev 3.x hardware.
+# GPIO17 and GPIO25 are general-purpose digital inputs (logging only).
+#
+# For customer variants with different GPIO17/GPIO25 behavior, see:
+#   target_rev3_x_pwm.yaml    (PWM/flicker control via GPIO17/GPIO25)
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Rev 3.x Hardware Pin Assignments
+# ==============================================================================
+substitutions:
+  # Rev 3.x specific hardware
+  aux_pwr_gpio: GPIO26           # Auxiliary power control
+
+  # Right Side Connector Pins (Rev 3.x specific)
+  io16_gpio: GPIO16      # General I/O
+  io17_gpio: GPIO17      # General I/O
+  io25_gpio: GPIO25      # General I/O
+  io34_gpio: GPIO34      # ADC input (input only)
+
+  # Left Side Connector Pins (Rev 3.x specific)
+  switch_12v: GPIO33     # 12V switch control
+  led2_gpio: GPIO22      # Secondary LED strip
+  servo_gpio: GPIO04     # Servo control
+  strip_2_led_count: "100" # Configurable LED count
+  strip_2_internal: "false" # Visible in UI for Rev3
+
+  # Project Information (Rev 3.x specific)
+  project_version: "3.0.0"
+
+# ==============================================================================
+# PACKAGES
+# ==============================================================================
+packages:
+  rev3_base: !include common/rev3_base.yaml
+
+# ==============================================================================
+# BINARY SENSORS - GPIO17 / GPIO25 (baseline: logging only)
+# ==============================================================================
+binary_sensor:
+  # GPIO17 Digital Input
+  - platform: gpio
+    pin:
+      number: ${io17_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "GPIO17 Digital State"
+    device_class: "motion"
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+    on_press:
+      - logger.log: "GPIO17 state is HIGH"
+    on_release:
+      - logger.log: "GPIO17 state is LOW"
+

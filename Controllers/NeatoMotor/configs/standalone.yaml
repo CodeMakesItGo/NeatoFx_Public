@@ -1,0 +1,12 @@
+# ==============================================================================
+# SMART MOTOR CONTROLLER - STANDALONE CONFIGURATION
+# ==============================================================================
+# This configuration sets up the motor controller in standalone mode.
+# In standalone mode, the device operates independently without requiring
+# a central controller or Home Assistant integration. The device creates its
+# own WiFi access point for direct control via web browser.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  standalone_base: !include ../../../_shared/standalone_base.yaml

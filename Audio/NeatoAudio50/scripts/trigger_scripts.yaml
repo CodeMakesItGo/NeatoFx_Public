@@ -1,0 +1,61 @@
+# ==============================================================================
+# NEATO AUDIO 50 - TRIGGER SCRIPTS
+# ==============================================================================
+# Defines what happens when each input fires. Edit the "then:" blocks below
+# to customize per-trigger behavior (MP3, FPP, Home Assistant events, etc.)
+#
+# run_input1_script  - Physical Input 1 (terminal block)
+# run_input2_script  - Physical Input 2 (terminal block)
+# run_rf_a_script    - RF remote button A
+# run_rf_b_script    - RF remote button B
+# run_rf_c_script    - RF remote button C
+# run_rf_d_script    - RF remote button D
+# mp3_finished_script - Runs after every MP3 finishes playing
+# ==============================================================================
+
+script:
+  - id: run_input1_script
+    mode: parallel
+    then:
+      - script.execute: play_input1_mp3
+      # Uncomment to send an ESPHome event to Home Assistant:
+      #- script.execute: esphome_script_in1
+      # Uncomment when FPP package is enabled:
+      #- script.execute: fpp_start_playlist
+
+  - id: run_input2_script
+    mode: parallel
+    then:
+      - script.execute: play_input2_mp3
+      # Uncomment to send an ESPHome event to Home Assistant:
+      #- script.execute: esphome_script_in2
+      # Uncomment for linear actuator support:
+      #- script.execute: linear_actuator_script
+      # Uncomment when FPP package is enabled:
+      #- script.execute: fpp_start_playlist
+
+  - id: run_rf_a_script
+    mode: parallel
+    then:
+      - script.execute: play_rf_a_mp3
+
+  - id: run_rf_b_script
+    mode: parallel
+    then:
+      - script.execute: play_rf_b_mp3
+
+  - id: run_rf_c_script
+    mode: parallel
+    then:
+      - script.execute: play_rf_c_mp3
+
+  - id: run_rf_d_script
+    mode: parallel
+    then:
+      - script.execute: play_rf_d_mp3
+
+  - id: mp3_finished_script
+    mode: single
+    then:
+      - logger.log: "MP3 playback finished"
+      # Add post-playback actions here (retract actuator, reset states, etc.)

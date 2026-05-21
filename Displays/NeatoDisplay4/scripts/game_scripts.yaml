@@ -1,0 +1,135 @@
+# ==============================================================================
+# SMART DISPLAY - GAME SCRIPTS
+# ==============================================================================
+# Contains all game logic: globals, interval timer, and the three core scripts.
+#
+# Scripts:
+#   reset_score_script  - Zeroes score/hit labels
+#   shot_game           - End-check handler for shot-count games
+#
+# Included by: display_7in_main.yaml
+# ==============================================================================
+
+# ==============================================================================
+# GLOBAL VARIABLES - Game State
+# ==============================================================================
+globals:
+  - id: game_over_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: idle_seconds
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: last_shot_count
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: idle_timeout_triggered
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: g_max_shots
+    type: int
+    restore_value: true
+    initial_value: '15'
+
+# ==============================================================================
+# INTERVAL - 1-Second Game Tick
+# ==============================================================================
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          // Only run idle check when game is active
+          if (lv_obj_has_flag(id(game_screen), LV_OBJ_FLAG_HIDDEN)) return;
+          if (id(game_over_active)) return;
+          int current = (int)id(player_${id}_shot).state;
+          if (current != id(last_shot_count)) {
+            id(last_shot_count) = current;
+            id(idle_seconds) = 0;
+          } else {
+            id(idle_seconds) += 1;
+            if (id(idle_seconds) >= 30) {
+              id(idle_seconds) = 0;
+              id(idle_timeout_triggered) = true;
+            }
+          }
+      - if:
+          condition:
+            lambda: 'return id(idle_timeout_triggered);'
+          then:
+            - globals.set:
+                id: idle_timeout_triggered
+                value: 'false'
+            - globals.set:
+                id: game_over_active
+                value: 'true'
+            - logger.log: "Idle timeout — returning to boot screen"
+            - script.execute: reset_score_script
+            - lvgl.widget.hide: game_screen
+            - lvgl.widget.hide: game_shot_screen
+            - lvgl.widget.show: boot_screen
+
+script:
+  # ---------------------------------------------------------------------------
+  # GAME OVER TRANSITION - Wait 10s then return to boot screen
+  # ---------------------------------------------------------------------------
+  - id: game_over_transition_script
+    mode: single
+    then:
+      - delay: 10s
+      - lvgl.widget.hide: game_over_screen
+      - lvgl.widget.show: boot_screen
+      - globals.set:
+          id: game_over_active
+          value: 'false'
+
+  # ---------------------------------------------------------------------------
+  # RESET SCORE - Zero all counters on display
+  # ---------------------------------------------------------------------------
+  - id: reset_score_script
+    then:
+      - lambda: |-
+          id(idle_seconds) = 0;
+          id(last_shot_count) = 0;
+          id(idle_timeout_triggered) = false;
+      - lvgl.label.update:
+          id: player_hit
+          text: "0"
+      - lvgl.label.update:
+          id: player_score
+          text: "0"
+      - lvgl.label.update:
+          id: player_shot
+          text: !lambda 'return std::to_string(id(g_max_shots));'
+      - lvgl.label.update:
+          id: game_over_score
+          text: ""
+
+  # ---------------------------------------------------------------------------
+  # SHOT GAME - End game when max shots have been fired
+  # ---------------------------------------------------------------------------
+  - id: shot_game
+    then:
+      - if:
+          condition:
+            lambda: 'return (int)id(player_${id}_shot).state >= id(g_max_shots);'
+          then:
+            - globals.set:
+                id: game_over_active
+                value: 'true'
+            - lvgl.label.update:
+                id: game_over_score
+                text:
+                  format: "%d"
+                  args: [ '(int)id(player_${id}_score).state' ]
+            - lvgl.widget.hide: game_screen
+            - lvgl.widget.hide: game_shot_screen
+            - lvgl.widget.show: game_over_screen
+            - script.execute: game_over_transition_script

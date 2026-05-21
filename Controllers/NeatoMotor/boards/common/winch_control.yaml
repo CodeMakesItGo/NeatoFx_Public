@@ -1,0 +1,749 @@
+# ==============================================================================
+# SMART WINCH CONTROLLER - WINCH CONTROL LOGIC
+# ==============================================================================
+# Hall-effect quadrature position tracking, auto-homing, soft length limits,
+# two-zone speed control, and soft direction-change ramping.
+#
+# Included by: motor_rev3_0_winch.yaml
+#
+# Hardware IDs consumed from the board file:
+#   Outputs : motor_rpwm, motor_lpwm, motor_r_en, motor_l_en
+#   Sensors : motor_current_forward_raw, motor_current_reverse_raw
+#   Pins    : ${hall_a_pin}, ${hall_b_pin}  (substitutions from board file)
+#
+# How position counting works
+# ---------------------------
+# The rotary_encoder sensor counts pulses from the two Hall sensors.
+# Its internal state resets to 0 on every boot, so we accumulate the running
+# total ourselves in winch_count_global (restored from flash across reboots).
+# On each encoder on_value callback we compute the delta and add it to the
+# global.  When the home limit switch fires, winch_count_global is forced to
+# 0 — this is the only authoritative zero reference.
+#
+# Speed zones
+# -----------
+# Once calibrated (max_count and max_length_m are saved):
+#   - Reel-out:  full run speed until (max_count - slow_zone_counts),
+#                then slow speed.  Motor stops at max_count (soft limit).
+#   - Reel-in:   full run speed until count < slow_zone_counts,
+#                then slow speed.  Motor stops when home limit switch fires.
+# Before calibration and during homing, slow speed is used throughout.
+#
+# Direction-change ramping
+# ------------------------
+# When a direction reversal is requested while the motor is running,
+# winch_direction_change_script runs:
+#   1. Ramp PWM down to 0 over winch_ramp_ms milliseconds (10 steps)
+#   2. Full brake — 100 ms settle pause
+#   3. Ramp PWM up in the new direction over winch_ramp_ms milliseconds
+# Set winch_ramp_ms = 0 to disable ramping (immediate reversal).
+# The encoder speed-zone callback is suppressed during the ramp so it
+# does not fight the ramp-up PWM values.
+# ==============================================================================
+
+packages:
+  esphome_base: !include ../../../../_shared/esphome_base.yaml
+
+substitutions:
+  project_name: "CodeMakesItGo.WinchMotor"
+
+# ==============================================================================
+# GLOBAL VARIABLES
+# ==============================================================================
+globals:
+  # true = H-bridge energised
+  - id: motor_running
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # true = position is known (home limit switch has fired at least once)
+  - id: winch_homed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # true = currently running a homing sequence (skip speed-zone logic)
+  - id: winch_homing
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # true = paying out rope; false = taking up rope
+  - id: winch_reeling_out
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # true = direction-change ramp in progress (suppresses encoder speed updates)
+  - id: winch_changing_direction
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Target direction for the ramp script (true = reel out, false = reel in)
+  - id: winch_next_direction
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+  # Step counter used by the ramp repeat loops (avoids static-in-lambda pitfalls)
+  - id: winch_ramp_step
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  # Persistent encoder count.  0 = home (fully retracted).
+  # Restored from flash so the homing slow-zone works after a power cycle.
+  - id: winch_count_global
+    type: int
+    restore_value: yes
+    initial_value: '0'
+
+  # Saved calibration: encoder count delta from home to max deployed length.
+  - id: winch_max_count
+    type: int
+    restore_value: yes
+    initial_value: '0'
+
+  # Saved calibration: measured rope length (feet) at max count.
+  - id: winch_max_length_ft
+    type: float
+    restore_value: yes
+    initial_value: '0.0'
+
+  # true once Set Max Length has been pressed with valid data.
+  - id: winch_calibrated
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+  # true = soft max-length limit is bypassed (for recalibration)
+  - id: winch_limit_override
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+# ==============================================================================
+# HALL EFFECT DIRECTION-SENSING ENCODER
+# ==============================================================================
+# Two NPN Hall sensors on hall_a_pin and hall_b_pin.
+# Whichever sensor goes LOW first (while the other is still HIGH) indicates
+# the travel direction: A-first = reel-out, B-first = reel-in.
+# One count is recorded per magnet, giving 8 counts/revolution.
+# ==============================================================================
+# (sensor: block below contains only display/template sensors)
+sensor:
+
+  # ---------------------------------------------------------------------------
+  # Display sensors — averaged current in each direction
+  # ---------------------------------------------------------------------------
+  - platform: template
+    name: "Current (Reel Out)"
+    id: motor_current_forward
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+    update_interval: 500ms
+    lambda: 'return id(motor_current_forward_raw).state;'
+    filters:
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+
+  - platform: template
+    name: "Current (Reel In)"
+    id: motor_current_reverse
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+    update_interval: 500ms
+    lambda: 'return id(motor_current_reverse_raw).state;'
+    filters:
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+
+  # Rope deployed length in feet (NaN when uncalibrated or not homed)
+  - platform: template
+    name: "Cable Out Length"
+    id: winch_position_ft
+    unit_of_measurement: "ft"
+    accuracy_decimals: 1
+    update_interval: 500ms
+    icon: "mdi:tape-measure"
+    lambda: |-
+      if (!id(winch_homed) || !id(winch_calibrated) || id(winch_max_count) == 0 || id(winch_max_length_ft) <= 0.0f)
+        return NAN;
+      float pos = (float)id(winch_count_global) / (float)id(winch_max_count)
+                  * id(winch_max_length_ft);
+      return std::max(0.0f, pos);
+
+  # Raw encoder count for diagnostics
+  - platform: template
+    name: "Encoder Count"
+    id: winch_count_sensor
+    accuracy_decimals: 0
+    update_interval: 500ms
+    icon: "mdi:counter"
+    lambda: 'return (float)id(winch_count_global);'
+
+# ==============================================================================
+# BINARY SENSORS
+# ==============================================================================
+binary_sensor:
+  # Required by motor_networked_config.yaml for idle HA event
+  - platform: template
+    name: "Motor Idle"
+    id: motor_idle
+    device_class: running
+    lambda: 'return !id(motor_running);'
+
+  # Hall A — counts BOTH edges per magnet zone (on_press + on_release).
+  # Counting both edges correctly handles partial traversals and direction reversals:
+  # a full magnet pass = 2 counts; entering then reversing back = +1 then -1 = net 0.
+  # Direction from winch_reeling_out (set instantaneously by motor scripts —
+  # safe because worm gear stops with no coasting).
+  - platform: gpio
+    pin:
+      number: ${hall_a_pin}
+      mode: INPUT_PULLUP
+    id: hall_a_sensor
+    name: "Hall A"
+    on_press:
+      - lambda: |-
+          if (!id(motor_running)) return;
+          id(winch_count_global) += id(winch_reeling_out) ? 1 : -1;
+          ESP_LOGD("winch", "Hall A press  count=%d  dir=%s",
+                   id(winch_count_global), id(winch_reeling_out) ? "OUT" : "IN");
+          if (id(winch_homing) || id(winch_changing_direction)) return;
+          int count = id(winch_count_global);
+          if (id(winch_calibrated) && id(winch_max_count) > 0) {
+            if (id(winch_reeling_out) && count >= id(winch_max_count)) {
+              if (id(winch_limit_override)) {
+                ESP_LOGW("winch", "Soft limit override active — continuing past count=%d", count);
+              } else {
+                id(motor_running) = false;
+                id(motor_rpwm)->set_level(0.0f);
+                id(motor_lpwm)->set_level(0.0f);
+                id(motor_r_en)->turn_off();
+                id(motor_l_en)->turn_off();
+                ESP_LOGI("winch", "Soft limit reached (count=%d)", count);
+                return;
+              }
+            }
+            int zone_c = (int)id(winch_slow_zone_counts).state;
+            if (zone_c > id(winch_max_count) / 2) zone_c = id(winch_max_count) / 2;
+            bool in_slow = (id(winch_reeling_out)  && count > id(winch_max_count) - zone_c)
+                        || (!id(winch_reeling_out) && count < zone_c);
+            float spd = in_slow ? id(winch_slow_speed).state / 100.0f
+                                : id(winch_run_speed).state  / 100.0f;
+            if (id(winch_reeling_out)) id(motor_rpwm)->set_level(spd);
+            else                       id(motor_lpwm)->set_level(spd);
+          }
+    on_release:
+      - lambda: |-
+          if (!id(motor_running)) return;
+          id(winch_count_global) += id(winch_reeling_out) ? 1 : -1;
+          ESP_LOGD("winch", "Hall A release  count=%d  dir=%s",
+                   id(winch_count_global), id(winch_reeling_out) ? "OUT" : "IN");
+          if (id(winch_homing) || id(winch_changing_direction)) return;
+          int count = id(winch_count_global);
+          if (id(winch_calibrated) && id(winch_max_count) > 0) {
+            if (id(winch_reeling_out) && count >= id(winch_max_count)) {
+              if (id(winch_limit_override)) {
+                ESP_LOGW("winch", "Soft limit override active — continuing past count=%d", count);
+              } else {
+                id(motor_running) = false;
+                id(motor_rpwm)->set_level(0.0f);
+                id(motor_lpwm)->set_level(0.0f);
+                id(motor_r_en)->turn_off();
+                id(motor_l_en)->turn_off();
+                ESP_LOGI("winch", "Soft limit reached (count=%d)", count);
+                return;
+              }
+            }
+            int zone_c = (int)id(winch_slow_zone_counts).state;
+            if (zone_c > id(winch_max_count) / 2) zone_c = id(winch_max_count) / 2;
+            bool in_slow = (id(winch_reeling_out)  && count > id(winch_max_count) - zone_c)
+                        || (!id(winch_reeling_out) && count < zone_c);
+            float spd = in_slow ? id(winch_slow_speed).state / 100.0f
+                                : id(winch_run_speed).state  / 100.0f;
+            if (id(winch_reeling_out)) id(motor_rpwm)->set_level(spd);
+            else                       id(motor_lpwm)->set_level(spd);
+          }
+
+  # Hall B — interleaves with Hall A (fires midway between every A event).
+  # Same dual-edge counting logic as Hall A doubles resolution to 32 counts/rev.
+  - platform: gpio
+    pin:
+      number: ${hall_b_pin}
+      mode: INPUT_PULLUP
+    id: hall_b_sensor
+    name: "Hall B"
+    on_press:
+      - lambda: |-
+          if (!id(motor_running)) return;
+          id(winch_count_global) += id(winch_reeling_out) ? 1 : -1;
+          ESP_LOGD("winch", "Hall B press  count=%d  dir=%s",
+                   id(winch_count_global), id(winch_reeling_out) ? "OUT" : "IN");
+          if (id(winch_homing) || id(winch_changing_direction)) return;
+          int count = id(winch_count_global);
+          if (id(winch_calibrated) && id(winch_max_count) > 0) {
+            if (id(winch_reeling_out) && count >= id(winch_max_count)) {
+              if (id(winch_limit_override)) {
+                ESP_LOGW("winch", "Soft limit override active — continuing past count=%d", count);
+              } else {
+                id(motor_running) = false;
+                id(motor_rpwm)->set_level(0.0f);
+                id(motor_lpwm)->set_level(0.0f);
+                id(motor_r_en)->turn_off();
+                id(motor_l_en)->turn_off();
+                ESP_LOGI("winch", "Soft limit reached (count=%d)", count);
+                return;
+              }
+            }
+            int zone_c = (int)id(winch_slow_zone_counts).state;
+            if (zone_c > id(winch_max_count) / 2) zone_c = id(winch_max_count) / 2;
+            bool in_slow = (id(winch_reeling_out)  && count > id(winch_max_count) - zone_c)
+                        || (!id(winch_reeling_out) && count < zone_c);
+            float spd = in_slow ? id(winch_slow_speed).state / 100.0f
+                                : id(winch_run_speed).state  / 100.0f;
+            if (id(winch_reeling_out)) id(motor_rpwm)->set_level(spd);
+            else                       id(motor_lpwm)->set_level(spd);
+          }
+    on_release:
+      - lambda: |-
+          if (!id(motor_running)) return;
+          id(winch_count_global) += id(winch_reeling_out) ? 1 : -1;
+          ESP_LOGD("winch", "Hall B release  count=%d  dir=%s",
+                   id(winch_count_global), id(winch_reeling_out) ? "OUT" : "IN");
+          if (id(winch_homing) || id(winch_changing_direction)) return;
+          int count = id(winch_count_global);
+          if (id(winch_calibrated) && id(winch_max_count) > 0) {
+            if (id(winch_reeling_out) && count >= id(winch_max_count)) {
+              if (id(winch_limit_override)) {
+                ESP_LOGW("winch", "Soft limit override active — continuing past count=%d", count);
+              } else {
+                id(motor_running) = false;
+                id(motor_rpwm)->set_level(0.0f);
+                id(motor_lpwm)->set_level(0.0f);
+                id(motor_r_en)->turn_off();
+                id(motor_l_en)->turn_off();
+                ESP_LOGI("winch", "Soft limit reached (count=%d)", count);
+                return;
+              }
+            }
+            int zone_c = (int)id(winch_slow_zone_counts).state;
+            if (zone_c > id(winch_max_count) / 2) zone_c = id(winch_max_count) / 2;
+            bool in_slow = (id(winch_reeling_out)  && count > id(winch_max_count) - zone_c)
+                        || (!id(winch_reeling_out) && count < zone_c);
+            float spd = in_slow ? id(winch_slow_speed).state / 100.0f
+                                : id(winch_run_speed).state  / 100.0f;
+            if (id(winch_reeling_out)) id(motor_rpwm)->set_level(spd);
+            else                       id(motor_lpwm)->set_level(spd);
+          }
+
+
+# ==============================================================================
+# TEXT SENSORS
+# ==============================================================================
+text_sensor:
+  - platform: template
+    name: "Winch Status"
+    id: winch_status
+    update_interval: 500ms
+    icon: "mdi:winch"
+    lambda: |-
+      if (id(winch_homing))              return {"Homing"};
+      if (id(winch_changing_direction))  return {"Changing Direction"};
+      if (!id(winch_homed))              return {"Not Homed"};
+      if (!id(winch_calibrated))         return {"Uncalibrated"};
+      if (!id(motor_running))            return {"Idle"};
+      if (id(winch_reeling_out))         return {"Reeling Out"};
+      return {"Reeling In"};
+
+# ==============================================================================
+# NUMBER CONTROLS
+# ==============================================================================
+number:
+  # Full operating speed (used outside the slow zone)
+  - platform: template
+    name: "Run Speed"
+    id: winch_run_speed
+    min_value: 10
+    max_value: 100
+    step: 5
+    initial_value: 80
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "%"
+    icon: "mdi:speedometer"
+
+  # Reduced speed inside the slow zone near each limit
+  - platform: template
+    name: "Slow Speed"
+    id: winch_slow_speed
+    min_value: 5
+    max_value: 80
+    step: 5
+    initial_value: 40
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "%"
+    icon: "mdi:speedometer-slow"
+
+  # Counts from each limit at which slow speed activates
+  - platform: template
+    name: "Slow Zone"
+    id: winch_slow_zone_counts
+    min_value: 0
+    max_value: 10
+    step: 1
+    initial_value: 2
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "counts"
+    icon: "mdi:map-marker-distance"
+
+  # Enter actual measured rope length here before pressing Set Max Length
+  - platform: template
+    name: "Max Length (Input)"
+    id: winch_max_length_input_ft
+    min_value: 5
+    max_value: 20
+    step: 1
+    initial_value: 20
+    restore_value: false
+    optimistic: true
+    unit_of_measurement: "ft"
+    icon: "mdi:ruler"
+
+  # Time (ms) for each ramp leg during a direction change.
+  # 10 steps are used per leg, so step delay = winch_ramp_ms / 10 (min 10 ms).
+  # Set to 0 to disable ramping (immediate reversal).
+  - platform: template
+    name: "Direction Change Ramp"
+    id: winch_ramp_ms
+    min_value: 0
+    max_value: 2000
+    step: 50
+    initial_value: 300
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "ms"
+    icon: "mdi:sine-wave"
+
+# ==============================================================================
+# BUTTONS
+# ==============================================================================
+button:
+  # Saves the current encoder count + user-entered length as the calibration.
+  # Must be at home first, then reel out to max, measure, enter length, press.
+  - platform: template
+    name: "Set Max Length"
+    id: winch_set_max_button
+    icon: "mdi:content-save-cog"
+    on_press:
+      - lambda: |-
+          if (!id(winch_homed)) {
+            ESP_LOGW("winch", "Set Max: device not homed — calibration rejected");
+            return;
+          }
+          if (id(winch_count_global) <= 0) {
+            ESP_LOGW("winch", "Set Max: count is 0 — reel out first");
+            return;
+          }
+          id(winch_max_count)     = id(winch_count_global);
+          id(winch_max_length_ft) = id(winch_max_length_input_ft).state;
+          id(winch_calibrated)    = true;
+          ESP_LOGI("winch", "Calibrated: max_count=%d  max_length=%.1f ft",
+                   id(winch_max_count), id(winch_max_length_ft));
+
+  # Manually start a homing cycle (also runs automatically on boot)
+  - platform: template
+    name: "Home Winch"
+    id: winch_home_button
+    icon: "mdi:home-import-outline"
+    on_press:
+      - script.execute: winch_home_script
+
+# ==============================================================================
+# SWITCHES
+# ==============================================================================
+switch:
+  # Override the soft max-length limit so the winch can reel past it.
+  # Use when the calibrated max is wrong — reel out to correct position,
+  # then press "Set Max Length" to save the new value, then turn this off.
+  - platform: template
+    name: "Limit Override"
+    id: winch_limit_override_switch
+    icon: "mdi:shield-off-outline"
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: 'id(winch_limit_override) = true;'
+      - logger.log: "WARNING: Soft limit override ON — max-length stop disabled"
+    turn_off_action:
+      - lambda: 'id(winch_limit_override) = false;'
+      - logger.log: "Soft limit override OFF — max-length stop re-enabled"
+
+# ==============================================================================
+# COVER - Home Assistant integration
+# ==============================================================================
+# Position 0.0 = fully retracted (home), 1.0 = fully deployed (max length).
+# Reports {} (unknown) until homed and calibrated.
+cover:
+  - platform: template
+    name: "Winch"
+    id: winch_motor
+    device_class: awning
+    optimistic: false
+
+    open_action:
+      - script.execute: winch_reel_out_script
+
+    close_action:
+      - script.execute: winch_reel_in_script
+
+    stop_action:
+      - script.execute: winch_stop_script
+
+    lambda: |-
+      if (!id(winch_homed) || !id(winch_calibrated) || id(winch_max_count) == 0)
+        return {};
+      float pos = (float)id(winch_count_global) / (float)id(winch_max_count);
+      return std::max(0.0f, std::min(1.0f, pos));
+
+# ==============================================================================
+# SCRIPTS - Winch Control
+# ==============================================================================
+script:
+  # ---------------------------------------------------------------------------
+  # winch_home_script
+  # Reels in at slow speed continuously.  Stops when home limit switch fires
+  # (limit_home.on_press in board file) — that handler resets count to 0 and
+  # sets winch_homed = true.
+  # ---------------------------------------------------------------------------
+  - id: winch_home_script
+    mode: restart
+    then:
+      - if:
+          condition:
+            binary_sensor.is_on: limit_home
+          then:
+            - logger.log: "Winch: already at home — skipping homing move"
+            - lambda: |-
+                id(winch_count_global) = 0;
+                id(winch_homed)        = true;
+                id(winch_homing)       = false;
+                id(motor_running)      = false;
+          else:
+            - logger.log: "Winch: homing — reeling in at slow speed"
+            - lambda: |-
+                id(winch_homing)          = true;
+                id(winch_homed)           = false;
+                id(winch_reeling_out)     = false;
+                id(winch_changing_direction) = false;
+                id(motor_running)         = true;
+            - output.turn_on:  motor_r_en
+            - output.turn_on:  motor_l_en
+            - output.set_level:
+                id: motor_rpwm
+                level: 0%
+            - output.set_level:
+                id: motor_lpwm
+                level: !lambda 'return id(winch_slow_speed).state / 100.0f;'
+
+  # ---------------------------------------------------------------------------
+  # winch_reel_out_script
+  # Starts paying out rope.  If the motor is currently reeling IN and ramping
+  # is enabled, routes through winch_direction_change_script instead of
+  # switching PWM directly.  The encoder on_value callback handles speed-zone
+  # reduction and the soft max-length stop during normal running.
+  # Rejected if not homed or already at max length.
+  # ---------------------------------------------------------------------------
+  - id: winch_reel_out_script
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(winch_homed);'
+          then:
+            - logger.log: "Winch: reel-out rejected — home first"
+          else:
+            - if:
+                condition:
+                  lambda: |-
+                    return !id(winch_limit_override) &&
+                           id(winch_calibrated) && id(winch_max_count) > 0 &&
+                           id(winch_count_global) >= id(winch_max_count);
+                then:
+                  - logger.log: "Winch: already at max deployed length"
+                else:
+                  - if:
+                      condition:
+                        # Reversing from reel-in while ramp is enabled
+                        lambda: |-
+                          return id(motor_running) && !id(winch_reeling_out) &&
+                                 (int)id(winch_ramp_ms).state >= 10;
+                      then:
+                        - logger.log: "Winch: reversing to reel-out — ramping direction change"
+                        - lambda: 'id(winch_next_direction) = true;'
+                        - script.execute: winch_direction_change_script
+                      else:
+                        - logger.log: "Winch: reeling out"
+                        - lambda: |-
+                            id(winch_reeling_out) = true;
+                            id(motor_running)     = true;
+                        - output.turn_on:  motor_r_en
+                        - output.turn_on:  motor_l_en
+                        - output.set_level:
+                            id: motor_lpwm
+                            level: 0%
+                        - output.set_level:
+                            id: motor_rpwm
+                            level: !lambda 'return id(winch_run_speed).state / 100.0f;'
+
+  # ---------------------------------------------------------------------------
+  # winch_reel_in_script
+  # Starts taking up rope.  If the motor is currently reeling OUT and ramping
+  # is enabled, routes through winch_direction_change_script instead of
+  # switching PWM directly.  The encoder on_value callback reduces speed when
+  # nearing home.  The home limit switch stops the motor and resets the count.
+  # Rejected if already homing.
+  # ---------------------------------------------------------------------------
+  - id: winch_reel_in_script
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(winch_homing);'
+          then:
+            - logger.log: "Winch: already homing"
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(winch_homed) && id(winch_count_global) <= 0;'
+                then:
+                  - logger.log: "Winch: already at home"
+                else:
+                  - if:
+                      condition:
+                        # Reversing from reel-out while ramp is enabled
+                        lambda: |-
+                          return id(motor_running) && id(winch_reeling_out) &&
+                                 (int)id(winch_ramp_ms).state >= 10;
+                      then:
+                        - logger.log: "Winch: reversing to reel-in — ramping direction change"
+                        - lambda: 'id(winch_next_direction) = false;'
+                        - script.execute: winch_direction_change_script
+                      else:
+                        - logger.log: "Winch: reeling in"
+                        - lambda: |-
+                            id(winch_reeling_out) = false;
+                            id(motor_running)     = true;
+                        - output.turn_on:  motor_r_en
+                        - output.turn_on:  motor_l_en
+                        - output.set_level:
+                            id: motor_rpwm
+                            level: 0%
+                        - output.set_level:
+                            id: motor_lpwm
+                            level: !lambda 'return id(winch_run_speed).state / 100.0f;'
+
+  # ---------------------------------------------------------------------------
+  # winch_direction_change_script
+  # Softly reverses motor direction:
+  #   1. Ramp current direction down to 0  (winch_ramp_ms ms, 10 steps)
+  #   2. Full brake + 100 ms settle pause
+  #   3. Ramp new direction up from 0      (winch_ramp_ms ms, 10 steps)
+  # winch_next_direction must be set by the caller before executing this script.
+  # winch_changing_direction suppresses encoder speed-zone updates during ramp.
+  # If winch_stop_script is called mid-ramp it cancels this script and brakes.
+  # ---------------------------------------------------------------------------
+  - id: winch_direction_change_script
+    mode: restart
+    then:
+      - lambda: |-
+          id(winch_changing_direction) = true;
+          id(winch_ramp_step)          = 0;
+      # ── Ramp DOWN: 10 steps, step 0 = 90% speed … step 9 = 0% ────────────
+      - repeat:
+          count: 10
+          then:
+            - lambda: |-
+                float speed = id(winch_run_speed).state / 100.0f;
+                float level = speed * (float)(9 - id(winch_ramp_step)) / 9.0f;
+                if (id(winch_reeling_out))
+                  id(motor_rpwm)->set_level(level);
+                else
+                  id(motor_lpwm)->set_level(level);
+                id(winch_ramp_step)++;
+            - delay: !lambda 'return (uint32_t)std::max(10.0f, id(winch_ramp_ms).state / 10.0f);'
+      # ── Full brake ────────────────────────────────────────────────────────
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      # ── Settle pause before applying new direction ────────────────────────
+      - delay: 100ms
+      # ── Switch direction, zero the now-inactive output ────────────────────
+      - lambda: |-
+          id(winch_reeling_out) = id(winch_next_direction);
+          id(winch_ramp_step)   = 0;
+          if (id(winch_next_direction))
+            id(motor_lpwm)->set_level(0.0f);
+          else
+            id(motor_rpwm)->set_level(0.0f);
+      # ── Ramp UP: 10 steps, step 0 = 10% speed … step 9 = 100% ────────────
+      - repeat:
+          count: 10
+          then:
+            - lambda: |-
+                float speed = id(winch_run_speed).state / 100.0f;
+                float level = speed * (float)(id(winch_ramp_step) + 1) / 10.0f;
+                if (id(winch_reeling_out))
+                  id(motor_rpwm)->set_level(level);
+                else
+                  id(motor_lpwm)->set_level(level);
+                id(winch_ramp_step)++;
+            - delay: !lambda 'return (uint32_t)std::max(10.0f, id(winch_ramp_ms).state / 10.0f);'
+      # ── Ramp complete — hand speed control back to encoder callback ────────
+      - lambda: 'id(winch_changing_direction) = false;'
+
+  # ---------------------------------------------------------------------------
+  # winch_stop_script
+  # Immediately brakes the motor from any state, including mid-ramp.
+  # Called by joystick release, stall detection, HA cover stop, and limit switches.
+  # ---------------------------------------------------------------------------
+  - id: winch_stop_script
+    mode: single
+    then:
+      - script.stop: winch_home_script
+      - script.stop: winch_reel_out_script
+      - script.stop: winch_reel_in_script
+      - script.stop: winch_direction_change_script
+      - lambda: |-
+          id(motor_running)           = false;
+          id(winch_homing)            = false;
+          id(winch_changing_direction)= false;
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      - output.turn_off: motor_r_en
+      - output.turn_off: motor_l_en
+      - logger.log: "Winch: stopped"
+
+# ==============================================================================
+# INTERVAL - Push motor_idle state for HA event in networked_config
+# ==============================================================================
+interval:
+  - interval: 200ms
+    then:
+      - binary_sensor.template.publish:
+          id: motor_idle
+          state: !lambda 'return !id(motor_running);'

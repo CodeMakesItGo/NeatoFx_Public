@@ -1,0 +1,22 @@
+# ==============================================================================
+# NEATO SMART DISPLAY - COMMON COMPONENTS
+# ==============================================================================
+# Shared configuration used by all display hardware revisions.
+# Includes ESPHome project identity, external components, OTA, and
+# pulls in the LVGL screen definitions.
+#
+# Included by: display_rev1_x.yaml
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  esphome_base: !include ../../../../_shared/esphome_base.yaml
+  # LVGL screens, template sensors, and image definitions
+  screens: !include screens.yaml
+
+# ==============================================================================
+# COMMON SUBSTITUTIONS
+# ==============================================================================
+substitutions:
+  device_description: "480x480 Touch Screen"
+  project_name: "CodeMakesItGo.Display"

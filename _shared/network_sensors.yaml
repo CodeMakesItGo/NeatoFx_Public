@@ -1,0 +1,59 @@
+# ==============================================================================
+# NEATO-FX SHARED PACKAGE - NETWORK SENSORS & CONTROLS
+# ==============================================================================
+# Included by: all device *_networked_config.yaml files
+# Contains: WiFi signal strength sensors, network information text sensors,
+#           and WiFi/Factory Reset buttons for networked devices.
+# ==============================================================================
+
+# ==============================================================================
+# SENSORS - System Monitoring & Diagnostics
+# ==============================================================================
+sensor:
+  # WiFi signal strength monitoring
+  - platform: wifi_signal
+    name: "WiFi Signal Strength"
+    id: wifi_strength
+    update_interval: 30s
+    filters:
+      - sliding_window_moving_average:
+          window_size: 5
+          send_every: 5
+    accuracy_decimals: 0
+    unit_of_measurement: "dBm"
+    on_value_range:
+      - below: -80
+        then:
+          - logger.log: "⚠ Weak WiFi signal detected - possible power supply issue"
+
+# ==============================================================================
+# BUTTONS - User Controls & System Management
+# ==============================================================================
+button:
+  # WiFi Reset Button - Clear saved WiFi credentials and restart in AP mode
+  - platform: template
+    name: "WiFi Reset"
+    id: wifi_reset_button
+    icon: "mdi:wifi-off"
+    on_press:
+      then:
+        - logger.log: "🔄 Performing factory reset to clear WiFi credentials..."
+        - button.press: factory_reset_button
+
+  # Factory Reset Button - Clears all stored preferences including WiFi credentials
+  - platform: factory_reset
+    name: "Factory Reset"
+    id: factory_reset_button
+    icon: "mdi:restart-alert"
+
+# ==============================================================================
+# TEXT SENSORS - Network Information & Status
+# ==============================================================================
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "WiFi IP Address"
+    ssid:
+      name: "WiFi SSID"
+    mac_address:
+      name: "WiFi MAC Address"

@@ -1,0 +1,35 @@
+# ==============================================================================
+# INFRARED RECEIVER - Optimized NEC remote
+# ==============================================================================
+remote_receiver:
+  pin:
+    number: ${ir_gpio}
+    inverted: true      # Keep this for most IR receiver modules (TSOP, etc.)
+    mode:
+      input: true
+      pullup: true
+  tolerance: 25%         # Good for NEC protocol
+  filter: 50us           # Reduced filter for better sensitivity
+  idle: 10ms             # Optimized for NEC protocol (was 40ms)
+  buffer_size: 10kB      # Large buffer for complex signals
+  
+  # Multiple dump modes for debugging (comment out in production)
+  dump: nec
+    
+  # Optimized NEC support 
+  on_nec:
+    then:
+      - if:
+          condition:
+            - lambda: 'return id(ir_enabled);'
+          then:
+            - lambda: |-
+                ESP_LOGI("IR", "NEC - Address: 0x%04X, Command: 0x%02X", 
+                         x.address, x.command & 0xFF);
+                
+                // Store the command and set team detection
+                id(ir_command) = x.command & 0xFF;
+            - script.execute: run_hit_script
+          else:
+            - lambda: 'ESP_LOGI("IR", "NEC_DISABLED");'
+            

@@ -1,0 +1,57 @@
+# ==============================================================================
+# NEATO AUDIO 50 - RFTX CONNECTOR AS RF TRANSMITTER OUTPUTS (default)
+# ==============================================================================
+# Configures the 4-pin RFTX connector as GPIO outputs driving an RF transmitter.
+# Each channel fires a 100ms momentary pulse when triggered.
+#
+# Pin mapping:
+#   RFTX0  GPIO14  → RF TX A
+#   RFTX1  GPIO12  → RF TX B  (strapping pin — warning suppressed)
+#   RFTX2  GPIO19  → RF TX C
+#   RFTX3  GPIO18  → RF TX D
+#
+# GPIO4 (RF TX Power) is defined in the board file and controls transmitter power.
+# To switch to input mode: esphome -s rftx rftx_inputs compile main.yaml
+# ==============================================================================
+
+# ==============================================================================
+# RF TRANSMITTER SWITCHES - Momentary Pulse Outputs
+# ==============================================================================
+switch:
+  - platform: gpio
+    pin: GPIO14
+    name: "RF TX A"
+    id: rf_tx_a
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - delay: 100ms
+      - switch.turn_off: rf_tx_a
+
+  - platform: gpio
+    pin:
+      number: GPIO12
+      ignore_strapping_warning: true
+    name: "RF TX B"
+    id: rf_tx_b
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - delay: 100ms
+      - switch.turn_off: rf_tx_b
+
+  - platform: gpio
+    pin: GPIO19
+    name: "RF TX C"
+    id: rf_tx_c
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - delay: 100ms
+      - switch.turn_off: rf_tx_c
+
+  - platform: gpio
+    pin: GPIO18
+    name: "RF TX D"
+    id: rf_tx_d
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - delay: 100ms
+      - switch.turn_off: rf_tx_d

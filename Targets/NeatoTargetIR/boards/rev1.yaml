@@ -1,0 +1,180 @@
+
+# ==============================================================================
+# NEATO SMART TARGET - HARDWARE DEFINITION (REV 1.X)
+# ==============================================================================
+# This file defines the hardware configuration for Rev 1.x target boards.
+# It includes GPIO pin mappings, LED strip configuration, IR receiver setup,
+# and relay controls for the original hardware revision.
+#
+# Hardware Features:
+# - ESP32 D1 Mini form factor with Wemos D1 Mini32 board
+# - Single LED strip (GPIO5) for target indication
+# - IR receiver (GPIO19) for laser tag protocol detection
+# - Relay output (GPIO23) for external device control
+# - Multiple I/O pins for expansion (GPIO22, GPIO21, GPIO25, etc.)
+# - PWM outputs (GPIO0, GPIO2, GPIO4) for servo/motor control
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Rev 1.x Specific Configuration Variables
+# ==============================================================================
+substitutions:
+  # Right Side Connector Pins (Rev 1.x specific)
+  io22_gpio: GPIO22      # General I/O
+  io21_gpio: GPIO21      # General I/O
+  io25_gpio: GPIO25      # General I/O
+  io32_gpio: GPIO32      # General I/O
+  
+  # Left Side Connector Pins (Rev 1.x specific)
+  io33_gpio: GPIO33      # General I/O
+  io34_gpio: GPIO34      # ADC input (input only)
+  io35_gpio: GPIO35      # ADC input (input only)
+  io4_gpio: GPIO4        # PWM 2
+  io0_gpio: GPIO0        # PWM 1
+  io2_gpio: GPIO2        # PWM 0
+
+  # LED Configuration (Rev 1.x specific)
+  led2_gpio: GPIO22      # Placeholder LED strip 2 (not connected)
+  strip_2_led_count: "1" # Minimal count for rev1 placeholder
+  strip_2_internal: "true" # Hide from UI since it's not used
+
+  # Project Information (Rev 1.x specific)
+  project_version: "1.0.0"
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  # Include common components shared across all revisions
+  common_components: !include common/common.yaml
+    
+
+# ==============================================================================
+# CORE CONFIGURATION - Rev 1.x Specific Boot Sequence
+# ==============================================================================
+esphome:
+  min_version: 2025.7.4  
+  on_boot:
+    priority: 300
+    then:
+      # Initialize timer controls with saved values
+      - number.set:
+          id: relay_timer_control
+          value: !lambda 'return id(relay_timer);'
+      - number.set:
+          id: target_cooldown_control
+          value: !lambda 'return id(cooldown_timer);'
+      # Wait for components to initialize
+      - delay: 500ms
+      # Log startup completion
+      - logger.log: "Target system initialized successfully"
+
+# ==============================================================================
+# SENSORS - Rev 1.x Specific ADC Inputs
+# ==============================================================================
+sensor:
+  # Analog voltage measurement on GPIO34 
+  - platform: adc
+    pin: 
+      number: ${io34_gpio}
+    name: "GPIO34 Voltage"
+    update_interval: 5s
+    accuracy_decimals: 2
+    unit_of_measurement: "V"
+    attenuation: 12db  # Explicit attenuation for 0-3.3V range
+    raw: false
+    filters:
+      - multiply: 3.3
+      - offset: -0.25
+      - lambda: 'return std::max(0.0f, x);'
+    on_value_range:
+      - below: 0.5
+        then:
+          - logger.log: "WARNING: Low voltage detected on GPIO34"
+          
+  # Analog voltage measurement on GPIO35 
+  - platform: adc
+    pin: 
+      number: ${io35_gpio}
+    name: "GPIO35 Voltage"
+    update_interval: 5s
+    accuracy_decimals: 2
+    unit_of_measurement: "V"
+    attenuation: 12db  # Explicit attenuation for 0-3.3V range
+    raw: false
+    filters:
+      - multiply: 3.3
+      - offset: -0.25
+      - lambda: 'return std::max(0.0f, x);'
+    on_value_range:
+      - below: 0.5
+        then:
+          - logger.log: "WARNING: Low voltage detected on GPIO35"
+
+# ==============================================================================
+# BINARY SENSORS - Digital Inputs
+# ==============================================================================
+binary_sensor:
+  # GPIO21 Digital Input
+  - platform: gpio
+    pin:
+      number: ${io21_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "GPIO21 Digital State"
+    device_class: "motion"
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+    on_press:
+      - logger.log: "GPIO21 state is HIGH"
+    on_release:
+      - logger.log: "GPIO21 state is LOW"
+
+  # GPIO25 Digital Input
+  - platform: gpio
+    pin:
+      number: ${io25_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "GPIO25 Digital State"
+    device_class: "motion"
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+    on_press:
+      - logger.log: "GPIO25 state is HIGH"
+    on_release:
+      - logger.log: "GPIO25 state is LOW"
+
+  # GPIO32 Digital Input
+  - platform: gpio
+    pin:
+      number: ${io32_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "GPIO32 Digital State"
+    device_class: "motion"
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+    on_press:
+      - logger.log: "GPIO32 state is HIGH"
+    on_release:
+      - logger.log: "GPIO32 state is LOW"
+
+  # GPIO33 Digital Input
+  - platform: gpio
+    pin:
+      number: ${io33_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "GPIO33 Digital State"
+    device_class: "motion"
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+    on_press:
+      - logger.log: "GPIO33 state is HIGH"
+    on_release:
+      - logger.log: "GPIO33 state is LOW"

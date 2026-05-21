@@ -1,0 +1,27 @@
+# ==============================================================================
+# NEATO-FX SHARED PACKAGE - ESPHOME CORE & OTA CONFIGURATION
+# ==============================================================================
+# Included by: all device board/common/*.yaml files
+# Contains: ESPHome core settings and OTA configuration shared by all devices.
+# ==============================================================================
+
+# ==============================================================================
+# CORE ESPHOME CONFIGURATION - Common Settings
+# ==============================================================================
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  platformio_options:
+    board_build.flash_mode: dio
+  project:
+    name: ${project_name}
+    version: ${project_version}
+  min_version: 2025.8.2
+
+# ==============================================================================
+# OTA - Over The Air Updates
+# ==============================================================================
+ota:
+  - platform: esphome
+    password: ""

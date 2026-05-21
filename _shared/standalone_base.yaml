@@ -1,0 +1,43 @@
+# ==============================================================================
+# NEATO-FX SHARED PACKAGE - STANDALONE BASE CONFIGURATION
+# ==============================================================================
+# Included by: all device *_standalone_config.yaml files
+# Contains: WiFi AP-only mode and local web server configuration for
+#           standalone operation without Home Assistant.
+# ==============================================================================
+
+# ==============================================================================
+# NETWORK CONFIGURATION - STANDALONE MODE (AP ONLY)
+# ==============================================================================
+wifi:
+  # Force AP-only mode - do not connect to any networks
+  networks: []
+
+  # Explicitly disable station mode
+  enable_on_boot: true
+  fast_connect: false
+
+  # AP configuration for standalone mode
+  ap:
+    ssid: "${name}"
+    password: !secret ap_password
+    ap_timeout: 1min
+
+  # Disable station mode and prevent network scanning
+  reboot_timeout: 0s        # Disable auto-reboot on WiFi loss
+  power_save_mode: none     # Disable power saving for reliability
+  output_power: 20dB        # Maximum WiFi power for best range
+  passive_scan: true        # Reduce active network scanning
+
+  on_connect:
+    then:
+      - logger.log: "WiFi AP mode activated"
+
+# ==============================================================================
+# NETWORK & WEB INTERFACE - Common Services
+# ==============================================================================
+web_server:
+  port: 80
+  include_internal: false
+  local: true
+  version: 2

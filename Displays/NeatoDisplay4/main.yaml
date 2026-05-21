@@ -1,0 +1,42 @@
+# ==============================================================================
+# NEATO SMART DISPLAY - MAIN CONFIGURATION FILE
+# ==============================================================================
+# This is the PRIMARY configuration file that assembles all display components.
+# It includes hardware definitions, network configuration, game scripts,
+# and the LVGL touch-screen UI.
+#
+# Usage:
+#   esphome run display_main.yaml                   (starts with station ID 1)
+#   esphome -s id 2 run display_main.yaml           (station ID 2)
+#   Then adjust settings via the web interface
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  id: "1"                          # Station ID - override with -s id X
+  name: station-20${id}
+  friendly_name: "NEATO Display ${id}"
+  color: "YLW"                     # Screen color: YLW | GRN | BLU | ORG
+  font_color: "0xFFE000"           # YLW=0xFFE000  GRN=0x00E000  BLU=0x00BFFF  ORG=0xFF6000
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  # Hardware board definition
+  board: !include boards/rev1.yaml
+
+  # Network configuration (WiFi, API, web server)
+  config_file: !include configs/networked.yaml
+
+  # Game logic scripts
+  game_scripts: !include scripts/game_scripts.yaml
+
+# ==============================================================================
+# DEBUGGING
+# ==============================================================================
+logger:
+  level: WARN
+  baud_rate: 115200  # Must be non-zero for improv_serial (Made for ESPHome requirement)

@@ -1,0 +1,230 @@
+# ==============================================================================
+# NEATO SMART DISPLAY - SCREENS & UI
+# ==============================================================================
+# Defines all LVGL pages, widgets, and the template sensors that back them.
+# Template sensors are declared here because they are tightly coupled to the
+# display labels and updated both by API services and game scripts.
+#
+# Screens:
+#   boot_screen       - Splash logo shown on startup
+#   game_screen       - Live score + hit counter overlay
+#   game_shot_screen  - Remaining shots counter
+#   game_over_screen  - End-of-game graphic
+#
+# Included by: display_common.yaml
+# ==============================================================================
+
+# ==============================================================================
+# TEMPLATE SENSORS - Game State
+# ==============================================================================
+sensor:
+  - platform: template
+    name: "Player Score"
+    id: player_${id}_score
+    update_interval: never
+
+  - platform: template
+    name: "Player Hit"
+    id: player_${id}_hit
+    update_interval: never
+
+  - platform: template
+    name: "Player Shots"
+    id: player_${id}_shot
+    update_interval: never
+
+# ==============================================================================
+# IMAGES - Screen Backgrounds
+# ==============================================================================
+image:
+  - file: "images/GAME_START_${color}_BTN.png"
+    id: boot_logo
+    type: RGB565
+    resize: 480x480
+    transparency: alpha_channel
+
+  - file: "images/GAME_SHOTS_${color}.png"
+    id: shots_background
+    type: RGB565
+    resize: 480x480
+    transparency: alpha_channel
+
+  - file: "images/GAME_OVER.png"
+    id: game_over_background
+    type: RGB565
+    resize: 480x480
+    transparency: alpha_channel
+
+# ==============================================================================
+# LVGL - Touch UI
+# ==============================================================================
+lvgl:
+  on_idle:
+    - timeout: 15s
+      then:
+        - logger.log: "LVGL idle 15s timeout"
+
+  page_wrap: true
+  pages:
+    - id: shot_page
+      skip: false
+      bg_color: 0x000000
+      bg_opa: COVER
+      border_opa: TRANSP
+
+      widgets:
+
+        # ------------------------------------------------------------------
+        # GAME SHOT SCREEN - Remaining shots counter
+        # ------------------------------------------------------------------
+        - obj:
+            id: game_shot_screen
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_opa: COVER
+            radius: 0
+            pad_all: 0
+            border_width: 0
+            bg_color: 0x000000
+            widgets:
+              - image:
+                  x: 0
+                  y: 0
+                  width: 100%
+                  height: 100%
+                  src: shots_background
+              - label:
+                  id: player_shot
+                  x: 180
+                  y: 110
+                  width: 300
+                  height: 160
+                  text_font: shot_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${font_color}
+                  text: ""
+                  bg_opa: TRANSP
+
+        # ------------------------------------------------------------------
+        # GAME SCREEN - Live score and hit counter overlay
+        # ------------------------------------------------------------------
+        - obj:
+            id: game_screen
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_opa: TRANSP
+            radius: 0
+            pad_all: 0
+            border_width: 0
+            bg_color: 0x000000
+            widgets:
+              - label:
+                  id: player_score
+                  x: 180
+                  y: 275
+                  width: 300
+                  height: 127
+                  text_font: score_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${font_color}
+                  text: ""
+                  bg_opa: TRANSP
+              - label:
+                  id: player_hit
+                  x: 180
+                  y: 190
+                  width: 300
+                  height: 127
+                  text_font: hit_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${font_color}
+                  text: ""
+                  bg_opa: TRANSP
+
+        # ------------------------------------------------------------------
+        # BOOT SCREEN - Splash logo + tap to continue
+        # ------------------------------------------------------------------
+        - obj:
+            id: boot_screen
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_color: 0xffffff
+            bg_opa: COVER
+            radius: 0
+            pad_all: 0
+            border_width: 0
+            widgets:
+              - image:
+                  align: CENTER
+                  src: boot_logo
+              - button:
+                  x: 0
+                  y: 0
+                  width: 480
+                  height: 480
+                  checkable: false
+                  bg_color: 0x000000
+                  bg_opa: TRANSP
+                  border_color: 0x000000
+                  border_width: 0
+                  border_opa: TRANSP
+                  radius: 0
+                  shadow_width: 0
+                  shadow_color: 0x000000
+                  on_click:
+                    then:
+                      - globals.set:
+                          id: game_over_active
+                          value: 'false'
+                      - lvgl.widget.hide: boot_screen
+                      - lvgl.widget.show: game_screen
+                      - lvgl.widget.show: game_shot_screen
+                      - script.execute: reset_score_script
+                      - homeassistant.service:
+                          service: input_boolean.turn_on
+                          data:
+                            entity_id: input_boolean.player_${id}_active
+                      - lvgl.label.update:
+                          id: player_shot
+                          text: !lambda 'return std::to_string(id(g_max_shots));'
+
+        # ------------------------------------------------------------------
+        # GAME OVER SCREEN - End-of-game graphic
+        # ------------------------------------------------------------------
+        - obj:
+            id: game_over_screen
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_color: 0x000000
+            bg_opa: COVER
+            radius: 0
+            pad_all: 0
+            border_width: 0
+            widgets:
+              - image:
+                  align: CENTER
+                  src: game_over_background
+              - label:
+                  id: game_over_score
+                  x: 100
+                  y: 260
+                  width: 480
+                  height: 480
+                  text_font: score_font
+                  text_align: CENTER
+                  align: CENTER
+                  text_color: ${font_color}
+                  text: ""
+                  bg_opa: TRANSP
+

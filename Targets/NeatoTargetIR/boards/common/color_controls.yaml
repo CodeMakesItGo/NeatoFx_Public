@@ -1,0 +1,211 @@
+# Color control components for LED strips
+select:
+  - platform: template
+    name: "Target LEDs Solid Color"
+    id: led_strip_color_preset
+    options:
+      - "Red"
+      - "Green"
+      - "Blue"
+      - "Yellow"
+      - "Purple"
+      - "Cyan"
+      - "White"
+      - "Orange"
+      - "Pink"
+    initial_option: "White"
+    optimistic: true
+    set_action:
+      - if:
+          condition:
+            lambda: 'return x == "Red";'
+          then:
+            - light.turn_on:
+                id: led_strip
+                red: 100%
+                green: 0%
+                blue: 0%
+      - if:
+          condition:
+            lambda: 'return x == "Green";'
+          then:
+            - light.turn_on:
+                id: led_strip
+                red: 0%
+                green: 100%
+                blue: 0%
+      - if:
+          condition:
+            lambda: 'return x == "Blue";'
+          then:
+            - light.turn_on:
+                id: led_strip
+                red: 0%
+                green: 0%
+                blue: 100%
+      - if:
+          condition:
+            lambda: 'return x == "Yellow";'
+          then:
+            - light.turn_on:
+                id: led_strip
+                red: 100%
+                green: 100%
+                blue: 0%
+      - if:
+          condition:
+            lambda: 'return x == "Purple";'
+          then:
+            - light.turn_on:
+                id: led_strip
+                red: 100%
+                green: 0%
+                blue: 100%
+                
+      - if:
+          condition:
+            lambda: 'return x == "Cyan";'
+          then:
+            - light.turn_on:
+                id: led_strip
+                red: 0%
+                green: 100%
+                blue: 100%
+                
+      - if:
+          condition:
+            lambda: 'return x == "White";'
+          then:
+            - light.turn_on:
+                id: led_strip
+                red: 100%
+                green: 100%
+                blue: 100%
+                
+      - if:
+          condition:
+            lambda: 'return x == "Orange";'
+          then:
+            - light.turn_on:
+                id: led_strip
+                red: 100%
+                green: 50%
+                blue: 0%
+                
+      - if:
+          condition:
+            lambda: 'return x == "Pink";'
+          then:
+            - light.turn_on:
+                id: led_strip
+                red: 100%
+                green: 20%
+                blue: 50%
+                
+
+  - platform: template
+    name: "LED Strip 2 Solid Color"
+    id: led_strip2_color_preset
+    options:
+      - "Red"
+      - "Green"
+      - "Blue"
+      - "Yellow"
+      - "Purple"
+      - "Cyan"
+      - "White"
+      - "Orange"
+      - "Pink"
+    initial_option: "White"
+    optimistic: true
+    set_action:
+      - if:
+          condition:
+            lambda: 'return x == "Red";'
+          then:
+            - light.turn_on:
+                id: led_strip2
+                red: 100%
+                green: 0%
+                blue: 0%
+                
+      - if:
+          condition:
+            lambda: 'return x == "Green";'
+          then:
+            - light.turn_on:
+                id: led_strip2
+                red: 0%
+                green: 100%
+                blue: 0%
+                
+      - if:
+          condition:
+            lambda: 'return x == "Blue";'
+          then:
+            - light.turn_on:
+                id: led_strip2
+                red: 0%
+                green: 0%
+                blue: 100%
+                
+      - if:
+          condition:
+            lambda: 'return x == "Yellow";'
+          then:
+            - light.turn_on:
+                id: led_strip2
+                red: 100%
+                green: 100%
+                blue: 0%
+                
+      - if:
+          condition:
+            lambda: 'return x == "Purple";'
+          then:
+            - light.turn_on:
+                id: led_strip2
+                red: 100%
+                green: 0%
+                blue: 100%
+                
+      - if:
+          condition:
+            lambda: 'return x == "Cyan";'
+          then:
+            - light.turn_on:
+                id: led_strip2
+                red: 0%
+                green: 100%
+                blue: 100%
+                
+      - if:
+          condition:
+            lambda: 'return x == "White";'
+          then:
+            - light.turn_on:
+                id: led_strip2
+                red: 100%
+                green: 100%
+                blue: 100%
+                
+      - if:
+          condition:
+            lambda: 'return x == "Orange";'
+          then:
+            - light.turn_on:
+                id: led_strip2
+                red: 100%
+                green: 50%
+                blue: 0%
+                
+      - if:
+          condition:
+            lambda: 'return x == "Pink";'
+          then:
+            - light.turn_on:
+                id: led_strip2
+                red: 100%
+                green: 20%
+                blue: 50%
+                

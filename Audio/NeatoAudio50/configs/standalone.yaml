@@ -1,0 +1,33 @@
+# ==============================================================================
+# STANDALONE SPEAKER CONFIGURATION
+# ==============================================================================
+# This configuration sets up a speaker device in standalone mode.
+# In standalone mode, the speaker operates independently without requiring
+# a central controller or Home Assistant integration.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  standalone_base: !include ../../../_shared/standalone_base.yaml
+
+# ==============================================================================
+# BUTTONS - Clear WiFi credentials
+# ==============================================================================
+button:
+  - platform: factory_reset
+    name: "Clear WiFi & Restart"
+    id: factory_reset_button
+    icon: "mdi:wifi-off"
+
+# ==============================================================================
+# ESPHome Script - ESPHome/Home Assistant integration
+# ==============================================================================
+script:
+  - id: esphome_script_in1
+    mode: single  # Prevent overlapping hits
+    then:     
+      - logger.log: "Input 1 triggered - ESPHome script executed"
+  - id: esphome_script_in2
+    mode: single  # Prevent overlapping hits
+    then:     
+      - logger.log: "Input 2 triggered - ESPHome script executed"

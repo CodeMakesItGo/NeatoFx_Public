@@ -1,0 +1,594 @@
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  esphome_base: !include ../../../_shared/esphome_base.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  # Default ID - override with -s id XXXX command line parameter
+  id: "0000"                     # Default speaker ID
+  name: speaker-${id}
+  friendly_name: "NEATO Speaker ${id}"
+  project_name: "CodeMakesItGo.Speaker"
+  project_version: "1.0.0"
+
+# ==============================================================================
+# ESPHOME BOOT SEQUENCE
+# ==============================================================================
+esphome:
+  on_boot:
+    - priority: 900  # Force relays off before GPIO init completes
+      then:
+      - switch.turn_off: relay_1
+      - switch.turn_off: relay_2
+      - logger.log: "Boot: Relays forced OFF (boot-safe init)"
+    - priority: 300
+      then:
+      - output.turn_off: amp_unmute  # Keep muted
+      - output.turn_off: amp_wake    # Keep asleep
+      - output.turn_on: hb_led
+      - logger.log: "Boot: Resetting DFPlayer..."
+      - dfplayer.reset:
+          id: dfplayer1
+      - delay: 2000ms  # Wait for DFPlayer SD card mount after reset
+      - dfplayer.set_volume:
+          id: dfplayer1
+          volume: !lambda 'return (int)id(dfplayer_volume).state;'
+      - logger.log: "Boot complete - DFPlayer ready at saved volume"
+      - light.turn_off:
+          id: spot_light_1
+      - light.turn_off:
+          id: spot_light_2
+      - if:
+          condition:
+            lambda: 'return id(loop_bg_active);'
+          then:
+            - script.execute: play_bg_loop
+      #- dfplayer.play_mp3:
+      #    id: dfplayer1
+      #    file: 2
+      #- logger.log: "Playing boot MP3 #2"
+      #- script.execute: playback_timeout
+
+# ==============================================================================
+# ESP32 FRAMEWORK - Common Settings
+# ==============================================================================
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# ==============================================================================
+# COMMON SENSORS - System Monitoring
+# ==============================================================================
+sensor:
+  - platform: uptime
+    name: "Uptime Sensor"
+    update_interval: 60s  
+
+status_led:
+  pin:
+    number: GPIO23 #COM LED
+    inverted: yes
+    
+# ==============================================================================
+# COMMON SWITCHES - System Controls
+# ==============================================================================
+switch:
+  - platform: gpio
+    pin: GPIO26
+    name: "Relay 1"
+    id: relay_1
+    restore_mode: ALWAYS_OFF
+
+  - platform: gpio
+    pin: GPIO27
+    name: "Relay 2"
+    id: relay_2
+    restore_mode: ALWAYS_OFF
+
+  - platform: template
+    name: "Background Loop Enable"
+    id: bg_loop_enable
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+    on_turn_on:
+      - lambda: 'id(loop_bg_active) = true;'
+      - logger.log: "Background loop enabled"
+      - script.execute: play_bg_loop
+    on_turn_off:
+      - lambda: 'id(loop_bg_active) = false;'
+      - logger.log: "Background loop disabled"
+      - dfplayer.stop:
+          id: dfplayer1
+      - script.stop: playback_timeout
+      - output.turn_off: amp_unmute
+      - delay: 10ms
+      - output.turn_off: amp_wake
+
+  - platform: template
+    name: "Input 1 Random"
+    id: input1_random_enable
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+    # When enabled, plays random MP3 instead of specific file
+
+  - platform: template
+    name: "Input 2 Random"
+    id: input2_random_enable
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+    # When enabled, plays random MP3 instead of specific file
+
+  - platform: template
+    name: "RF A Random"
+    id: rf_a_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: template
+    name: "RF B Random"
+    id: rf_b_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: template
+    name: "RF C Random"
+    id: rf_c_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: template
+    name: "RF D Random"
+    id: rf_d_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: gpio
+    pin: GPIO4
+    name: "RF TX Power"
+    id: rf_tx_power
+    restore_mode: ALWAYS_OFF
+    # Controls power to the RF transmitter on the RFTX connector
+
+# ==============================================================================
+# COMMON BUTTONS - User Controls
+# ==============================================================================
+button:
+  - platform: restart
+    name: "Restart ${friendly_name}"
+
+  - platform: template
+    name: "Test Play Random MP3"
+    on_press:
+      - lambda: |-
+          int max_files = (int)id(max_mp3_files).state;
+          int random_mp3 = random(1, max_files + 1);
+          ESP_LOGD("test", "Playing random MP3: %d", random_mp3);
+          id(dfplayer1).play_mp3(random_mp3);
+      - output.turn_on: amp_wake    # Wake amp
+      - delay: 50ms                 # Let amp stabilize
+      - output.turn_on: amp_unmute  # Unmute
+
+  - platform: template
+    name: "Test Input 1"
+    on_press:
+      - script.execute: run_input1_script
+
+  - platform: template
+    name: "Test Input 2"
+    on_press:
+      - script.execute: run_input2_script
+
+
+# ==============================================================================
+# COMMON OUTPUTS - System Controls
+# ==============================================================================
+output:
+  - platform: gpio
+    pin: GPIO22
+    id: hb_led
+
+  - platform: gpio
+    pin: 
+       number: GPIO0
+    id: amp_wake  # turn_on = wake, turn_off = sleep
+    
+  - platform: gpio
+    pin: 
+       number: GPIO5  
+       ignore_strapping_warning: true
+       inverted: true
+    id: amp_unmute  # turn_on = unmute, turn_off = mute
+
+  - platform: ledc
+    pin: GPIO33 
+    id: fet_1
+
+  - platform: ledc
+    pin: GPIO25
+    id: fet_2
+ 
+light:
+  - platform: monochromatic
+    output: fet_1
+    name: "SpotLight 1"
+    id: spot_light_1
+    effects:
+     - pulse:
+         name: "pulse"
+         transition_length:
+           on_length: 500ms
+           off_length: 500ms
+         update_interval: 1.0s
+
+  - platform: monochromatic
+    output: fet_2
+    name: "SpotLight 2"
+    id: spot_light_2
+    effects:
+     - pulse:
+         name: "pulse"
+         transition_length:
+           on_length: 500ms
+           off_length: 500ms
+         update_interval: 1.0s
+
+# ==============================================================================
+# MP3 Player - DFPlayer Mini Configuration
+# ==============================================================================
+uart:
+  id: dfplayer_uart
+  tx_pin: GPIO17   # Transmit pin connected to DFPlayer RX
+  rx_pin: GPIO16   # Receive pin connected to DFPlayer TX
+  baud_rate: 9600 # Default baud rate for DFPlayer Mini
+
+dfplayer:
+  id: dfplayer1
+  uart_id: dfplayer_uart
+  on_finished_playback:
+    then:
+    - logger.log: 'Playback finished event'
+    - script.stop: playback_timeout
+    - switch.turn_off: relay_1
+    - switch.turn_off: relay_2
+    - light.turn_off: spot_light_1
+    - light.turn_off: spot_light_2
+    - if:
+        condition:
+          lambda: 'return id(loop_bg_active);'
+        then:
+          - logger.log: "Returning to background loop - playing MP3 #3"
+          - script.execute: play_bg_loop
+        else:
+          - output.turn_off: amp_unmute
+          - delay: 10ms
+          - output.turn_off: amp_wake
+          - script.execute: mp3_finished_script
+
+# ==============================================================================
+# RF INPUTS - System Controls
+# ==============================================================================          
+binary_sensor:
+  - platform: gpio
+    name: "Remote BtnA"
+    id: remote_btn_A
+    internal: true
+    pin:
+      number: GPIO36
+      mode: INPUT  
+      inverted: false  
+    on_press:
+      - logger.log: "Remote Btn A Pressed"
+      - script.execute: run_rf_a_script  
+    on_release:
+      - logger.log: "Remote Btn A Released"
+
+  - platform: gpio 
+    name: "Remote BtnB"
+    id: remote_btn_B
+    internal: true
+    pin:
+      number: GPIO2  
+      mode: INPUT  
+      inverted: false  
+      ignore_strapping_warning: true
+    on_press:
+     - logger.log: "Remote Btn B Pressed"  
+     - script.execute: run_rf_b_script  
+    on_release:
+    - logger.log: "Remote Btn B  Released"
+
+  - platform: gpio
+    name: "Remote BtnC"
+    id: remote_btn_C
+    internal: true
+    pin:
+      number: GPIO15  
+      mode: INPUT  
+      inverted: false  
+      ignore_strapping_warning: true
+    on_press:
+      - logger.log: "Remote Btn C Pressed"
+      - script.execute: run_rf_c_script  
+    on_release:
+      - logger.log: "Remote Btn C Released"
+
+  - platform: gpio
+    name: "Remote BtnD"
+    id: remote_btn_D
+    internal: true
+    pin:
+      number: GPIO35  
+      mode: INPUT  
+      inverted: false  
+    on_press:
+      - logger.log: "Remote Btn D Pressed"
+      - script.execute: run_rf_d_script
+    on_release:
+      - logger.log: "Remote Btn D Released"
+
+  - platform: gpio
+    name: "Input 2"
+    id: input_2
+    pin:
+      number: GPIO39  
+      inverted: true  
+    filters:
+      - delayed_on: 100ms
+      - delayed_off: 100ms
+    on_press:
+      - logger.log: "Input 2 Triggered"
+      - script.execute: run_input2_script
+    on_release:
+      - logger.log: "Input 2 Released"
+
+  - platform: gpio
+    name: "Input 1"
+    id: input_1
+    pin:
+      number: GPIO34
+      inverted: true
+    filters:
+      - delayed_on: 100ms
+      - delayed_off: 100ms
+    on_press:
+      - logger.log: "Input 1 Triggered"
+      - script.execute: run_input1_script
+    on_release:
+      - logger.log: "Input 1 Released"
+
+  - platform: gpio
+    name: "Push Button"
+    id: push_button
+    pin:
+      number: GPIO32
+      mode: INPUT_PULLUP
+      inverted: true
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+    on_press:
+      - logger.log: "Push Button Pressed"
+
+# ==============================================================================
+# USER CONTROLS - Numbers and Selects
+# ==============================================================================
+number:
+  - platform: template
+    name: "DFPlayer Volume"
+    id: dfplayer_volume
+    min_value: 0
+    max_value: 30
+    step: 1
+    initial_value: 15
+    restore_value: true    # This ensures the value is restored after a reboot
+    optimistic: true       # Ensures the UI reflects the current value
+    set_action:
+      - dfplayer.set_volume:
+          id: dfplayer1
+          volume: !lambda 'return (int)x;'
+
+  - platform: template
+    name: "Input 1 MP3"
+    id: input1_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box              # Display as input box instead of slider
+    initial_value: 1       # Changed from 0 to 1 so it will play by default
+    restore_value: true
+    optimistic: true
+    # 0 = None (no MP3)
+    # 1-255 = Specific MP3 file
+
+  - platform: template
+    name: "Input 2 MP3"
+    id: input2_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box              # Display as input box instead of slider
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+    # 0 = None (no MP3)
+    # 1-255 = Specific MP3 file
+
+  - platform: template
+    name: "RF A MP3"
+    id: rf_a_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+
+  - platform: template
+    name: "RF B MP3"
+    id: rf_b_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+
+  - platform: template
+    name: "RF C MP3"
+    id: rf_c_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+
+  - platform: template
+    name: "RF D MP3"
+    id: rf_d_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+
+  - platform: template
+    name: "Background Loop MP3"
+    id: bg_loop_mp3_select
+    min_value: 1
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+    # MP3 file number to loop continuously in the background
+
+  - platform: template
+    name: "Max MP3 Files"
+    id: max_mp3_files
+    min_value: 1
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 32
+    restore_value: true
+    optimistic: true
+    # Sets the maximum number of MP3 files on SD card for random playback
+
+  - platform: template
+    name: "Playback Timeout"
+    id: playback_timeout_seconds
+    min_value: 5
+    max_value: 300
+    step: 5
+    mode: box
+    initial_value: 60
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "s"
+    # Timeout in seconds - resets DFPlayer if playback gets stuck
+
+# ==============================================================================
+# SELECT CONTROLS - Output Selection
+# ==============================================================================
+select:
+  - platform: template
+    name: "Input 1 Output"
+    id: input1_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options:
+      - "None"
+      - "Relay 1"
+      - "Relay 2"
+      - "FET 1"
+      - "FET 2"
+
+  - platform: template
+    name: "Input 2 Output"
+    id: input2_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options:
+      - "None"
+      - "Relay 1"
+      - "Relay 2"
+      - "FET 1"
+      - "FET 2"
+
+  - platform: template
+    name: "RF A Output"
+    id: rf_a_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options:
+      - "None"
+      - "Relay 1"
+      - "Relay 2"
+      - "FET 1"
+      - "FET 2"
+
+  - platform: template
+    name: "RF B Output"
+    id: rf_b_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options:
+      - "None"
+      - "Relay 1"
+      - "Relay 2"
+      - "FET 1"
+      - "FET 2"
+
+  - platform: template
+    name: "RF C Output"
+    id: rf_c_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options:
+      - "None"
+      - "Relay 1"
+      - "Relay 2"
+      - "FET 1"
+      - "FET 2"
+
+  - platform: template
+    name: "RF D Output"
+    id: rf_d_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options:
+      - "None"
+      - "Relay 1"
+      - "Relay 2"
+      - "FET 1"
+      - "FET 2"
+
+# ==============================================================================
+# GLOBAL VARIABLES - Common State Management
+# ==============================================================================
+globals:
+  - id: loop_bg_active
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+  - id: button_counter
+    type: int
+    restore_value: no
+    initial_value: '1'  # Start from 1

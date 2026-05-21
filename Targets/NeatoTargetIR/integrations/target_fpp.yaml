@@ -1,0 +1,109 @@
+
+# ==============================================================================
+# SUBSTITUTIONS - Configuration Variables
+# ==============================================================================
+substitutions:
+  fpp_playlist_name: "test"    # Change this to your desired FPP playlist name
+
+# ==============================================================================
+# HTTP client for FPP (Falcon Player) communication
+# ==============================================================================
+http_request:
+  useragent: esphome/device
+  verify_ssl: false
+  timeout: 3s  # Shorter global timeout to prevent blocking
+
+# ==============================================================================
+# TEXT SENSORS - FPP Server Status
+# ==============================================================================
+text_sensor:
+  # FPP Server status text sensor  
+  - platform: template
+    name: "FPP Server Status"
+    id: fpp_status
+    lambda: 'return {"Unknown"};'
+
+# ==============================================================================
+# Simple FPP Control - Single Test Playlist Button
+# ==============================================================================
+button:
+  - platform: template
+    name: "▶️ Start FPP Playlist"
+    icon: "mdi:play"
+    on_press:
+      - script.execute: fpp_start_playlist
+
+# ==============================================================================
+# TEXT INPUT - FPP IP Configuration
+# ==============================================================================
+text:
+  - platform: template
+    name: "FPP Server IP Address"
+    id: fpp_ip_input
+    optimistic: true
+    min_length: 7
+    max_length: 15
+    initial_value: "192.168.8.150"
+    restore_value: true
+    mode: text
+    set_action:
+      - lambda: |-
+          id(fpp_ip_addr) = x;
+          ESP_LOGI("FPP", "IP Address updated to: %s", x.c_str());
+          id(fpp_status).publish_state("IP Updated: " + x);
+
+# ==============================================================================
+# GLOBAL VARIABLES
+# ==============================================================================
+globals:
+  # FPP Server IP address for LED control
+  - id: fpp_ip_addr
+    type: std::string
+    restore_value: true
+    initial_value: '"192.168.8.150"'  # Change this to your FPP Server IP
+
+
+# ==============================================================================
+# SCRIPTS - FPP Playlist Control
+# ==============================================================================
+script:
+  - id: fpp_start_playlist
+    mode: single  # Prevent overlapping requests
+    then:
+      - logger.log: "🎯 Starting FPP playlist (truly non-blocking)..."
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - lambda: |-
+                std::string fpp_ip = id(fpp_ip_addr);
+                std::string playlist = "${fpp_playlist_name}";
+                
+                ESP_LOGI("FPP", "📡 Fire-and-forget request to: http://%s/api/command/Start%%20Playlist/%s", 
+                         fpp_ip.c_str(), playlist.c_str());
+                
+                // Update status immediately without waiting
+                id(fpp_status).publish_state("FPP Command Sent");
+            # Use a short delay then make the HTTP call
+            - delay: 100ms
+            - lambda: |-
+                std::string fpp_ip = id(fpp_ip_addr);
+                std::string playlist = "${fpp_playlist_name}";
+                
+                WiFiClient client;
+                if (client.connect(fpp_ip.c_str(), 80)) {
+                  String request = "GET /api/command/Start%20Playlist/" + String(playlist.c_str()) + " HTTP/1.1\r\n";
+                  request += "Host: " + String(fpp_ip.c_str()) + "\r\n";
+                  request += "User-Agent: esphome/target\r\n";
+                  request += "Connection: close\r\n\r\n";
+                  
+                  client.print(request);
+                  client.stop();
+                  ESP_LOGI("FPP", "✅ FPP command sent successfully (non-blocking)");
+                } else {
+                  ESP_LOGE("FPP", "❌ Failed to connect to FPP server");
+                }
+          else:
+            - logger.log: "❌ WiFi not connected!"
+            - lambda: |-
+                id(fpp_status).publish_state("WiFi Disconnected");

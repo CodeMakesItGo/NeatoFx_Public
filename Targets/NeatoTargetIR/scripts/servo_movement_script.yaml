@@ -1,0 +1,70 @@
+# ==============================================================================
+# SERVO MOVEMENT SCRIPT - Configurable idle/hit positions
+# ==============================================================================
+# Provides web-UI controls for servo idle and hit positions (0-180°).
+# The servo moves at its natural hardware speed.
+#
+# Included by: target_main.yaml (servo_scripts package)
+# ==============================================================================
+
+globals:
+  - id: g_servo_idle_pos
+    type: int
+    restore_value: true
+    initial_value: '0'
+
+  - id: g_servo_hit_pos
+    type: int
+    restore_value: true
+    initial_value: '90'
+
+number:
+  - platform: template
+    name: "Servo Idle Position"
+    id: servo_slider
+    min_value: 0
+    max_value: 180
+    step: 1
+    initial_value: 0
+    restore_value: true
+    optimistic: true
+    icon: "mdi:restore"
+    unit_of_measurement: "°"
+    set_action:
+      - globals.set:
+          id: g_servo_idle_pos
+          value: !lambda 'return (int)x;'
+      - servo.write:
+          id: servo1
+          level: !lambda 'return (x - 90.0f) / 90.0f;'
+
+  - platform: template
+    name: "Servo Hit Position"
+    id: servo_hit_pos_ctrl
+    min_value: 0
+    max_value: 180
+    step: 1
+    initial_value: 90
+    restore_value: true
+    optimistic: true
+    icon: "mdi:target"
+    unit_of_measurement: "°"
+    set_action:
+      - globals.set:
+          id: g_servo_hit_pos
+          value: !lambda 'return (int)x;'
+
+script:
+  - id: servo_go_hit
+    mode: restart
+    then:
+      - servo.write:
+          id: servo1
+          level: !lambda 'return (id(g_servo_hit_pos) - 90.0f) / 90.0f;'
+
+  - id: servo_go_idle
+    mode: restart
+    then:
+      - servo.write:
+          id: servo1
+          level: !lambda 'return (id(g_servo_idle_pos) - 90.0f) / 90.0f;'

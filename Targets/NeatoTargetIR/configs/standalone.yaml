@@ -1,0 +1,21 @@
+# ==============================================================================
+# STANDALONE TARGET CONFIGURATION
+# ==============================================================================
+# This configuration sets up a target device in standalone mode.
+# In standalone mode, the target operates independently without requiring
+# a central controller or Home Assistant integration.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  standalone_base: !include ../../../_shared/standalone_base.yaml
+
+# ==============================================================================
+# TARGET HIT SCRIPT - Standalone stub
+# ==============================================================================
+# No-op stub so run_hit_script can call esphome_hit_script without error.
+# In networked mode this is replaced by the real script in target_networked_config.yaml.
+script:
+  - id: esphome_hit_script
+    mode: single
+    then: []

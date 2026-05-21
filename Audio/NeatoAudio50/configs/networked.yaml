@@ -1,0 +1,79 @@
+# ==============================================================================
+# NETWORKED SPEAKER CONFIGURATION
+# ==============================================================================
+# This configuration sets up a speaker device in networked mode with Home Assistant
+# integration. In networked mode, the speaker communicates with a central controller
+# and can be managed through Home Assistant or other ESPHome-compatible systems.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  networked_base: !include ../../../_shared/networked_base.yaml
+  network_sensors: !include ../../../_shared/network_sensors.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS - Configuration Variables
+# ==============================================================================
+substitutions:
+  # ip_base and ip_addr defaults are set in _shared/networked_base.yaml.
+  # Override ip_addr here if a static subnet offset is needed.
+
+# ==============================================================================
+# API & REMOTE ACCESS - Home Assistant Integration
+# ==============================================================================
+api:
+  reboot_timeout: 0s    # Disable auto-reboot if not using a Home Assistant server
+  #reboot_timeout: 5min  # Reboot the device if no connection to Home Assistant for 5 minutes
+  # Enable Home Assistant API
+  services:
+    - service: play_sound
+      variables:
+        sound_id: int
+      then:
+        - output.turn_on: amp_wake
+        - delay: 50ms
+        - output.turn_on: amp_unmute
+        - delay: 100ms
+        - lambda: |-
+            if (sound_id >= 1 && sound_id <= 35) {
+              id(dfplayer1)->play_mp3(sound_id);
+            } else {
+              ESP_LOGW("Sound", "Invalid sound ID: %d", sound_id);
+            }
+        - script.execute: playback_timeout
+
+# Optional: Physical button on GPIO for WiFi reset (uncomment if needed)
+# binary_sensor:
+#   - platform: gpio
+#     pin:
+#       number: GPIO0  # Change to your button pin
+#       mode: INPUT_PULLUP
+#       inverted: true
+#     name: "Physical WiFi Reset Button"
+#     on_press:
+#       then:
+#         - button.press: wifi_reset_button  
+
+# ==============================================================================
+# ESPHome Script - ESPHome/Home Assistant integration
+# ==============================================================================
+script:
+  - id: esphome_script_in1
+    mode: single  # Prevent overlapping hits
+    then:     
+       # Send Home Assistant event
+      - homeassistant.event:
+          event: esphome.speaker-triggered
+          data:  
+            address: ${id}
+            input: '1'
+  - id: esphome_script_in2
+    mode: single  # Prevent overlapping hits
+    then:     
+       # Send Home Assistant event
+      - homeassistant.event:
+          event: esphome.speaker-triggered
+          data:  
+            address: ${id}
+            input: '2'# Serial-based WiFi provisioning (requires logger baud_rate != 0)
+improv_serial:

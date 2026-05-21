@@ -1,0 +1,92 @@
+# ==============================================================================
+# NEATO SMART TARGET - MAIN CONFIGURATION FILE
+# ==============================================================================
+# This is the PRIMARY configuration file that assembles all target components.
+# It includes hardware definitions, network configuration, IR protocols,
+# and optional integrations like FPP (Falcon Player) support.
+#
+# Usage:
+#   esphome run target_main.yaml                    (starts with ID 0000)
+#   esphome -s id 0001 run target_main.yaml        (starts with ID 0001)
+#   Then adjust Target ID via web interface number control
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  # Default ID - override with -s id XXXX command line parameter
+  id: "1"                     # Default target ID
+  name: target-${id}             
+  friendly_name: "NEATO Target ${id}"
+  # Servo PWM effect on hit - set when servo_pwm_effects package is enabled
+  # Options: servo_pwm_sawzall | servo_pwm_flicker  (servo_pwm_none is the default)
+  # servo_pwm_script: "servo_pwm_flicker"
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  # - For Rev 1.x targets uncomment the next line
+  #target_rev_file: !include boards/rev1.yaml
+  # - For Rev 3.x targets uncomment the next line
+  target_rev_file: !include boards/rev3.yaml
+  # - For Rev 3.x PWM train uncomment the next line
+  #target_rev_file: !include boards/rev3_pwm.yaml
+  # - For Rev 3.x LCD face (GC9A01 240x240 round TFT) uncomment the next line
+  #target_rev_file: !include boards/rev3_lcd.yaml
+
+  # Change this manually when changing target_type:
+  # - For standalone: uncomment the next line
+  config_file: !include configs/standalone.yaml
+  # - For networked: uncomment the next two lines
+  #config_file: !include configs/networked.yaml
+
+  # IR receiver configuration
+  #ir_receiver: !include protocols/ir_nec.yaml
+  #ir_receiver: !include protocols/ir_raw.yaml
+  ir_receiver: !include protocols/ir_laser_tag.yaml
+  #ir_receiver: !include protocols/ir_custom.yaml
+
+  # Falcon Player Packages (only for networked targets)
+  # Uncomment BOTH lines below to enable FPP support
+  #fpp_file: !include integrations/target_fpp.yaml
+
+  # Servo movement — include EXACTLY ONE of these two:
+  servo_scripts: !include scripts/servo_movement_script.yaml  # with servo
+  #servo_scripts: !include scripts/servo_stubs.yaml           # no servo
+
+  # Servo Pin PWM Effects - uncomment to enable a device effect on hit
+  # Also uncomment + set servo_pwm_script in substitutions below
+  #servo_pwm_effects: !include scripts/servo_pwm_effects.yaml
+
+  # Hit behavior script - defines what happens when the target is hit
+  hit_script: !include scripts/hit_script.yaml
+
+# ==============================================================================
+# TARGET HIT SCRIPTS - what to do when target is hit
+# ==============================================================================
+script:
+  # Main Hit Script - do these things when target is hit
+  - id: run_hit_script
+    mode: parallel  
+    then:
+      - script.execute: target_hit_script
+      # Uncomment the next line when FPP package is enabled above
+      #- script.execute: fpp_start_playlist
+      # Uncomment the next line when you want the target to send an ESPHome event to Home Assistant server
+      - script.execute: esphome_hit_script
+
+# ==============================================================================
+# DEBUGGING
+# ==============================================================================
+web_server:
+  local: false
+  js_url: ""
+  js_include: "boards/common/custom_ui.js"
+
+logger:
+  level: WARN  # Reduced from DEBUG to prevent mobile browser overload
+  #level: DEBUG  
+  baud_rate: 0  # Disable serial logging to free up resources 
+

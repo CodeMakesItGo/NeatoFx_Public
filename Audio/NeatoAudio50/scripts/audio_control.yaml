@@ -1,0 +1,266 @@
+# ==============================================================================
+# SMART SPEAKER - AUDIO CONTROL SCRIPTS
+# ==============================================================================
+# This file contains all DFPlayer MP3 playback scripts. These define what audio
+# plays in response to each input trigger. Included by speaker_main.yaml.
+#
+# Scripts:
+#   playback_timeout   - Watchdog: resets DFPlayer if playback stalls
+#   play_bg_loop       - Plays a looping background track
+#   play_random_mp3    - Plays the next MP3 in sequence (cycles through all)
+#   play_input1_mp3    - Plays MP3 assigned to Input 1
+#   play_input2_mp3    - Plays MP3 assigned to Input 2
+#   play_rf_a_mp3      - Plays MP3 assigned to RF channel A
+#   play_rf_b_mp3      - Plays MP3 assigned to RF channel B
+#   play_rf_c_mp3      - Plays MP3 assigned to RF channel C
+#   play_rf_d_mp3      - Plays MP3 assigned to RF channel D
+# ==============================================================================
+
+script:
+  - id: playback_timeout
+    mode: restart  # Restart timer if new playback starts
+    then:
+      - delay: !lambda 'return (int)id(playback_timeout_seconds).state * 1000;'
+      - logger.log:
+          level: ERROR
+          format: "Playback timeout! MP3 player stuck, resetting..."
+      # Turn off all outputs
+      - output.turn_off: amp_unmute
+      - output.turn_off: amp_wake
+      - switch.turn_off: relay_1
+      - switch.turn_off: relay_2
+      - light.turn_off: spot_light_1
+      - light.turn_off: spot_light_2
+      # Reset DFPlayer
+      - dfplayer.reset:
+          id: dfplayer1
+      - delay: 1000ms
+      - dfplayer.set_device:
+          id: dfplayer1
+          device: TF_CARD
+      - delay: 500ms
+      - dfplayer.set_volume:
+          id: dfplayer1
+          volume: !lambda 'return (int)id(dfplayer_volume).state;'
+      - logger.log: "DFPlayer reset complete"
+      - if:
+          condition:
+            lambda: 'return id(loop_bg_active);'
+          then:
+            - script.execute: play_bg_loop
+
+  - id: play_bg_loop
+    mode: single
+    then:
+      - lambda: |-
+          ESP_LOGI("bg_loop", "Background loop: playing MP3 #%d", (int)id(bg_loop_mp3_select).state);
+      - output.turn_on: amp_wake
+      - delay: 50ms
+      - output.turn_on: amp_unmute
+      - delay: 100ms
+      - dfplayer.play_mp3:
+          id: dfplayer1
+          file: !lambda 'return (int)id(bg_loop_mp3_select).state;'
+      - script.execute: playback_timeout
+
+  - id: play_random_mp3
+    mode: queued
+    then:
+      - logger.log: "Random MP3 script started"
+       # NOW turn on amp after play command is sent
+      - logger.log: "Waking amp..."
+      - output.turn_on: amp_wake    # Wake amp first
+      - delay: 50ms                 # Let amp stabilize
+      - logger.log: "Unmuting amp..."
+      - output.turn_on: amp_unmute  # Unmute
+      - delay: 100ms
+      - logger.log: "Amp should be awake and unmuted"
+      - lambda: |-
+          id(button_counter) += 1;
+          int max_files = (int)id(max_mp3_files).state;
+          if (id(button_counter) > max_files) {
+              id(button_counter) = 1;
+          }
+          id(dfplayer1).play_mp3(id(button_counter));
+      # Start timeout watchdog AFTER play command is sent
+      - script.execute: playback_timeout
+
+  - id: play_input1_mp3
+    mode: queued
+    then:
+      - logger.log: "Input 1 MP3 script started"
+       # NOW turn on amp after play command is sent
+      - logger.log: "Waking amp..."
+      - output.turn_on: amp_wake    # Wake amp first
+      - delay: 50ms                 # Let amp stabilize
+      - logger.log: "Unmuting amp..."
+      - output.turn_on: amp_unmute  # Unmute
+      - delay: 100ms
+      - logger.log: "Amp should be awake and unmuted"
+
+      - lambda: |-
+          // Control selected output
+          std::string output_choice = id(input1_output_select).state;
+          ESP_LOGI("input1", "Output selected: %s", output_choice.c_str());
+          if (output_choice == "Relay 1") {
+            id(relay_1).turn_on();
+          } else if (output_choice == "Relay 2") {
+            id(relay_2).turn_on();
+          } else if (output_choice == "FET 1") {
+            auto call = id(spot_light_1).turn_on();
+            call.perform();
+          } else if (output_choice == "FET 2") {
+            auto call = id(spot_light_2).turn_on();
+            call.perform();
+          }
+
+          // Play MP3
+          int mp3_setting = (int)id(input1_mp3_select).state;
+          bool random_enabled = id(input1_random_enable).state;
+          ESP_LOGI("input1", "MP3 setting: %d, Random: %s", mp3_setting, random_enabled ? "YES" : "NO");
+
+          if (mp3_setting == 0) {
+            // None - do nothing
+            ESP_LOGW("input1", "No MP3 assigned (set to 0)");
+          } else if (random_enabled) {
+            // Random mode enabled
+            int max_files = (int)id(max_mp3_files).state;
+            int random_mp3 = random(1, max_files + 1);
+            ESP_LOGI("input1", "Playing random MP3: %d", random_mp3);
+            id(dfplayer1).play_mp3(random_mp3);
+          } else {
+            // Specific MP3 (1-255)
+            ESP_LOGI("input1", "Playing MP3: %d", mp3_setting);
+            id(dfplayer1).play_mp3(mp3_setting);
+          }
+      # Start timeout watchdog AFTER play command is sent
+      - script.execute: playback_timeout
+
+  - id: play_input2_mp3
+    mode: queued
+    then:
+      - logger.log: "Input 2 MP3 script started"
+       # NOW turn on amp after play command is sent
+      - logger.log: "Waking amp..."
+      - output.turn_on: amp_wake    # Wake amp first
+      - delay: 50ms                 # Let amp stabilize
+      - logger.log: "Unmuting amp..."
+      - output.turn_on: amp_unmute  # Unmute
+      - delay: 100ms
+      - logger.log: "Amp should be awake and unmuted"
+
+      - lambda: |-
+          // Control selected output
+          std::string output_choice = id(input2_output_select).state;
+          if (output_choice == "Relay 1") {
+            id(relay_1).turn_on();
+          } else if (output_choice == "Relay 2") {
+            id(relay_2).turn_on();
+          } else if (output_choice == "FET 1") {
+            auto call = id(spot_light_1).turn_on();
+            call.perform();
+          } else if (output_choice == "FET 2") {
+            auto call = id(spot_light_2).turn_on();
+            call.perform();
+          }
+
+          // Play MP3
+          int mp3_setting = (int)id(input2_mp3_select).state;
+          if (mp3_setting == 0) {
+            // None - do nothing
+            ESP_LOGD("input2", "No MP3 assigned");
+          } else if (id(input2_random_enable).state) {
+            // Random mode enabled
+            int max_files = (int)id(max_mp3_files).state;
+            int random_mp3 = random(1, max_files + 1);
+            ESP_LOGD("input2", "Playing random MP3: %d", random_mp3);
+            id(dfplayer1).play_mp3(random_mp3);
+          } else {
+            // Specific MP3 (1-255)
+            ESP_LOGD("input2", "Playing MP3: %d", mp3_setting);
+            id(dfplayer1).play_mp3(mp3_setting);
+          }
+      # Start timeout watchdog
+      - script.execute: playback_timeout
+
+  - id: play_rf_a_mp3
+    mode: queued
+    then:
+      - output.turn_on: amp_wake
+      - delay: 50ms
+      - output.turn_on: amp_unmute
+      - delay: 100ms
+      - lambda: |-
+          std::string output_choice = id(rf_a_output_select).state;
+          if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
+          else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
+          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
+          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          int mp3_setting = (int)id(rf_a_mp3_select).state;
+          if (mp3_setting == 0) { ESP_LOGW("rf_a", "No MP3 assigned"); }
+          else if (id(rf_a_random_enable).state) {
+            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+          } else { id(dfplayer1).play_mp3(mp3_setting); }
+      - script.execute: playback_timeout
+
+  - id: play_rf_b_mp3
+    mode: queued
+    then:
+      - output.turn_on: amp_wake
+      - delay: 50ms
+      - output.turn_on: amp_unmute
+      - delay: 100ms
+      - lambda: |-
+          std::string output_choice = id(rf_b_output_select).state;
+          if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
+          else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
+          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
+          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          int mp3_setting = (int)id(rf_b_mp3_select).state;
+          if (mp3_setting == 0) { ESP_LOGW("rf_b", "No MP3 assigned"); }
+          else if (id(rf_b_random_enable).state) {
+            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+          } else { id(dfplayer1).play_mp3(mp3_setting); }
+      - script.execute: playback_timeout
+
+  - id: play_rf_c_mp3
+    mode: queued
+    then:
+      - output.turn_on: amp_wake
+      - delay: 50ms
+      - output.turn_on: amp_unmute
+      - delay: 100ms
+      - lambda: |-
+          std::string output_choice = id(rf_c_output_select).state;
+          if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
+          else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
+          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
+          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          int mp3_setting = (int)id(rf_c_mp3_select).state;
+          if (mp3_setting == 0) { ESP_LOGW("rf_c", "No MP3 assigned"); }
+          else if (id(rf_c_random_enable).state) {
+            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+          } else { id(dfplayer1).play_mp3(mp3_setting); }
+      - script.execute: playback_timeout
+
+  - id: play_rf_d_mp3
+    mode: queued
+    then:
+      - output.turn_on: amp_wake
+      - delay: 50ms
+      - output.turn_on: amp_unmute
+      - delay: 100ms
+      - lambda: |-
+          std::string output_choice = id(rf_d_output_select).state;
+          if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
+          else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
+          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
+          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          int mp3_setting = (int)id(rf_d_mp3_select).state;
+          if (mp3_setting == 0) { ESP_LOGW("rf_d", "No MP3 assigned"); }
+          else if (id(rf_d_random_enable).state) {
+            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+          } else { id(dfplayer1).play_mp3(mp3_setting); }
+      - script.execute: playback_timeout
+
+

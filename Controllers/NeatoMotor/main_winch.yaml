@@ -1,0 +1,53 @@
+# ==============================================================================
+# NEATO-FX SMART WINCH CONTROLLER - MAIN CONFIGURATION FILE
+# ==============================================================================
+# Hall-effect quadrature encoder winch with auto-homing, soft length limits,
+# and speed zones near each limit. Compile-time separate from the generic
+# motor / linear-actuator controller (motor_main.yaml).
+#
+# Usage:
+#   esphome -s id <id> run   SmartMotor/motor_winch_main.yaml
+#   esphome -s id <id> logs  SmartMotor/motor_winch_main.yaml
+#   esphome -s id <id> compile SmartMotor/motor_winch_main.yaml
+#
+# First-time calibration (after flashing):
+#   1. Power on — device auto-homes (reels in until home limit switch fires)
+#   2. Use HA or web UI to reel out to maximum usable length
+#   3. Measure the deployed rope/cable length in metres
+#   4. Enter that measurement in the "Max Length (Input)" number control
+#   5. Press "Set Max Length" — calibration is saved to flash
+#
+# Hall sensor wiring note:
+#   If reel-out causes the encoder count to decrease instead of increase,
+#   swap hall_a_pin and hall_b_pin in boards/rev3_winch.yaml.
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  id: "1"
+  name: "winch-${id}"
+  friendly_name: "SmartWinch ${id}"
+  ip_offset: "2"    # Static IP on display AP: 192.168.4.<ip_offset>
+                    # Motor 1 = "2" (192.168.4.2), Motor 2 = "3" (192.168.4.3)
+
+# ==============================================================================
+# PACKAGES - Hardware & Configuration
+# ==============================================================================
+packages:
+  board:  !include boards/rev3_winch.yaml
+
+  # Network configuration — select operating mode:
+  #   motor_display_client_config  = connects to display AP (excavator standalone)
+  #   motor_standalone_config      = motor creates its own AP (independent mode)
+  #   motor_networked_config       = connects to home WiFi + Home Assistant
+  config: !include configs/display_client.yaml
+  #config: !include configs/standalone.yaml
+  #config: !include configs/networked.yaml
+
+# ==============================================================================
+# DEBUGGING
+# ==============================================================================
+logger:
+  level: DEBUG

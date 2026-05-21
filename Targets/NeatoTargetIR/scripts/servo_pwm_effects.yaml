@@ -1,0 +1,181 @@
+# ==============================================================================
+# SERVO PIN PWM EFFECTS
+# ==============================================================================
+# Optional effects for the servo GPIO pin, used to drive a connected device
+# (light, motor controller, ESC, etc.) during a target hit.
+#
+# HOW TO ENABLE:
+#   1. Add to packages in target_main.yaml:
+#        servo_pwm_effects: !include scripts/servo_pwm_effects.yaml
+#   2. Add to substitutions in target_main.yaml:
+#        servo_pwm_script: "servo_pwm_sawzall"   # or servo_pwm_flicker
+# ==============================================================================
+
+script:
+  # ===========================================================================
+  # FLUORESCENT LIGHT FLICKER
+  # Simulates a failing fluorescent tube: solid on at 90% with irregular
+  # blackouts, partial-brightness dips, and rapid double-flicker bursts.
+  # Loops until script.stop is called.
+  # ===========================================================================
+  - id: servo_pwm_flicker
+    mode: restart
+    then:
+      - while:
+          condition:
+            lambda: 'return true;'
+          then:
+            # Solid on
+            - output.set_level:
+                id: pwm_output
+                level: 0.9
+            - delay: !lambda 'return 80  + (rand() % 200);'  # 80-280 ms
+
+            # Single brief blackout
+            - output.set_level:
+                id: pwm_output
+                level: 0.0
+            - delay: !lambda 'return 15  + (rand() % 35);'   # 15-50 ms
+
+            # Back to full brightness
+            - output.set_level:
+                id: pwm_output
+                level: 0.9
+            - delay: !lambda 'return 150 + (rand() % 350);'  # 150-500 ms
+
+            # Partial-brightness dip (dim flicker)
+            - output.set_level:
+                id: pwm_output
+                level: !lambda 'return 0.2f + (rand() % 40) / 100.0f;'  # 20-60 %
+            - delay: !lambda 'return 20  + (rand() % 40);'   # 20-60 ms
+
+            # Rapid double-flicker burst
+            - output.set_level:
+                id: pwm_output
+                level: 0.0
+            - delay: 12ms
+            - output.set_level:
+                id: pwm_output
+                level: 0.9
+            - delay: !lambda 'return 30  + (rand() % 60);'   # 30-90 ms
+            - output.set_level:
+                id: pwm_output
+                level: 0.0
+            - delay: !lambda 'return 8   + (rand() % 20);'   # 8-28 ms
+
+            # Long solid-on period before next cycle
+            - output.set_level:
+                id: pwm_output
+                level: 0.9
+            - delay: !lambda 'return 200 + (rand() % 500);'  # 200-700 ms
+
+  # ===========================================================================
+  # SAWZALL THROTTLE
+  # Simulates a human revving a reciprocating saw before/during a cut.
+  # Sequence: two test blips -> ramp to full throttle -> sustained cutting
+  # with realistic load variation. Loops until script.stop is called.
+  # ===========================================================================
+  - id: servo_pwm_sawzall
+    mode: restart
+    then:
+      - logger.log: "Sawzall: starting throttle sequence"
+
+      # --- Test blip 1: quick squeeze-and-release ---
+      - output.set_level:
+          id: pwm_output
+          level: 0.35
+      - delay: 110ms
+      - output.set_level:
+          id: pwm_output
+          level: 0.0
+      - delay: 200ms
+
+      # --- Test blip 2: higher rev, longer squeeze ---
+      - output.set_level:
+          id: pwm_output
+          level: 0.6
+      - delay: 220ms
+      - output.set_level:
+          id: pwm_output
+          level: 0.0
+      - delay: 280ms
+
+      # --- Ramp to full throttle (human squeezing the trigger) ---
+      - output.set_level:
+          id: pwm_output
+          level: 0.2
+      - delay: 55ms
+      - output.set_level:
+          id: pwm_output
+          level: 0.45
+      - delay: 55ms
+      - output.set_level:
+          id: pwm_output
+          level: 0.68
+      - delay: 55ms
+      - output.set_level:
+          id: pwm_output
+          level: 0.85
+      - delay: 65ms
+      - output.set_level:
+          id: pwm_output
+          level: 1.0
+
+      # --- Sustained cutting: full power with load-induced dips ---
+      - while:
+          condition:
+            lambda: 'return true;'
+          then:
+            # Full throttle run
+            - output.set_level:
+                id: pwm_output
+                level: 1.0
+            - delay: !lambda 'return 180 + (rand() % 320);'  # 180-500 ms
+
+            # Blade biting into material - moderate dip
+            - output.set_level:
+                id: pwm_output
+                level: !lambda 'return 0.70f + (rand() % 18) / 100.0f;'  # 70-88 %
+            - delay: !lambda 'return 60  + (rand() % 120);'  # 60-180 ms
+
+            # Recover to full
+            - output.set_level:
+                id: pwm_output
+                level: 1.0
+            - delay: !lambda 'return 100 + (rand() % 200);'  # 100-300 ms
+
+            # Brief hard-load stall (blade catching)
+            - output.set_level:
+                id: pwm_output
+                level: !lambda 'return 0.50f + (rand() % 25) / 100.0f;'  # 50-75 %
+            - delay: !lambda 'return 30  + (rand() % 60);'   # 30-90 ms
+
+      - logger.log: "Sawzall: throttle sequence complete"
+
+# ==============================================================================
+# USER INTERFACE - Test Buttons
+# ==============================================================================
+button:
+  - platform: template
+    name: "Test: Flicker Light"
+    id: servo_pwm_flicker_test_button
+    icon: "mdi:lightbulb-flash"
+    on_press:
+      - script.execute: servo_pwm_flicker
+      - delay: 4s
+      - script.stop: servo_pwm_flicker
+      - output.set_level:
+          id: pwm_output
+          level: 0.0
+
+  - platform: template
+    name: "Test: Sawzall Throttle"
+    id: servo_pwm_sawzall_test_button
+    icon: "mdi:saw-blade"
+    on_press:
+      - script.execute: servo_pwm_sawzall
+      - delay: 4s
+      - script.stop: servo_pwm_sawzall
+      - output.set_level:
+          id: pwm_output
+          level: 0.0
