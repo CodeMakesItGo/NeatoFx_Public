@@ -1,29 +1,31 @@
 # ==============================================================================
-# NEATO AUDIO 50 - MAIN CONFIGURATION
-# Board: Rev 2.4  |  RFTX: Output (RF Transmitter)
+# NEATO AUDIO 50 - MAIN CONFIGURATION FILE
 # ==============================================================================
-# Use program.sh to select board/RFTX variant — do not edit packages directly.
-#
-# Variants:
-#   main.yaml              Rev 2.4 + RFTX as transmitter outputs  (default)
-#   main_rftx.yaml         Rev 2.4 + RFTX as 4 trigger inputs
-#   main_rev2_3.yaml       Rev 2.3 + RFTX as transmitter outputs
-#   main_rev2_3_rftx.yaml  Rev 2.3 + RFTX as 4 trigger inputs
-#
-# Compile directly:
+# Usage:
 #   esphome -s id 1 compile main.yaml
-#   esphome -s id 1 compile main_rftx.yaml
+#   esphome -s id 1 run     main.yaml
+#   esphome -s id 1 logs    main.yaml
 # ==============================================================================
 
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
 substitutions:
   id: "1"
   name: audio-${id}
   friendly_name: "NEATO Audio ${id}"
 
+# ==============================================================================
+# PACKAGES
+# ==============================================================================
 packages:
-  # Hardware
-  board:          !include boards/rev2_4.yaml
-  rftx:           !include boards/rftx_outputs.yaml
+  # Hardware — select one board revision:
+  board:          !include boards/rev2_4.yaml    # Rev 2.4 / 2.5 / 2.6 (current production)
+  #board:         !include boards/rev2_3.yaml    # Rev 2.3 (mp3_power on GPIO21)
+
+  # RFTX connector — select one mode:
+  rftx:           !include boards/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
+  #rftx:          !include boards/rftx_inputs.yaml    # RFTX as 4 trigger inputs
 
   # Network / standalone mode — swap these lines to switch:
   #config_file:   !include configs/standalone.yaml
@@ -31,12 +33,14 @@ packages:
 
   # Optional integrations (uncomment to enable):
   #fpp_file:      !include integrations/speaker_fpp.yaml
-  #linear_actuator: !include scripts/linear_actuator_out_in.yaml
 
   # Scripts (customize in these files, not here)
   trigger_scripts: !include scripts/trigger_scripts.yaml
   audio_scripts:   !include scripts/audio_control.yaml
 
+# ==============================================================================
+# DEBUGGING
+# ==============================================================================
 logger:
   level: WARN
   baud_rate: 0
