@@ -32,6 +32,7 @@ substitutions:
 
   # Project Information
   project_name: "CodeMakesItGo.Target"
+  project_version: "1.0.0"
 
 # ==============================================================================
 # ESP32 FRAMEWORK - Common Settings

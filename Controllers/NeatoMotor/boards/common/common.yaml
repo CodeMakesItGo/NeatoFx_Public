@@ -19,6 +19,7 @@ packages:
 substitutions:
   # Project Information
   project_name: "CodeMakesItGo.Motor"
+  project_version: "1.0.0"
 
 # ==============================================================================
 # COVER - Home Assistant integration (gate device class)
