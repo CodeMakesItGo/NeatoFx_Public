@@ -28,6 +28,7 @@ text_sensor:
 # ==============================================================================
 button:
   - platform: template
+    id: fpp_start_button
     name: "▶️ Start FPP Playlist"
     icon: "mdi:play"
     on_press:

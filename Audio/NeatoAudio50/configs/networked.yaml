@@ -84,5 +84,4 @@ script:
             address: ${id}
             input: '2'
 
-# improv_serial requires logger baud_rate != 0; use esp32_improv (BLE) instead
-#improv_serial:
+improv_serial:

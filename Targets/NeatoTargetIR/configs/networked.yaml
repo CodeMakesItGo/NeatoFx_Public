@@ -57,5 +57,4 @@ script:
             address: ${id}
             player: !lambda 'return id(ir_command);'
             points: !lambda 'return std::to_string(id(target_points));'
-# improv_serial requires logger baud_rate != 0; use esp32_improv (BLE) instead
-#improv_serial:
+improv_serial:

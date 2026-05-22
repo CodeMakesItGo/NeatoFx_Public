@@ -49,6 +49,7 @@ esp32:
 sensor:
   # System uptime monitoring
   - platform: uptime
+    id: uptime_sensor
     name: "Uptime Sensor"
     update_interval: 60s
 

@@ -280,5 +280,6 @@ sensor:
           - output.turn_off: motor_l_en
 
   - platform: uptime
+    id: uptime_sensor
     name: "Uptime"
     update_interval: 60s

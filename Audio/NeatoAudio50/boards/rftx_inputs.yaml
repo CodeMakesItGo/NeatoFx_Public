@@ -111,21 +111,25 @@ switch:
 # ==============================================================================
 button:
   - platform: template
+    id: test_aux_1
     name: "Test Aux 1 (RFTX0)"
     on_press:
       - script.execute: run_aux1_script
 
   - platform: template
+    id: test_aux_2
     name: "Test Aux 2 (RFTX1)"
     on_press:
       - script.execute: run_aux2_script
 
   - platform: template
+    id: test_aux_3
     name: "Test Aux 3 (RFTX2)"
     on_press:
       - script.execute: run_aux3_script
 
   - platform: template
+    id: test_aux_4
     name: "Test Aux 4 (RFTX3)"
     on_press:
       - script.execute: run_aux4_script

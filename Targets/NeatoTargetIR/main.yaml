@@ -82,6 +82,5 @@ web_server:
 
 logger:
   level: WARN  # Reduced from DEBUG to prevent mobile browser overload
-  #level: DEBUG  
-  baud_rate: 0  # Disable serial logging to free up resources 
+  #level: DEBUG
 

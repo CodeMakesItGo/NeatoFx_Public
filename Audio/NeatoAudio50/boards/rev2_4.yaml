@@ -64,8 +64,9 @@ esp32:
 # ==============================================================================
 sensor:
   - platform: uptime
+    id: uptime_sensor
     name: "Uptime Sensor"
-    update_interval: 60s  
+    update_interval: 60s
 
 status_led:
   pin:
@@ -157,9 +158,11 @@ switch:
 # ==============================================================================
 button:
   - platform: restart
+    id: restart_button
     name: "Restart ${friendly_name}"
 
   - platform: template
+    id: test_play_random_mp3
     name: "Test Play Random MP3"
     on_press:
       - lambda: |-
@@ -172,11 +175,13 @@ button:
       - output.turn_on: amp_unmute  # Unmute
 
   - platform: template
+    id: test_input_1
     name: "Test Input 1"
     on_press:
       - script.execute: run_input1_script
 
   - platform: template
+    id: test_input_2
     name: "Test Input 2"
     on_press:
       - script.execute: run_input2_script

@@ -218,5 +218,6 @@ sensor:
           - script.execute: winch_stop_script
 
   - platform: uptime
+    id: uptime_sensor
     name: "Uptime"
     update_interval: 60s

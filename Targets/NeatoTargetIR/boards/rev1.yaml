@@ -75,7 +75,8 @@ esphome:
 sensor:
   # Analog voltage measurement on GPIO34 
   - platform: adc
-    pin: 
+    id: gpio34_voltage
+    pin:
       number: ${io34_gpio}
     name: "GPIO34 Voltage"
     update_interval: 5s
@@ -94,7 +95,8 @@ sensor:
           
   # Analog voltage measurement on GPIO35 
   - platform: adc
-    pin: 
+    id: gpio35_voltage
+    pin:
       number: ${io35_gpio}
     name: "GPIO35 Voltage"
     update_interval: 5s
@@ -121,6 +123,7 @@ binary_sensor:
       number: ${io21_gpio}
       mode: INPUT_PULLUP
       inverted: true
+    id: gpio21_digital
     name: "GPIO21 Digital State"
     device_class: "motion"
     filters:
@@ -137,6 +140,7 @@ binary_sensor:
       number: ${io25_gpio}
       mode: INPUT_PULLUP
       inverted: true
+    id: gpio25_digital
     name: "GPIO25 Digital State"
     device_class: "motion"
     filters:
@@ -153,6 +157,7 @@ binary_sensor:
       number: ${io32_gpio}
       mode: INPUT_PULLUP
       inverted: true
+    id: gpio32_digital
     name: "GPIO32 Digital State"
     device_class: "motion"
     filters:
@@ -169,6 +174,7 @@ binary_sensor:
       number: ${io33_gpio}
       mode: INPUT_PULLUP
       inverted: true
+    id: gpio33_digital
     name: "GPIO33 Digital State"
     device_class: "motion"
     filters:

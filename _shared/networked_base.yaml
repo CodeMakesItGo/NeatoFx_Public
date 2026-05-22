@@ -31,7 +31,7 @@ wifi:
   # Setup WiFi hotspot for customer configuration
   ap:
     ssid: "${name}"
-    password: "neato123"
+    password: ""
 
   # Connection management
   reboot_timeout: 10min     # Reboot after 10 minutes of WiFi loss

@@ -234,6 +234,7 @@ binary_sensor:
       number: ${io16_gpio}
       mode: INPUT_PULLUP
       inverted: true
+    id: gpio16_digital
     name: "GPIO16 Digital State"
     device_class: "motion"
     filters:
@@ -250,6 +251,7 @@ binary_sensor:
       number: ${io17_gpio}
       mode: INPUT_PULLUP
       inverted: true
+    id: gpio17_digital
     name: "GPIO17 Digital State"
     device_class: "motion"
     filters:
