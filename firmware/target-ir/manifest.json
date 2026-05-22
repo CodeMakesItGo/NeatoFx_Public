@@ -1,0 +1,14 @@
+{
+  "name": "NEATO Target IR",
+  "version": "1.0.0",
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "ota": {
+        "path": "https://github.com/CodeMakesItGo/NeatoFx_Public/releases/download/v1.0.0/target-ir-v1.0.0.bin",
+        "md5": "daccaf8bbaf36b71dadbd8bf4c599e44",
+        "summary": "Initial public release"
+      }
+    }
+  ]
+}

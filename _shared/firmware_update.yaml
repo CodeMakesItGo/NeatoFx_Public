@@ -1,0 +1,27 @@
+# ==============================================================================
+# NEATO-FX SHARED PACKAGE - FIRMWARE UPDATE (HTTP OTA)
+# ==============================================================================
+# Provides http_request and OTA-over-HTTP prerequisites for all networked
+# devices.  Each device's networked.yaml adds the device-specific:
+#
+#   update:
+#     - platform: http_request
+#       name: "Firmware Update"
+#       source: https://raw.githubusercontent.com/.../manifest.json
+#
+# Included by: each device's configs/networked.yaml
+# ==============================================================================
+
+# ==============================================================================
+# HTTP REQUEST - Shared transport for update checks and OTA downloads
+# ==============================================================================
+http_request:
+  useragent: esphome/device
+  verify_ssl: false
+  timeout: 10s
+
+# ==============================================================================
+# OTA via HTTP - Required by update.http_request
+# ==============================================================================
+ota:
+  - platform: http_request

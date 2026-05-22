@@ -1,0 +1,14 @@
+{
+  "name": "NEATO Audio 50",
+  "version": "1.0.0",
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "ota": {
+        "path": "https://github.com/CodeMakesItGo/NeatoFx_Public/releases/download/v1.0.0/audio50-v1.0.0.bin",
+        "md5": "bb3fb76b779394c87cba18af7b5c469b",
+        "summary": "Initial public release"
+      }
+    }
+  ]
+}

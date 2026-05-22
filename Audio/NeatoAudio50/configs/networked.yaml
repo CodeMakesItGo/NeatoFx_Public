@@ -10,6 +10,7 @@
 packages:
   networked_base: !include ../../../_shared/networked_base.yaml
   network_sensors: !include ../../../_shared/network_sensors.yaml
+  firmware_update: !include ../../../_shared/firmware_update.yaml
 
 # ==============================================================================
 # DASHBOARD IMPORT - Made for ESPHome
@@ -85,3 +86,12 @@ script:
             input: '2'
 
 improv_serial:
+
+# ==============================================================================
+# FIRMWARE UPDATES - OTA via HTTP
+# ==============================================================================
+update:
+  - platform: http_request
+    id: firmware_update_check
+    name: "Firmware Update"
+    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/audio50/manifest.json

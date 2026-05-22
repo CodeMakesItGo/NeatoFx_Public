@@ -1,0 +1,14 @@
+{
+  "name": "NEATO Motor",
+  "version": "1.0.0",
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "ota": {
+        "path": "https://github.com/CodeMakesItGo/NeatoFx_Public/releases/download/v1.0.0/motor-v1.0.0.bin",
+        "md5": "21992bbec227f8b13a03a27d8e3ee447",
+        "summary": "Initial public release"
+      }
+    }
+  ]
+}
