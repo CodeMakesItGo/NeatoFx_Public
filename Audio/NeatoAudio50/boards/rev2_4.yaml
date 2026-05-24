@@ -104,6 +104,10 @@ switch:
       - dfplayer.stop:
           id: dfplayer1
       - script.stop: playback_timeout
+      - switch.turn_off: relay_1
+      - switch.turn_off: relay_2
+      - light.turn_off: spot_light_1
+      - light.turn_off: spot_light_2
       - output.turn_off: amp_unmute
       - delay: 10ms
       - output.turn_off: amp_wake
@@ -256,6 +260,9 @@ dfplayer:
     then:
     - logger.log: 'Playback finished event'
     - script.stop: playback_timeout
+    - dfplayer.set_volume:
+        id: dfplayer1
+        volume: !lambda 'return (int)id(dfplayer_volume).state;'
     - switch.turn_off: relay_1
     - switch.turn_off: relay_2
     - light.turn_off: spot_light_1
