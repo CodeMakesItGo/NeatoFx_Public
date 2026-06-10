@@ -20,16 +20,17 @@ substitutions:
 # ==============================================================================
 packages:
   # Hardware — select one board revision:
-  board:          !include boards/rev2_4.yaml    # Rev 2.4 / 2.5 / 2.6 (current production)
+  oard:          !include boards/rev2_4.yaml    # Rev 2.4 / 2.5 / 2.6 (current production)
   #board:         !include boards/rev2_3.yaml    # Rev 2.3 (mp3_power on GPIO21)
 
   # RFTX connector — select one mode:
-  rftx:           !include boards/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
+  #rftx:           !include boards/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
   #rftx:          !include boards/rftx_inputs.yaml    # RFTX as 4 trigger inputs
+  rftx:          !include boards/rftx_none.yaml      # RFTX unused (hides all RF controls from UI)
 
   # Network / standalone mode — swap these lines to switch:
-  #config_file:   !include configs/standalone.yaml
-  config_file:    !include configs/networked.yaml
+  config_file:   !include configs/standalone.yaml
+  #config_file:    !include configs/networked.yaml
 
   # Optional integrations (uncomment to enable):
   #fpp_file:      !include integrations/speaker_fpp.yaml

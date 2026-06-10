@@ -7,7 +7,7 @@
 # Scripts:
 #   playback_timeout   - Watchdog: resets DFPlayer if playback stalls
 #   play_bg_loop       - Plays a looping background track
-#   play_random_mp3    - Plays the next MP3 in sequence (cycles through all)
+#   play_random_mp3    - Plays next MP3 in sequence (cycles through all files)
 #   play_input1_mp3    - Plays MP3 assigned to Input 1
 #   play_input2_mp3    - Plays MP3 assigned to Input 2
 #   play_rf_a_mp3      - Plays MP3 assigned to RF channel A
@@ -48,15 +48,36 @@ script:
             lambda: 'return id(loop_bg_active);'
           then:
             - script.execute: play_bg_loop
+            - script.execute: bg_loop_start_effect
+
+  - id: bg_loop_start_effect
+    mode: restart
+    then:
+      - lambda: |-
+          std::string fet = id(bg_loop_fet_select).current_option();
+          std::string effect = id(bg_loop_effect_select).current_option();
+          if (fet == "FET 1") {
+            auto call = id(spot_light_1).turn_on();
+            call.set_effect(effect.c_str());
+            call.perform();
+          } else if (fet == "FET 2") {
+            auto call = id(spot_light_2).turn_on();
+            call.set_effect(effect.c_str());
+            call.perform();
+          }
 
   - id: play_bg_loop
-    mode: single
+    mode: restart
     then:
       - lambda: |-
           ESP_LOGI("bg_loop", "Background loop: playing MP3 #%d", (int)id(bg_loop_mp3_select).state);
       - output.turn_on: amp_wake
       - delay: 50ms
       - output.turn_on: amp_unmute
+      - delay: 100ms
+      - dfplayer.set_volume:
+          id: dfplayer1
+          volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - delay: 100ms
       - dfplayer.play_mp3:
           id: dfplayer1
@@ -108,9 +129,11 @@ script:
             id(relay_2).turn_on();
           } else if (output_choice == "FET 1") {
             auto call = id(spot_light_1).turn_on();
+            call.set_brightness(id(spot1_trigger_brightness).state / 100.0f);
             call.perform();
           } else if (output_choice == "FET 2") {
             auto call = id(spot_light_2).turn_on();
+            call.set_brightness(id(spot2_trigger_brightness).state / 100.0f);
             call.perform();
           }
 
@@ -123,11 +146,12 @@ script:
             // None - do nothing
             ESP_LOGW("input1", "No MP3 assigned (set to 0)");
           } else if (random_enabled) {
-            // Random mode enabled
+            // Sequential mode: advance counter and cycle
             int max_files = (int)id(max_mp3_files).state;
-            int random_mp3 = random(1, max_files + 1);
-            ESP_LOGI("input1", "Playing random MP3: %d", random_mp3);
-            id(dfplayer1).play_mp3(random_mp3);
+            id(button_counter) += 1;
+            if (id(button_counter) > max_files) id(button_counter) = 1;
+            ESP_LOGI("input1", "Playing sequential MP3: %d", id(button_counter));
+            id(dfplayer1).play_mp3(id(button_counter));
           } else {
             // Specific MP3 (1-255)
             ESP_LOGI("input1", "Playing MP3: %d", mp3_setting);
@@ -158,9 +182,11 @@ script:
             id(relay_2).turn_on();
           } else if (output_choice == "FET 1") {
             auto call = id(spot_light_1).turn_on();
+            call.set_brightness(id(spot1_trigger_brightness).state / 100.0f);
             call.perform();
           } else if (output_choice == "FET 2") {
             auto call = id(spot_light_2).turn_on();
+            call.set_brightness(id(spot2_trigger_brightness).state / 100.0f);
             call.perform();
           }
 
@@ -170,11 +196,12 @@ script:
             // None - do nothing
             ESP_LOGD("input2", "No MP3 assigned");
           } else if (id(input2_random_enable).state) {
-            // Random mode enabled
+            // Sequential mode: advance counter and cycle
             int max_files = (int)id(max_mp3_files).state;
-            int random_mp3 = random(1, max_files + 1);
-            ESP_LOGD("input2", "Playing random MP3: %d", random_mp3);
-            id(dfplayer1).play_mp3(random_mp3);
+            id(button_counter) += 1;
+            if (id(button_counter) > max_files) id(button_counter) = 1;
+            ESP_LOGD("input2", "Playing sequential MP3: %d", id(button_counter));
+            id(dfplayer1).play_mp3(id(button_counter));
           } else {
             // Specific MP3 (1-255)
             ESP_LOGD("input2", "Playing MP3: %d", mp3_setting);
@@ -194,12 +221,14 @@ script:
           std::string output_choice = id(rf_a_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
-          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
-          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
           int mp3_setting = (int)id(rf_a_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("rf_a", "No MP3 assigned"); }
           else if (id(rf_a_random_enable).state) {
-            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
           } else { id(dfplayer1).play_mp3(mp3_setting); }
       - script.execute: playback_timeout
 
@@ -214,12 +243,14 @@ script:
           std::string output_choice = id(rf_b_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
-          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
-          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
           int mp3_setting = (int)id(rf_b_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("rf_b", "No MP3 assigned"); }
           else if (id(rf_b_random_enable).state) {
-            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
           } else { id(dfplayer1).play_mp3(mp3_setting); }
       - script.execute: playback_timeout
 
@@ -234,12 +265,14 @@ script:
           std::string output_choice = id(rf_c_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
-          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
-          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
           int mp3_setting = (int)id(rf_c_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("rf_c", "No MP3 assigned"); }
           else if (id(rf_c_random_enable).state) {
-            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
           } else { id(dfplayer1).play_mp3(mp3_setting); }
       - script.execute: playback_timeout
 
@@ -254,12 +287,14 @@ script:
           std::string output_choice = id(rf_d_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
-          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
-          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
           int mp3_setting = (int)id(rf_d_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("rf_d", "No MP3 assigned"); }
           else if (id(rf_d_random_enable).state) {
-            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
           } else { id(dfplayer1).play_mp3(mp3_setting); }
       - script.execute: playback_timeout
 

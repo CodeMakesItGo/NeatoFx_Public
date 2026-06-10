@@ -1,0 +1,42 @@
+# ==============================================================================
+# NEATO MOTOR - DUAL PULSE / AIR-VALVE VARIANT
+# ==============================================================================
+# Minimal two-channel one-shot controller for firing two air valves / solenoids
+# from one controller, using the two halves of the H-bridge:
+#   Input 1 -> A side (R) HIGH for an adjustable time (default 100 ms), then off
+#   Input 2 -> B side (L) HIGH for an adjustable time (default 100 ms), then off
+# That is all it does.
+#
+# Usage:
+#   esphome -s id 1 compile main_pulse.yaml
+#   esphome -s id 1 run     main_pulse.yaml
+#   esphome -s id 1 logs    main_pulse.yaml
+#
+# Adjust on-time via the "Pulse Time" number control in the web UI / HA.
+# Fire manually with the "Trigger A" / "Trigger B" buttons, or the Input pins.
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  id: "1"
+  name: "pulse-${id}"
+  friendly_name: "Neato Pulse ${id}"
+
+# ==============================================================================
+# PACKAGES - Hardware & Configuration
+# ==============================================================================
+packages:
+  # Hardware definition
+  board: !include boards/rev3_pulse.yaml
+
+  # Network configuration — select operating mode:
+  #config: !include configs/networked.yaml
+  config: !include configs/standalone.yaml
+
+# ==============================================================================
+# DEBUGGING
+# ==============================================================================
+logger:
+  level: WARN  # Change to DEBUG for troubleshooting

@@ -1,147 +1,108 @@
 # ==============================================================================
-# NEATO AUDIO 50 - RFTX CONNECTOR AS RF TRANSMITTER OUTPUTS (default)
+# NEATO AUDIO 50 - RFTX CONNECTOR DISABLED (no inputs, no outputs)
 # ==============================================================================
-# Configures the 4-pin RFTX connector as GPIO outputs driving an RF transmitter.
-# Each channel fires a 100ms momentary pulse when triggered.
+# Use this package when the RFTX connector is not used for anything.
+# All RF A/B/C/D controls are hidden from Home Assistant and the web UI.
+# The RFTX pins (GPIO14, GPIO12, GPIO19, GPIO18) are left unconfigured.
+# The RF receiver inputs on the board still work and will trigger run_rf_*_script,
+# but those scripts will silently do nothing (MP3 set to 0 = None by default).
 #
-# Pin mapping:
-#   RFTX0  GPIO14  → RF TX A
-#   RFTX1  GPIO12  → RF TX B  (strapping pin — warning suppressed)
-#   RFTX2  GPIO19  → RF TX C
-#   RFTX3  GPIO18  → RF TX D
-#
-# GPIO4 (RF TX Power) is defined in the board file and controls transmitter power.
-# To switch to input mode: esphome -s rftx rftx_inputs compile main.yaml
+# To enable: set rftx line in main.yaml to:
+#   rftx: !include boards/rftx_none.yaml
 # ==============================================================================
 
 # ==============================================================================
-# RF TRANSMITTER SWITCHES - Momentary Pulse Outputs
+# RF SWITCHES - Hidden (internal: true = not exposed to HA or web UI)
 # ==============================================================================
 switch:
-  - platform: gpio
-    pin: GPIO14
-    name: "RF TX A"
-    id: rf_tx_a
-    restore_mode: ALWAYS_OFF
-    on_turn_on:
-      - delay: 100ms
-      - switch.turn_off: rf_tx_a
-
-  - platform: gpio
-    pin:
-      number: GPIO12
-      ignore_strapping_warning: true
-    name: "RF TX B"
-    id: rf_tx_b
-    restore_mode: ALWAYS_OFF
-    on_turn_on:
-      - delay: 100ms
-      - switch.turn_off: rf_tx_b
-
-  - platform: gpio
-    pin: GPIO19
-    name: "RF TX C"
-    id: rf_tx_c
-    restore_mode: ALWAYS_OFF
-    on_turn_on:
-      - delay: 100ms
-      - switch.turn_off: rf_tx_c
-
-  - platform: gpio
-    pin: GPIO18
-    name: "RF TX D"
-    id: rf_tx_d
-    restore_mode: ALWAYS_OFF
-    on_turn_on:
-      - delay: 100ms
-      - switch.turn_off: rf_tx_d
-
-  - platform: gpio
-    pin: GPIO4
-    name: "RF TX Power"
-    id: rf_tx_power
-    restore_mode: ALWAYS_OFF
-    # Controls power to the RF transmitter on the RFTX connector
-
   - platform: template
     name: "RF A Sequential"
     id: rf_a_random_enable
+    internal: true
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
   - platform: template
     name: "RF B Sequential"
     id: rf_b_random_enable
+    internal: true
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
   - platform: template
     name: "RF C Sequential"
     id: rf_c_random_enable
+    internal: true
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
   - platform: template
     name: "RF D Sequential"
     id: rf_d_random_enable
+    internal: true
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
 # ==============================================================================
-# RF NUMBER CONTROLS - MP3 File Assignment
+# RF NUMBER CONTROLS - Hidden
 # ==============================================================================
 number:
   - platform: template
     name: "RF A MP3"
     id: rf_a_mp3_select
+    internal: true
     min_value: 0
     max_value: 255
     step: 1
     mode: box
-    initial_value: 1
+    initial_value: 0      # 0 = None, so RF triggers play nothing
     restore_value: true
     optimistic: true
 
   - platform: template
     name: "RF B MP3"
     id: rf_b_mp3_select
+    internal: true
     min_value: 0
     max_value: 255
     step: 1
     mode: box
-    initial_value: 1
+    initial_value: 0
     restore_value: true
     optimistic: true
 
   - platform: template
     name: "RF C MP3"
     id: rf_c_mp3_select
+    internal: true
     min_value: 0
     max_value: 255
     step: 1
     mode: box
-    initial_value: 1
+    initial_value: 0
     restore_value: true
     optimistic: true
 
   - platform: template
     name: "RF D MP3"
     id: rf_d_mp3_select
+    internal: true
     min_value: 0
     max_value: 255
     step: 1
     mode: box
-    initial_value: 1
+    initial_value: 0
     restore_value: true
     optimistic: true
 
 # ==============================================================================
-# RF SELECT CONTROLS - Output Routing
+# RF SELECT CONTROLS - Hidden
 # ==============================================================================
 select:
   - platform: template
     name: "RF A Output"
     id: rf_a_output_select
+    internal: true
     optimistic: true
     restore_value: true
     initial_option: "None"
@@ -150,6 +111,7 @@ select:
   - platform: template
     name: "RF B Output"
     id: rf_b_output_select
+    internal: true
     optimistic: true
     restore_value: true
     initial_option: "None"
@@ -158,6 +120,7 @@ select:
   - platform: template
     name: "RF C Output"
     id: rf_c_output_select
+    internal: true
     optimistic: true
     restore_value: true
     initial_option: "None"
@@ -166,6 +129,7 @@ select:
   - platform: template
     name: "RF D Output"
     id: rf_d_output_select
+    internal: true
     optimistic: true
     restore_value: true
     initial_option: "None"

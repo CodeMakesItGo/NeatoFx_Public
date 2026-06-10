@@ -25,3 +25,6 @@ esphome:
 ota:
   - platform: esphome
     password: ""
+  # Enable firmware (.bin) upload from the web UI — adds an "OTA Update"
+  # file-upload form to the web server at http://<device>/.
+  - platform: web_server

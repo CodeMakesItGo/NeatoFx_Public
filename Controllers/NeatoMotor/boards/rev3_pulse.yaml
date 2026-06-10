@@ -1,0 +1,115 @@
+# ==============================================================================
+# SMART MOTOR CONTROLLER - HARDWARE DEFINITION (REV 3.0 BOARD, PULSE MODE)
+# ==============================================================================
+# Hardware: Wemos D1 Mini ESP32 + 2× BTN8962TA H-bridge
+#
+# This board file wires the Rev 3.0 hardware for DUAL PULSE / air-valve
+# operation. Two valves, one per H-bridge half, fired independently:
+#   Input 1 -> A side (R) driven HIGH for a configurable time (default 100 ms)
+#   Input 2 -> B side (L) driven HIGH for a configurable time (default 100 ms)
+# See "Pulse Time" in boards/common/pulse_control.yaml for the on-time.
+#
+# Motor H-bridge (BTN8962TA):
+#   GPIO19 - R_PWM  — Valve A output drive (HIGH during pulse)
+#   GPIO18 - L_PWM  — Valve B output drive (HIGH during pulse)
+#   GPIO17 - R_EN   — Right H-bridge enable (A side)
+#   GPIO16 - L_EN   — Left H-bridge enable  (B side)
+#
+# Inputs:
+#   GPIO32 - INPUT_1 (momentary trigger) — fires valve A on press
+#   GPIO27 - INPUT_2 (momentary trigger) — fires valve B on press
+# ==============================================================================
+
+# ==============================================================================
+# PACKAGES
+# ==============================================================================
+packages:
+  common: !include common/pulse_control.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS - Hardware Pin Assignments
+# ==============================================================================
+substitutions:
+  project_name: "CodeMakesItGo.PulseMotor"
+
+# ==============================================================================
+# CORE CONFIGURATION
+# ==============================================================================
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  project:
+    name: ${project_name}
+    version: "1.0.0"
+  on_boot:
+    - priority: 900   # Earliest — disable H-bridge before GPIO init completes
+      then:
+        - output.turn_off: motor_r_en
+        - output.turn_off: motor_l_en
+        - output.turn_off: motor_rpwm
+        - output.turn_off: motor_lpwm
+        - logger.log: "Boot: H-bridge disabled — output safe"
+
+esp32:
+  board: wemos_d1_mini32
+  framework:
+    type: arduino
+    version: recommended
+
+# ==============================================================================
+# MOTOR OUTPUTS - BTN8962TA H-Bridge
+# ==============================================================================
+output:
+  # Valve A output PWM (HIGH during pulse)
+  - platform: ledc
+    id: motor_rpwm
+    pin: GPIO19
+    frequency: 1000 Hz
+
+  # Valve B output PWM (HIGH during pulse)
+  - platform: ledc
+    id: motor_lpwm
+    pin: GPIO18
+    frequency: 1000 Hz
+
+  # H-bridge enable lines (both must be ON for output to drive)
+  - platform: gpio
+    id: motor_r_en
+    pin: GPIO17
+
+  - platform: gpio
+    id: motor_l_en
+    pin: GPIO16
+
+# ==============================================================================
+# BINARY SENSORS - Trigger Inputs
+# ==============================================================================
+binary_sensor:
+  # Input 1 — momentary trigger. On press, fire valve A (A/R side).
+  - platform: gpio
+    pin:
+      number: GPIO32
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Input 1"
+    id: input_1
+    filters:
+      - delayed_on: 20ms
+    on_press:
+      - logger.log: "Input 1 triggered — firing valve A"
+      - script.execute: pulse_a_script
+
+  # Input 2 — momentary trigger. On press, fire valve B (B/L side).
+  - platform: gpio
+    pin:
+      number: GPIO27
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Input 2"
+    id: input_2
+    filters:
+      - delayed_on: 20ms
+    on_press:
+      - logger.log: "Input 2 triggered — firing valve B"
+      - script.execute: pulse_b_script

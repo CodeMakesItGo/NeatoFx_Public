@@ -83,28 +83,136 @@ binary_sensor:
 # ==============================================================================
 switch:
   - platform: template
-    name: "Aux 1 Random"
+    name: "Aux 1 Sequential"
     id: aux1_random_enable
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
   - platform: template
-    name: "Aux 2 Random"
+    name: "Aux 2 Sequential"
     id: aux2_random_enable
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
   - platform: template
-    name: "Aux 3 Random"
+    name: "Aux 3 Sequential"
     id: aux3_random_enable
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
   - platform: template
-    name: "Aux 4 Random"
+    name: "Aux 4 Sequential"
     id: aux4_random_enable
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
+
+  - platform: template
+    name: "RF A Sequential"
+    id: rf_a_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: template
+    name: "RF B Sequential"
+    id: rf_b_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: template
+    name: "RF C Sequential"
+    id: rf_c_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: template
+    name: "RF D Sequential"
+    id: rf_d_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+# ==============================================================================
+# RF NUMBER CONTROLS - MP3 File Assignment
+# ==============================================================================
+number:
+  - platform: template
+    name: "RF A MP3"
+    id: rf_a_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+
+  - platform: template
+    name: "RF B MP3"
+    id: rf_b_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+
+  - platform: template
+    name: "RF C MP3"
+    id: rf_c_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+
+  - platform: template
+    name: "RF D MP3"
+    id: rf_d_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+
+# ==============================================================================
+# RF SELECT CONTROLS - Output Routing
+# ==============================================================================
+select:
+  - platform: template
+    name: "RF A Output"
+    id: rf_a_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+
+  - platform: template
+    name: "RF B Output"
+    id: rf_b_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+
+  - platform: template
+    name: "RF C Output"
+    id: rf_c_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+
+  - platform: template
+    name: "RF D Output"
+    id: rf_d_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
 
 # ==============================================================================
 # AUX BUTTONS - Manual Test Triggers
@@ -259,7 +367,9 @@ script:
           int mp3_setting = (int)id(aux1_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("aux1", "No MP3 assigned"); }
           else if (id(aux1_random_enable).state) {
-            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
           } else { id(dfplayer1).play_mp3(mp3_setting); }
       - script.execute: playback_timeout
 
@@ -279,7 +389,9 @@ script:
           int mp3_setting = (int)id(aux2_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("aux2", "No MP3 assigned"); }
           else if (id(aux2_random_enable).state) {
-            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
           } else { id(dfplayer1).play_mp3(mp3_setting); }
       - script.execute: playback_timeout
 
@@ -299,7 +411,9 @@ script:
           int mp3_setting = (int)id(aux3_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("aux3", "No MP3 assigned"); }
           else if (id(aux3_random_enable).state) {
-            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
           } else { id(dfplayer1).play_mp3(mp3_setting); }
       - script.execute: playback_timeout
 
@@ -319,6 +433,8 @@ script:
           int mp3_setting = (int)id(aux4_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("aux4", "No MP3 assigned"); }
           else if (id(aux4_random_enable).state) {
-            id(dfplayer1).play_mp3(random(1, (int)id(max_mp3_files).state + 1));
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
           } else { id(dfplayer1).play_mp3(mp3_setting); }
       - script.execute: playback_timeout

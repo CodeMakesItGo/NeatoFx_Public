@@ -38,9 +38,9 @@ packages:
   config_file: !include configs/networked.yaml
 
   # IR receiver configuration
-  #ir_receiver: !include protocols/ir_nec.yaml
+  ir_receiver: !include protocols/ir_nec.yaml
   #ir_receiver: !include protocols/ir_raw.yaml
-  ir_receiver: !include protocols/ir_laser_tag.yaml
+  #ir_receiver: !include protocols/ir_laser_tag.yaml
   #ir_receiver: !include protocols/ir_custom.yaml
 
   # Falcon Player Packages (only for networked targets)

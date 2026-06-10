@@ -1,0 +1,159 @@
+# ==============================================================================
+# SMART MOTOR CONTROLLER - DUAL PULSE / AIR-VALVE CONTROL LOGIC
+# ==============================================================================
+# Minimal two-channel one-shot controller for firing two air valves / solenoids
+# from a single motor controller, using the two halves of the BTN8962TA H-bridge:
+#   - Input 1 -> drive the A side (R) HIGH for "Pulse Time" ms, then off
+#   - Input 2 -> drive the B side (L) HIGH for "Pulse Time" ms, then off
+# The two channels are independent — either can fire without affecting the other.
+#
+# Included by: boards/rev3_pulse.yaml
+#
+# Hardware IDs consumed from the board file:
+#   A side  : motor_rpwm (GPIO19), motor_r_en (GPIO17)
+#   B side  : motor_lpwm (GPIO18), motor_l_en (GPIO16)
+#   Inputs  : input_1 -> pulse_a_script, input_2 -> pulse_b_script
+#
+# Controls:
+#   "Pulse Time" number  -> on-time in ms, shared by both valves (default 100)
+#   "Trigger A" button   -> manually fire valve A (web UI / HA)
+#   "Trigger B" button   -> manually fire valve B (web UI / HA)
+#   mode: restart        -> a new trigger restarts that valve's on-time window
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  esphome_base: !include ../../../../_shared/esphome_base.yaml
+
+substitutions:
+  project_name: "CodeMakesItGo.PulseMotor"
+  project_version: "1.0.0"
+
+# ==============================================================================
+# GLOBAL VARIABLES
+# ==============================================================================
+globals:
+  # true while valve A (A/R side) is energised
+  - id: valve_a_running
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # true while valve B (B/L side) is energised
+  - id: valve_b_running
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+# ==============================================================================
+# NUMBER CONTROLS
+# ==============================================================================
+number:
+  # On-time in milliseconds, shared by both valves. Default 100 ms; persisted.
+  - platform: template
+    name: "Pulse Time"
+    id: pulse_ms
+    min_value: 10
+    max_value: 1000
+    step: 10
+    initial_value: 100
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "ms"
+    icon: "mdi:timer-outline"
+
+# ==============================================================================
+# BUTTONS
+# ==============================================================================
+button:
+  # Manually fire each valve from the web UI / Home Assistant.
+  - platform: template
+    name: "Trigger A"
+    id: pulse_a_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute: pulse_a_script
+
+  - platform: template
+    name: "Trigger B"
+    id: pulse_b_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute: pulse_b_script
+
+# ==============================================================================
+# BINARY SENSORS
+# ==============================================================================
+binary_sensor:
+  # Required by configs/networked.yaml for the idle HA event.
+  # Idle = neither valve is currently firing.
+  - platform: template
+    name: "Motor Idle"
+    id: motor_idle
+    device_class: running
+    lambda: 'return !(id(valve_a_running) || id(valve_b_running));'
+
+# ==============================================================================
+# SENSORS
+# ==============================================================================
+sensor:
+  - platform: uptime
+    id: uptime_sensor
+    name: "Uptime"
+    update_interval: 60s
+
+# ==============================================================================
+# SCRIPTS - Pulse Control (one per valve, independent)
+# ==============================================================================
+script:
+  # ---------------------------------------------------------------------------
+  # pulse_a_script — Input 1 / valve A on the A (R) side.
+  # Drives R_PWM HIGH for "Pulse Time" ms, then turns off only the A side.
+  # mode: restart so a re-trigger restarts A's on-time window.
+  # ---------------------------------------------------------------------------
+  - id: pulse_a_script
+    mode: restart
+    then:
+      - lambda: 'id(valve_a_running) = true;'
+      - output.turn_on: motor_r_en
+      - output.set_level:
+          id: motor_rpwm
+          level: 100%
+      - delay: !lambda 'return (uint32_t)id(pulse_ms).state;'
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.turn_off: motor_r_en
+      - lambda: 'id(valve_a_running) = false;'
+      - logger.log: "Valve A pulse complete"
+
+  # ---------------------------------------------------------------------------
+  # pulse_b_script — Input 2 / valve B on the B (L) side.
+  # Drives L_PWM HIGH for "Pulse Time" ms, then turns off only the B side.
+  # mode: restart so a re-trigger restarts B's on-time window.
+  # ---------------------------------------------------------------------------
+  - id: pulse_b_script
+    mode: restart
+    then:
+      - lambda: 'id(valve_b_running) = true;'
+      - output.turn_on: motor_l_en
+      - output.set_level:
+          id: motor_lpwm
+          level: 100%
+      - delay: !lambda 'return (uint32_t)id(pulse_ms).state;'
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      - output.turn_off: motor_l_en
+      - lambda: 'id(valve_b_running) = false;'
+      - logger.log: "Valve B pulse complete"
+
+# ==============================================================================
+# INTERVAL - Push motor_idle state for HA event in networked_config
+# ==============================================================================
+interval:
+  - interval: 200ms
+    then:
+      - binary_sensor.template.publish:
+          id: motor_idle
+          state: !lambda 'return !(id(valve_a_running) || id(valve_b_running));'

@@ -31,11 +31,12 @@ esphome:
       - logger.log: "Boot: Resetting DFPlayer..."
       - dfplayer.reset:
           id: dfplayer1
-      - delay: 2000ms  # Wait for DFPlayer SD card mount after reset
+      - delay: 3000ms  # Wait for DFPlayer SD card mount after reset
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - logger.log: "Boot complete - DFPlayer ready at saved volume"
+      - lambda: 'id(boot_complete) = true;'
       - light.turn_off:
           id: spot_light_1
       - light.turn_off:
@@ -45,6 +46,7 @@ esphome:
             lambda: 'return id(loop_bg_active);'
           then:
             - script.execute: play_bg_loop
+            - script.execute: bg_loop_start_effect
       #- dfplayer.play_mp3:
       #    id: dfplayer1
       #    file: 2
@@ -97,7 +99,12 @@ switch:
     on_turn_on:
       - lambda: 'id(loop_bg_active) = true;'
       - logger.log: "Background loop enabled"
-      - script.execute: play_bg_loop
+      - if:
+          condition:
+            lambda: 'return id(boot_complete);'
+          then:
+            - script.execute: play_bg_loop
+            - script.execute: bg_loop_start_effect
     on_turn_off:
       - lambda: 'id(loop_bg_active) = false;'
       - logger.log: "Background loop disabled"
@@ -113,49 +120,47 @@ switch:
       - output.turn_off: amp_wake
 
   - platform: template
-    name: "Input 1 Random"
+    name: "Test SpotLight 1"
+    id: test_spotlight_1
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - light.turn_on:
+          id: spot_light_1
+          brightness: !lambda 'return id(spot1_trigger_brightness).state / 100.0f;'
+          transition_length: 0ms
+    on_turn_off:
+      - light.turn_off:
+          id: spot_light_1
+
+  - platform: template
+    name: "Test SpotLight 2"
+    id: test_spotlight_2
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - light.turn_on:
+          id: spot_light_2
+          brightness: !lambda 'return id(spot2_trigger_brightness).state / 100.0f;'
+          transition_length: 0ms
+    on_turn_off:
+      - light.turn_off:
+          id: spot_light_2
+
+  - platform: template
+    name: "Input 1 Sequential"
     id: input1_random_enable
     restore_mode: RESTORE_DEFAULT_ON
     optimistic: true
-    # When enabled, plays random MP3 instead of specific file
+    # When enabled, plays next MP3 in sequence instead of specific file
 
   - platform: template
-    name: "Input 2 Random"
+    name: "Input 2 Sequential"
     id: input2_random_enable
     restore_mode: RESTORE_DEFAULT_ON
     optimistic: true
-    # When enabled, plays random MP3 instead of specific file
+    # When enabled, plays next MP3 in sequence instead of specific file
 
-  - platform: template
-    name: "RF A Random"
-    id: rf_a_random_enable
-    restore_mode: RESTORE_DEFAULT_OFF
-    optimistic: true
-
-  - platform: template
-    name: "RF B Random"
-    id: rf_b_random_enable
-    restore_mode: RESTORE_DEFAULT_OFF
-    optimistic: true
-
-  - platform: template
-    name: "RF C Random"
-    id: rf_c_random_enable
-    restore_mode: RESTORE_DEFAULT_OFF
-    optimistic: true
-
-  - platform: template
-    name: "RF D Random"
-    id: rf_d_random_enable
-    restore_mode: RESTORE_DEFAULT_OFF
-    optimistic: true
-
-  - platform: gpio
-    pin: GPIO4
-    name: "RF TX Power"
-    id: rf_tx_power
-    restore_mode: ALWAYS_OFF
-    # Controls power to the RF transmitter on the RFTX connector
 
 # ==============================================================================
 # COMMON BUTTONS - User Controls
@@ -167,13 +172,14 @@ button:
 
   - platform: template
     id: test_play_random_mp3
-    name: "Test Play Random MP3"
+    name: "Test Play Next MP3"
     on_press:
       - lambda: |-
           int max_files = (int)id(max_mp3_files).state;
-          int random_mp3 = random(1, max_files + 1);
-          ESP_LOGD("test", "Playing random MP3: %d", random_mp3);
-          id(dfplayer1).play_mp3(random_mp3);
+          id(button_counter) += 1;
+          if (id(button_counter) > max_files) id(button_counter) = 1;
+          ESP_LOGD("test", "Playing sequential MP3: %d", id(button_counter));
+          id(dfplayer1).play_mp3(id(button_counter));
       - output.turn_on: amp_wake    # Wake amp
       - delay: 50ms                 # Let amp stabilize
       - output.turn_on: amp_unmute  # Unmute
@@ -189,6 +195,7 @@ button:
     name: "Test Input 2"
     on_press:
       - script.execute: run_input2_script
+
 
 
 # ==============================================================================
@@ -224,25 +231,377 @@ light:
     output: fet_1
     name: "SpotLight 1"
     id: spot_light_1
+    internal: true
     effects:
-     - pulse:
-         name: "pulse"
-         transition_length:
-           on_length: 500ms
-           off_length: 500ms
-         update_interval: 1.0s
+      - pulse:
+          name: "pulse"
+          transition_length:
+            on_length: 500ms
+            off_length: 500ms
+          update_interval: 1.0s
+      - pulse:
+          name: "Fade"
+          transition_length: 2s
+          update_interval: 4s
+          min_brightness: 0%
+          max_brightness: 100%
+      - strobe:
+          name: "Strobe"
+          colors:
+            - state: true
+              duration: 100ms
+              brightness: 100%
+            - state: false
+              duration: 100ms
+      - automation:
+          name: "Lightning"
+          sequence:
+            - if:
+                condition:
+                  lambda: 'return (esp_random() % 3) == 0;'
+                then:
+                  # SHEET — gradual build, continuous smooth fade
+                  - light.turn_on:
+                      id: spot_light_1
+                      brightness: 20%
+                      transition_length: 200ms
+                  - delay: 200ms
+                  - light.turn_on:
+                      id: spot_light_1
+                      brightness: 45%
+                      transition_length: 300ms
+                  - delay: 300ms
+                  - light.turn_on:
+                      id: spot_light_1
+                      brightness: !lambda 'return (float)(esp_random() % 21 + 52) / 100.0f;'
+                      transition_length: 400ms
+                  - delay: !lambda 'return (uint32_t)(400 + esp_random() % 300);'
+                  - light.turn_on:
+                      id: spot_light_1
+                      brightness: 45%
+                      transition_length: 300ms
+                  - delay: !lambda 'return (uint32_t)(300 + esp_random() % 200);'
+                  - light.turn_on:
+                      id: spot_light_1
+                      brightness: 33%
+                      transition_length: 350ms
+                  - delay: !lambda 'return (uint32_t)(350 + esp_random() % 200);'
+                  - light.turn_on:
+                      id: spot_light_1
+                      brightness: 23%
+                      transition_length: 400ms
+                  - delay: !lambda 'return (uint32_t)(400 + esp_random() % 220);'
+                  - light.turn_on:
+                      id: spot_light_1
+                      brightness: 15%
+                      transition_length: 400ms
+                  - delay: !lambda 'return (uint32_t)(400 + esp_random() % 220);'
+                  - light.turn_on:
+                      id: spot_light_1
+                      brightness: 8%
+                      transition_length: 400ms
+                  - delay: !lambda 'return (uint32_t)(400 + esp_random() % 200);'
+                  - light.turn_on:
+                      id: spot_light_1
+                      brightness: 4%
+                      transition_length: 350ms
+                  - delay: !lambda 'return (uint32_t)(350 + esp_random() % 180);'
+                  - light.turn_on:
+                      id: spot_light_1
+                      brightness: 2%
+                      transition_length: 300ms
+                  - delay: !lambda 'return (uint32_t)(300 + esp_random() % 1501 + 500);'
+                else:
+                  - if:
+                      condition:
+                        lambda: 'return (esp_random() % 2) == 0;'
+                      then:
+                        # SOFT — two dim strokes, smooth 5-step glow
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: !lambda 'return (float)(esp_random() % 26 + 40) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 71 + 60);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: !lambda 'return (float)(esp_random() % 13 + 8) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 71 + 60);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: !lambda 'return (float)(esp_random() % 23 + 28) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 51 + 40);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: 22%
+                            transition_length: 250ms
+                        - delay: !lambda 'return (uint32_t)(250 + esp_random() % 150);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: 14%
+                            transition_length: 300ms
+                        - delay: !lambda 'return (uint32_t)(300 + esp_random() % 180);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: 8%
+                            transition_length: 350ms
+                        - delay: !lambda 'return (uint32_t)(350 + esp_random() % 200);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: 4%
+                            transition_length: 350ms
+                        - delay: !lambda 'return (uint32_t)(350 + esp_random() % 180);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: 2%
+                            transition_length: 300ms
+                        - delay: !lambda 'return (uint32_t)(300 + esp_random() % 1001 + 300);'
+                      else:
+                        # SHARP — 3 variable-brightness strokes, smooth 6-step glow
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: !lambda 'return (float)(esp_random() % 46 + 55) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 61 + 50);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: !lambda 'return (float)(esp_random() % 13 + 8) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 81 + 60);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: !lambda 'return (float)(esp_random() % 26 + 42) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 41 + 40);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: !lambda 'return (float)(esp_random() % 13 + 8) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 61 + 50);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: !lambda 'return (float)(esp_random() % 26 + 30) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 31 + 25);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: 35%
+                            transition_length: 250ms
+                        - delay: !lambda 'return (uint32_t)(250 + esp_random() % 150);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: 24%
+                            transition_length: 300ms
+                        - delay: !lambda 'return (uint32_t)(300 + esp_random() % 180);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: 15%
+                            transition_length: 350ms
+                        - delay: !lambda 'return (uint32_t)(350 + esp_random() % 200);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: 8%
+                            transition_length: 400ms
+                        - delay: !lambda 'return (uint32_t)(400 + esp_random() % 220);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: 4%
+                            transition_length: 400ms
+                        - delay: !lambda 'return (uint32_t)(400 + esp_random() % 200);'
+                        - light.turn_on:
+                            id: spot_light_1
+                            brightness: 2%
+                            transition_length: 300ms
+                        - delay: !lambda 'return (uint32_t)(300 + esp_random() % 1201 + 400);'
 
   - platform: monochromatic
     output: fet_2
     name: "SpotLight 2"
     id: spot_light_2
+    internal: true
     effects:
-     - pulse:
-         name: "pulse"
-         transition_length:
-           on_length: 500ms
-           off_length: 500ms
-         update_interval: 1.0s
+      - pulse:
+          name: "pulse"
+          transition_length:
+            on_length: 500ms
+            off_length: 500ms
+          update_interval: 1.0s
+      - pulse:
+          name: "Fade"
+          transition_length: 2s
+          update_interval: 4s
+          min_brightness: 0%
+          max_brightness: 100%
+      - strobe:
+          name: "Strobe"
+          colors:
+            - state: true
+              duration: 100ms
+              brightness: 100%
+            - state: false
+              duration: 100ms
+      - automation:
+          name: "Lightning"
+          sequence:
+            - if:
+                condition:
+                  lambda: 'return (esp_random() % 3) == 0;'
+                then:
+                  # SHEET — gradual build, continuous smooth fade
+                  - light.turn_on:
+                      id: spot_light_2
+                      brightness: 20%
+                      transition_length: 200ms
+                  - delay: 200ms
+                  - light.turn_on:
+                      id: spot_light_2
+                      brightness: 45%
+                      transition_length: 300ms
+                  - delay: 300ms
+                  - light.turn_on:
+                      id: spot_light_2
+                      brightness: !lambda 'return (float)(esp_random() % 21 + 52) / 100.0f;'
+                      transition_length: 400ms
+                  - delay: !lambda 'return (uint32_t)(400 + esp_random() % 300);'
+                  - light.turn_on:
+                      id: spot_light_2
+                      brightness: 45%
+                      transition_length: 300ms
+                  - delay: !lambda 'return (uint32_t)(300 + esp_random() % 200);'
+                  - light.turn_on:
+                      id: spot_light_2
+                      brightness: 33%
+                      transition_length: 350ms
+                  - delay: !lambda 'return (uint32_t)(350 + esp_random() % 200);'
+                  - light.turn_on:
+                      id: spot_light_2
+                      brightness: 23%
+                      transition_length: 400ms
+                  - delay: !lambda 'return (uint32_t)(400 + esp_random() % 220);'
+                  - light.turn_on:
+                      id: spot_light_2
+                      brightness: 15%
+                      transition_length: 400ms
+                  - delay: !lambda 'return (uint32_t)(400 + esp_random() % 220);'
+                  - light.turn_on:
+                      id: spot_light_2
+                      brightness: 8%
+                      transition_length: 400ms
+                  - delay: !lambda 'return (uint32_t)(400 + esp_random() % 200);'
+                  - light.turn_on:
+                      id: spot_light_2
+                      brightness: 4%
+                      transition_length: 350ms
+                  - delay: !lambda 'return (uint32_t)(350 + esp_random() % 180);'
+                  - light.turn_on:
+                      id: spot_light_2
+                      brightness: 2%
+                      transition_length: 300ms
+                  - delay: !lambda 'return (uint32_t)(300 + esp_random() % 1501 + 500);'
+                else:
+                  - if:
+                      condition:
+                        lambda: 'return (esp_random() % 2) == 0;'
+                      then:
+                        # SOFT — two dim strokes, smooth 5-step glow
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: !lambda 'return (float)(esp_random() % 26 + 40) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 71 + 60);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: !lambda 'return (float)(esp_random() % 13 + 8) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 71 + 60);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: !lambda 'return (float)(esp_random() % 23 + 28) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 51 + 40);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: 22%
+                            transition_length: 250ms
+                        - delay: !lambda 'return (uint32_t)(250 + esp_random() % 150);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: 14%
+                            transition_length: 300ms
+                        - delay: !lambda 'return (uint32_t)(300 + esp_random() % 180);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: 8%
+                            transition_length: 350ms
+                        - delay: !lambda 'return (uint32_t)(350 + esp_random() % 200);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: 4%
+                            transition_length: 350ms
+                        - delay: !lambda 'return (uint32_t)(350 + esp_random() % 180);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: 2%
+                            transition_length: 300ms
+                        - delay: !lambda 'return (uint32_t)(300 + esp_random() % 1001 + 300);'
+                      else:
+                        # SHARP — 3 variable-brightness strokes, smooth 6-step glow
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: !lambda 'return (float)(esp_random() % 46 + 55) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 61 + 50);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: !lambda 'return (float)(esp_random() % 13 + 8) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 81 + 60);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: !lambda 'return (float)(esp_random() % 26 + 42) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 41 + 40);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: !lambda 'return (float)(esp_random() % 13 + 8) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 61 + 50);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: !lambda 'return (float)(esp_random() % 26 + 30) / 100.0f;'
+                            transition_length: 0ms
+                        - delay: !lambda 'return (uint32_t)(esp_random() % 31 + 25);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: 35%
+                            transition_length: 250ms
+                        - delay: !lambda 'return (uint32_t)(250 + esp_random() % 150);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: 24%
+                            transition_length: 300ms
+                        - delay: !lambda 'return (uint32_t)(300 + esp_random() % 180);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: 15%
+                            transition_length: 350ms
+                        - delay: !lambda 'return (uint32_t)(350 + esp_random() % 200);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: 8%
+                            transition_length: 400ms
+                        - delay: !lambda 'return (uint32_t)(400 + esp_random() % 220);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: 4%
+                            transition_length: 400ms
+                        - delay: !lambda 'return (uint32_t)(400 + esp_random() % 200);'
+                        - light.turn_on:
+                            id: spot_light_2
+                            brightness: 2%
+                            transition_length: 300ms
+                        - delay: !lambda 'return (uint32_t)(300 + esp_random() % 1201 + 400);'
 
 # ==============================================================================
 # MP3 Player - DFPlayer Mini Configuration
@@ -260,20 +619,21 @@ dfplayer:
     then:
     - logger.log: 'Playback finished event'
     - script.stop: playback_timeout
-    - dfplayer.set_volume:
-        id: dfplayer1
-        volume: !lambda 'return (int)id(dfplayer_volume).state;'
     - switch.turn_off: relay_1
     - switch.turn_off: relay_2
-    - light.turn_off: spot_light_1
-    - light.turn_off: spot_light_2
     - if:
         condition:
           lambda: 'return id(loop_bg_active);'
         then:
-          - logger.log: "Returning to background loop - playing MP3 #3"
+          - logger.log: "Returning to background loop"
           - script.execute: play_bg_loop
+          - script.execute: bg_loop_start_effect
         else:
+          - dfplayer.set_volume:
+              id: dfplayer1
+              volume: !lambda 'return (int)id(dfplayer_volume).state;'
+          - light.turn_off: spot_light_1
+          - light.turn_off: spot_light_2
           - output.turn_off: amp_unmute
           - delay: 10ms
           - output.turn_off: amp_wake
@@ -394,7 +754,7 @@ number:
     min_value: 0
     max_value: 30
     step: 1
-    initial_value: 15
+    initial_value: 5
     restore_value: true    # This ensures the value is restored after a reboot
     optimistic: true       # Ensures the UI reflects the current value
     set_action:
@@ -429,50 +789,6 @@ number:
     # 1-255 = Specific MP3 file
 
   - platform: template
-    name: "RF A MP3"
-    id: rf_a_mp3_select
-    min_value: 0
-    max_value: 255
-    step: 1
-    mode: box
-    initial_value: 1
-    restore_value: true
-    optimistic: true
-
-  - platform: template
-    name: "RF B MP3"
-    id: rf_b_mp3_select
-    min_value: 0
-    max_value: 255
-    step: 1
-    mode: box
-    initial_value: 1
-    restore_value: true
-    optimistic: true
-
-  - platform: template
-    name: "RF C MP3"
-    id: rf_c_mp3_select
-    min_value: 0
-    max_value: 255
-    step: 1
-    mode: box
-    initial_value: 1
-    restore_value: true
-    optimistic: true
-
-  - platform: template
-    name: "RF D MP3"
-    id: rf_d_mp3_select
-    min_value: 0
-    max_value: 255
-    step: 1
-    mode: box
-    initial_value: 1
-    restore_value: true
-    optimistic: true
-
-  - platform: template
     name: "Background Loop MP3"
     id: bg_loop_mp3_select
     min_value: 1
@@ -494,7 +810,7 @@ number:
     initial_value: 32
     restore_value: true
     optimistic: true
-    # Sets the maximum number of MP3 files on SD card for random playback
+    # Sets the maximum number of MP3 files on SD card for sequential playback
 
   - platform: template
     name: "Playback Timeout"
@@ -508,6 +824,28 @@ number:
     optimistic: true
     unit_of_measurement: "s"
     # Timeout in seconds - resets DFPlayer if playback gets stuck
+
+  - platform: template
+    name: "SpotLight 1 Trigger Brightness"
+    id: spot1_trigger_brightness
+    min_value: 0
+    max_value: 100
+    step: 5
+    initial_value: 100
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "%"
+
+  - platform: template
+    name: "SpotLight 2 Trigger Brightness"
+    id: spot2_trigger_brightness
+    min_value: 0
+    max_value: 100
+    step: 5
+    initial_value: 100
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "%"
 
 # ==============================================================================
 # SELECT CONTROLS - Output Selection
@@ -540,56 +878,26 @@ select:
       - "FET 2"
 
   - platform: template
-    name: "RF A Output"
-    id: rf_a_output_select
+    name: "BG Loop FET Output"
+    id: bg_loop_fet_select
     optimistic: true
     restore_value: true
-    initial_option: "None"
+    initial_option: "FET 1"
     options:
       - "None"
-      - "Relay 1"
-      - "Relay 2"
       - "FET 1"
       - "FET 2"
 
   - platform: template
-    name: "RF B Output"
-    id: rf_b_output_select
+    name: "BG Loop FET Effect"
+    id: bg_loop_effect_select
     optimistic: true
     restore_value: true
-    initial_option: "None"
+    initial_option: "Lightning"
     options:
-      - "None"
-      - "Relay 1"
-      - "Relay 2"
-      - "FET 1"
-      - "FET 2"
-
-  - platform: template
-    name: "RF C Output"
-    id: rf_c_output_select
-    optimistic: true
-    restore_value: true
-    initial_option: "None"
-    options:
-      - "None"
-      - "Relay 1"
-      - "Relay 2"
-      - "FET 1"
-      - "FET 2"
-
-  - platform: template
-    name: "RF D Output"
-    id: rf_d_output_select
-    optimistic: true
-    restore_value: true
-    initial_option: "None"
-    options:
-      - "None"
-      - "Relay 1"
-      - "Relay 2"
-      - "FET 1"
-      - "FET 2"
+      - "Fade"
+      - "Strobe"
+      - "Lightning"
 
 # ==============================================================================
 # GLOBAL VARIABLES - Common State Management
@@ -598,9 +906,15 @@ globals:
   - id: loop_bg_active
     type: bool
     restore_value: yes
+    initial_value: 'true'
+
+  - id: boot_complete
+    type: bool
+    restore_value: no
     initial_value: 'false'
 
   - id: button_counter
     type: int
     restore_value: no
     initial_value: '1'  # Start from 1
+
