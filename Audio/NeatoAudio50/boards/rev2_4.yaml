@@ -847,6 +847,32 @@ number:
     optimistic: true
     unit_of_measurement: "%"
 
+  - platform: template
+    name: "Input 1 Output Timer"
+    id: input1_output_timer
+    min_value: 0
+    max_value: 5000
+    step: 100
+    mode: box
+    initial_value: 0
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "ms"
+    # 0 = Song Duration (output stays on until song ends)
+
+  - platform: template
+    name: "Input 2 Output Timer"
+    id: input2_output_timer
+    min_value: 0
+    max_value: 5000
+    step: 100
+    mode: box
+    initial_value: 0
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "ms"
+    # 0 = Song Duration (output stays on until song ends)
+
 # ==============================================================================
 # SELECT CONTROLS - Output Selection
 # ==============================================================================

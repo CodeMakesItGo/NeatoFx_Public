@@ -157,6 +157,11 @@ script:
             ESP_LOGI("input1", "Playing MP3: %d", mp3_setting);
             id(dfplayer1).play_mp3(mp3_setting);
           }
+      - if:
+          condition:
+            lambda: 'return (int)id(input1_output_timer).state > 0;'
+          then:
+            - script.execute: input1_output_timer_script
       # Start timeout watchdog AFTER play command is sent
       - script.execute: playback_timeout
 
@@ -207,6 +212,11 @@ script:
             ESP_LOGD("input2", "Playing MP3: %d", mp3_setting);
             id(dfplayer1).play_mp3(mp3_setting);
           }
+      - if:
+          condition:
+            lambda: 'return (int)id(input2_output_timer).state > 0;'
+          then:
+            - script.execute: input2_output_timer_script
       # Start timeout watchdog
       - script.execute: playback_timeout
 
@@ -298,4 +308,39 @@ script:
           } else { id(dfplayer1).play_mp3(mp3_setting); }
       - script.execute: playback_timeout
 
+  - id: input1_output_timer_script
+    mode: restart
+    then:
+      - delay: !lambda 'return (uint32_t)id(input1_output_timer).state;'
+      - lambda: |-
+          std::string output_choice = id(input1_output_select).current_option();
+          if (output_choice == "Relay 1") {
+            id(relay_1).turn_off();
+          } else if (output_choice == "Relay 2") {
+            id(relay_2).turn_off();
+          } else if (output_choice == "FET 1") {
+            auto call = id(spot_light_1).turn_off();
+            call.perform();
+          } else if (output_choice == "FET 2") {
+            auto call = id(spot_light_2).turn_off();
+            call.perform();
+          }
+
+  - id: input2_output_timer_script
+    mode: restart
+    then:
+      - delay: !lambda 'return (uint32_t)id(input2_output_timer).state;'
+      - lambda: |-
+          std::string output_choice = id(input2_output_select).current_option();
+          if (output_choice == "Relay 1") {
+            id(relay_1).turn_off();
+          } else if (output_choice == "Relay 2") {
+            id(relay_2).turn_off();
+          } else if (output_choice == "FET 1") {
+            auto call = id(spot_light_1).turn_off();
+            call.perform();
+          } else if (output_choice == "FET 2") {
+            auto call = id(spot_light_2).turn_off();
+            call.perform();
+          }
 

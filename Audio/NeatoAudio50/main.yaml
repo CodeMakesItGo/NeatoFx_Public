@@ -20,8 +20,8 @@ substitutions:
 # ==============================================================================
 packages:
   # Hardware — select one board revision:
-  oard:          !include boards/rev2_4.yaml    # Rev 2.4 / 2.5 / 2.6 (current production)
-  #board:         !include boards/rev2_3.yaml    # Rev 2.3 (mp3_power on GPIO21)
+  #board:          !include boards/rev2_4.yaml    # Rev 2.4 / 2.5 / 2.6 (current production)
+  board:         !include boards/rev2_3.yaml    # Rev 2.3 (mp3_power on GPIO21)
 
   # RFTX connector — select one mode:
   #rftx:           !include boards/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
