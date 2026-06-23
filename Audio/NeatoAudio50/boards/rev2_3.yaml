@@ -702,8 +702,8 @@ binary_sensor:
     name: "Input 1"
     id: input_1
     pin:
-      number: GPIO39  
-      inverted: true  
+      number: GPIO34
+      inverted: true
     filters:
       - delayed_on: 100ms
       - delayed_off: 100ms
@@ -717,8 +717,8 @@ binary_sensor:
     name: "Input 2"
     id: input_2
     pin:
-      number: GPIO34  
-      inverted: true  
+      number: GPIO39
+      inverted: true
     filters:
       - delayed_on: 100ms
       - delayed_off: 100ms
