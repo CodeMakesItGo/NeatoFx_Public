@@ -16,61 +16,75 @@
   const SW = 'switch', NUM = 'number', SEL = 'select', LT = 'light';
 
   // ── Entity registry ────────────────────────────────────────────────────────
-  // Keys must be the sanitized object_id (derived from entity name, not YAML id:)
-  // ESPHome REST API: /{domain}/{object_id}/{action}
-  // ESPHome SSE:      {"id": "{domain}-{object_id}", ...}
+  // Keys are the sanitized object_id (derived from entity name, not YAML id:),
+  // used for legacy SSE ids and DOM lookup. `name` is the exact YAML `name:` —
+  // REST URLs use it (object-ID URLs are removed in ESPHome 2026.7) and SSE
+  // name_id matching uses it (legacy `id` format is removed in 2026.8).
+  // ESPHome REST API: /{domain}/{name}/{action}
+  // ESPHome SSE:      {"name_id": "{domain}/[{device}/]{name}", "id": "{domain}-{object_id}", ...}
   const ENTITIES = {
     // ── Settings card ──
-    hit_points: {         // name: "Hit Points"
-      type: NUM, label: 'Hit Points',
+    hit_points: {
+      type: NUM, name: 'Hit Points', label: 'Hit Points',
       min: 10, max: 100, step: 10, unit: 'pts', section: 'settings',
     },
-    relay_timer: {        // name: "Relay Timer"
-      type: NUM, label: 'Relay Timer',
+    relay_timer: {
+      type: NUM, name: 'Relay Timer', label: 'Relay Timer',
       min: 100, max: 10000, step: 100, unit: 'ms', section: 'settings',
     },
-    cooldown_timer: {     // name: "Cooldown Timer"
-      type: NUM, label: 'Cooldown',
+    cooldown_timer: {
+      type: NUM, name: 'Cooldown Timer', label: 'Cooldown',
       min: 0, max: 10000, step: 100, unit: 'ms', section: 'settings',
     },
 
     // ── Triggers & Effects card ──
-    gpio25_hit_trigger: { // name: "GPIO25 Hit Trigger"
-      type: SW, label: 'GPIO25 Trigger', section: 'triggers',
+    gpio25_hit_trigger: {
+      type: SW, name: 'GPIO25 Hit Trigger', label: 'GPIO25 Trigger', section: 'triggers',
     },
-    target_leds_hit_effect: { // name: "Target LEDs Hit Effect"
-      type: SEL, label: 'Hit Effect', section: 'triggers',
+    target_leds_hit_effect: {
+      type: SEL, name: 'Target LEDs Hit Effect', label: 'Hit Effect', section: 'triggers',
       options: ['Rainbow Effect', 'Color Wipe Effect', 'Scanner Effect', 'Twinkle Effect', 'Solid Color'],
     },
-    target_leds_solid_color: { // name: "Target LEDs Solid Color"
-      type: SEL, label: 'Solid Color', section: 'triggers',
+    target_leds_solid_color: {
+      type: SEL, name: 'Target LEDs Solid Color', label: 'Solid Color', section: 'triggers',
       options: ['White', 'Red', 'Green', 'Blue', 'Yellow', 'Purple', 'Cyan', 'Orange', 'Pink'],
     },
 
     // ── Outputs card ──
-    target_leds: { type: LT, label: 'Target LEDs', section: 'outputs' }, // name: "Target LEDs"
+    target_leds: { type: LT, name: 'Target LEDs', label: 'Target LEDs', section: 'outputs' },
 
     // ── Advanced card (hidden by default) ──
-    servo_slider: {       // name: "Servo Slider"
-      type: NUM, label: 'Servo',
-      min: -85, max: 85, step: 1, unit: '°', section: 'advanced',
+    servo_idle_position: {
+      type: NUM, name: 'Servo Idle Position', label: 'Servo Idle',
+      min: 0, max: 180, step: 1, unit: '°', section: 'advanced',
     },
-    aux_pwr:    { type: SW, label: 'Aux Power',  section: 'advanced' }, // name: "Aux Pwr"
-    gnd_switch: { type: SW, label: 'GND Switch', section: 'advanced' }, // name: "Gnd Switch"
-    relay_1:    { type: SW, label: 'Relay',      section: 'advanced' }, // name: "Relay 1"
+    servo_hit_position: {
+      type: NUM, name: 'Servo Hit Position', label: 'Servo Hit',
+      min: 0, max: 180, step: 1, unit: '°', section: 'advanced',
+    },
+    aux_pwr:    { type: SW, name: 'Aux Pwr',    label: 'Aux Power',  section: 'advanced' },
+    gnd_switch: { type: SW, name: 'Gnd Switch', label: 'GND Switch', section: 'advanced' },
+    relay_1:    { type: SW, name: 'Relay 1',    label: 'Relay',      section: 'advanced' },
   };
+
+  // Reverse lookup: entity name → registry key (for SSE name_id matching)
+  const NAME_TO_KEY = {};
+  Object.keys(ENTITIES).forEach(function (k) { NAME_TO_KEY[ENTITIES[k].name] = k; });
 
   // ── API helpers ────────────────────────────────────────────────────────────
   const post = (url) => fetch(url, { method: 'POST' }).catch(() => {});
 
+  // Entity-name URL path: /{domain}/{name}/... (name is URL-encoded)
+  const path = (domain, key) => '/' + domain + '/' + encodeURIComponent(ENTITIES[key].name);
+
   const api = {
-    switchOn:  (id)    => post('/switch/' + id + '/turn_on'),
-    switchOff: (id)    => post('/switch/' + id + '/turn_off'),
-    lightOn:   (id)    => post('/light/' + id + '/turn_on'),
-    lightOff:  (id)    => post('/light/' + id + '/turn_off'),
-    numSet:    (id, v) => post('/number/' + id + '/set?value=' + encodeURIComponent(v)),
-    selSet:    (id, v) => post('/select/' + id + '/set?option=' + encodeURIComponent(v)),
-    testHit:   ()      => post('/switch/test_target_hit/turn_on'),
+    switchOn:  (id)    => post(path(SW, id) + '/turn_on'),
+    switchOff: (id)    => post(path(SW, id) + '/turn_off'),
+    lightOn:   (id)    => post(path(LT, id) + '/turn_on'),
+    lightOff:  (id)    => post(path(LT, id) + '/turn_off'),
+    numSet:    (id, v) => post(path(NUM, id) + '/set?value=' + encodeURIComponent(v)),
+    selSet:    (id, v) => post(path(SEL, id) + '/set?option=' + encodeURIComponent(v)),
+    testHit:   ()      => post('/switch/' + encodeURIComponent('Test Target Hit') + '/turn_on'),
   };
 
   // ── Value formatter ────────────────────────────────────────────────────────
@@ -85,32 +99,59 @@
   }
 
   // ── SSE connection ─────────────────────────────────────────────────────────
+  var es = null;
+  var retryTimer = null;
+
   function connect() {
-    var es = new EventSource('/events');
-    var retry;
+    es = new EventSource('/events');
 
     es.addEventListener('state', function (ev) {
       try { applyState(JSON.parse(ev.data)); } catch (_) {}
     });
 
     es.onopen = function () {
-      clearTimeout(retry);
+      clearTimeout(retryTimer);
       setLive(true);
     };
 
     es.onerror = function () {
       setLive(false);
       es.close();
-      retry = setTimeout(connect, 3000);
+      retryTimer = setTimeout(connect, 3000);
     };
   }
 
-  // Apply an incoming SSE state update to the DOM
+  // Stop SSE permanently (used when handing the page over to the default UI,
+  // so each phone holds only one /events socket)
+  function disconnect() {
+    clearTimeout(retryTimer);
+    if (es) {
+      es.onerror = null;
+      es.close();
+      es = null;
+    }
+  }
+
+  // Apply an incoming SSE state update to the DOM.
+  // Prefers the new name_id format "{domain}/[{device}/]{name}"; falls back to
+  // the legacy id format "{domain}-{object_id}" (removed in ESPHome 2026.8).
   function applyState(data) {
-    var dashIdx = data.id.indexOf('-');
-    if (dashIdx === -1) return;
-    var type  = data.id.slice(0, dashIdx);
-    var objId = data.id.slice(dashIdx + 1);
+    var type, objId;
+
+    if (data.name_id) {
+      var parts = String(data.name_id).split('/');
+      type = parts[0];
+      var name = parts[parts.length - 1];
+      objId = name === 'Hit Count' ? 'hit_count' : NAME_TO_KEY[name];
+      if (!objId) return;
+    } else if (data.id) {
+      var dashIdx = data.id.indexOf('-');
+      if (dashIdx === -1) return;
+      type  = data.id.slice(0, dashIdx);
+      objId = data.id.slice(dashIdx + 1);
+    } else {
+      return;
+    }
 
     if (objId === 'hit_count') {
       var el = document.getElementById('hit-count');
@@ -118,7 +159,7 @@
       return;
     }
 
-    var card = document.querySelector('[data-eid="' + data.id + '"]');
+    var card = document.querySelector('[data-eid="' + type + '-' + objId + '"]');
     if (!card) return;
 
     if (type === 'switch' || type === 'light') {
@@ -222,9 +263,10 @@
   }
 
   // ── CSS ────────────────────────────────────────────────────────────────────
+  // All rules are scoped under .app so nothing leaks into the default ESPHome
+  // UI if the user switches views.
   var CSS = [
-    '*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }',
-    'html { background: #0d0d1a; }',
+    '.app, .app *, .app *::before, .app *::after { box-sizing: border-box; margin: 0; padding: 0; }',
 
     /* Full-screen overlay — sits on top of ESPHome's Lit UI */
     '.app {',
@@ -301,7 +343,7 @@
     '}',
     '.row.on .tgl-thumb { transform: translateX(23px); }',
 
-    'select {',
+    '.app select {',
     '  background: #12122a; color: #e0e0e0; border: 1px solid #2a2a45;',
     '  border-radius: 8px; padding: 7px 10px; font-size: 0.88rem;',
     '  cursor: pointer; outline: none; max-width: 185px;',
@@ -311,17 +353,17 @@
     '.slider { padding: 12px 16px 18px; border-top: 1px solid #1e1e38; }',
     '.slider-hdr { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }',
     '.val { font-size: 0.9rem; font-weight: 600; color: #e94560; }',
-    'input[type=range] {',
+    '.app input[type=range] {',
     '  -webkit-appearance: none; appearance: none;',
     '  width: 100%; height: 4px; background: #2a2a45; border-radius: 2px;',
     '  outline: none; cursor: pointer;',
     '}',
-    'input[type=range]::-webkit-slider-thumb {',
+    '.app input[type=range]::-webkit-slider-thumb {',
     '  -webkit-appearance: none;',
     '  width: 22px; height: 22px; background: #e94560; border-radius: 50%;',
     '  box-shadow: 0 0 0 3px rgba(233,69,96,.2);',
     '}',
-    'input[type=range]::-moz-range-thumb {',
+    '.app input[type=range]::-moz-range-thumb {',
     '  width: 22px; height: 22px; background: #e94560;',
     '  border-radius: 50%; border: none;',
     '}',
@@ -350,6 +392,7 @@
     '  -webkit-tap-highlight-color: transparent;',
     '}',
     '.orig-btn:hover { color: #777; border-color: #444; }',
+    '.orig-btn:disabled { opacity: .5; cursor: default; }',
   ].join('\n');
 
   // ── Build UI ───────────────────────────────────────────────────────────────
@@ -442,16 +485,39 @@
     advCard.appendChild(advBody);
     inner.appendChild(advCard);
 
-    // View switcher — loads ESPHome default Lit UI; refresh to return
+    // View switcher — loads ESPHome default Lit UI; refresh to return.
+    // The default UI ships from the ESPHome CDN (js_url is disabled in YAML),
+    // so it only works when the phone's network has internet access.
     var viewSwitch = document.createElement('div');
     viewSwitch.className = 'view-switch';
     var origBtn = document.createElement('button');
     origBtn.className   = 'orig-btn';
     origBtn.textContent = 'Switch to ESPHome UI';
     origBtn.addEventListener('click', function () {
-      app.style.display = 'none';
+      if (origBtn.disabled) return;
+      origBtn.disabled    = true;
+      origBtn.textContent = 'Loading ESPHome UI…';
+
       var s = document.createElement('script');
       s.src = 'https://oi.esphome.io/v2/www.js';
+
+      // Only tear down the custom UI once the default UI has actually loaded,
+      // so a failed load never leaves a blank page. Removing the <style> node
+      // matters: our dark background/reset rules would otherwise restyle the
+      // default UI into invisibility.
+      s.onload = function () {
+        disconnect();
+        style.remove();
+        app.remove();
+      };
+      s.onerror = function () {
+        s.remove();
+        origBtn.disabled    = false;
+        origBtn.textContent = 'Switch to ESPHome UI';
+        alert('Could not load the default ESPHome UI.\n\n' +
+              'It is served from the internet (oi.esphome.io), which is not ' +
+              'reachable on this network.');
+      };
       document.head.appendChild(s);
     });
     viewSwitch.appendChild(origBtn);

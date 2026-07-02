@@ -101,10 +101,11 @@ script:
       # Final cooldown period
       - delay: !lambda 'return id(cooldown_timer);'
 
-      # Restore original effect
+      # Restore original effect (index 0 = solid color, i.e. no effect)
       - lambda: |-
           std::string effect_name = "Scanner Effect";  // Default fallback
           switch (id(saved_effect_index)) {
+            case 0: effect_name = "None"; break;
             case 1: effect_name = "Rainbow Effect"; break;
             case 2: effect_name = "Color Wipe Effect"; break;
             case 3: effect_name = "Scanner Effect"; break;
