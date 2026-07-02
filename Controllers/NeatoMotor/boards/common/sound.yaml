@@ -1,0 +1,252 @@
+# ==============================================================================
+# NEATO MOTOR CONTROLLER - SOUND PACKAGE (DY-SV5W MP3 player)  [OPTIONAL / ONE-OFF]
+# ==============================================================================
+# Plays looping motor audio off a DY-SV5W module, gated by the CAN game state:
+#   game inactive             -> silent (stop)
+#   game active, motor idle    -> Idle Track loops  (set Idle Track = 0 to be
+#                                 silent until the motor moves)
+#   game active, motor moving  -> Run Track loops
+# Single decoder, so this swaps tracks rather than mixing. This is an OPT-IN
+# package for the single motor board that has a DY-SV5W audio module fitted — it
+# is NOT in the standard build.
+#
+# To compile it into that one unit, uncomment the `sound:` include in the main
+# file's packages list:
+#
+#   sound: !include boards/common/sound.yaml
+#
+# Requires the CAN package (boards/common/can.yaml) because it watches the
+# `board_active` global that the 0x100 game-active broadcast sets.
+#
+# ------------------------------------------------------------------------------
+# HARDWARE WIRING — DY-SV5W (5 W audio module)
+# ------------------------------------------------------------------------------
+#   GPIO21 (ESP32 TX) --> DY-SV5W RX   (module receives our command frames)
+#   GPIO22 (ESP32 RX) <-- DY-SV5W TX   (module feedback — defined but unused)
+#   GND     common
+#   Module 5V from board 5V rail; speaker on SPK+/SPK-.
+#
+#   IMPORTANT: the DY-SV5W UART is 3.3/5V TTL, NOT true RS-232 voltage levels.
+#   Wire it straight to the ESP32 — do NOT add a MAX232 / RS-232 transceiver.
+#
+#   The module must be in UART control mode (CON3/IO config per its datasheet:
+#   IO0/IO1/IO2 pulled so it boots into "one-line"/UART mode). Files named
+#   00001.mp3, 00002.mp3 ... in the flash/SD root; played by index.
+#
+# ------------------------------------------------------------------------------
+# DY-SV5W UART PROTOCOL (9600 8N1)  frame: AA <cmd> <len> <data...> <checksum>
+#   checksum = (sum of all preceding bytes) & 0xFF
+#   Stop          : AA 04 00 AE
+#   Set volume     : AA 13 01 <vol 0-30> <sum>
+#   Set loop mode  : AA 18 01 <mode> <sum>   (1 = single-track loop)
+#   Play track idx : AA 07 02 <idxH> <idxL> <sum>
+# ==============================================================================
+
+substitutions:
+  # Default track indices (overridable per-unit; also editable live from the web
+  # UI via the Sound Run/Idle Track numbers below).
+  sound_run_track: "2"    # played while the motor is actually moving
+  sound_idle_track: "1"   # played while the game is active but the motor is idle
+                          #   (set the Idle Track to 0 for silence-when-stopped)
+
+# ==============================================================================
+# UART - DY-SV5W command link
+# ==============================================================================
+uart:
+  - id: dy_sv5w_uart
+    tx_pin: GPIO21          # ESP32 TX -> module RX
+    rx_pin: GPIO22          # ESP32 RX <- module TX (feedback, unused)
+    baud_rate: 9600
+
+# ==============================================================================
+# GLOBALS - playback state machine
+# ==============================================================================
+globals:
+  # Current sound state, so we only send UART frames on a transition:
+  #   0 = stopped (game inactive)
+  #   1 = idle    (game active, motor not moving)
+  #   2 = run     (motor moving)
+  - id: sound_state
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+# ==============================================================================
+# SCRIPTS - DY-SV5W command frames
+# ==============================================================================
+script:
+  # Set playback volume (0-30).
+  - id: sound_set_volume
+    parameters:
+      vol: int
+    then:
+      - lambda: |-
+          uint8_t v = vol < 0 ? 0 : (vol > 30 ? 30 : vol);
+          uint8_t f[5] = {0xAA, 0x13, 0x01, v, 0};
+          uint16_t sum = 0; for (int i = 0; i < 4; i++) sum += f[i];
+          f[4] = sum & 0xFF;
+          id(dy_sv5w_uart).write_array(f, 5);
+          ESP_LOGI("sound", "volume = %u", v);
+
+  # Set the module's loop mode (1 = single-track loop, what we use for an
+  # engine sound that should run continuously until stopped).
+  - id: sound_set_loop_single
+    then:
+      - lambda: |-
+          // AA 18 01 <mode> SM — mode 0x01 = single-track loop. 5-byte frame:
+          // start, cmd, len=1, data(mode), checksum.
+          uint8_t f[5] = {0xAA, 0x18, 0x01, 0x01, 0};
+          uint16_t sum = 0; for (int i = 0; i < 4; i++) sum += f[i];
+          f[4] = sum & 0xFF;
+          id(dy_sv5w_uart).write_array(f, 5);
+
+  # Play a track by index (1-based).
+  - id: sound_play_track
+    parameters:
+      track: int
+    then:
+      - lambda: |-
+          uint16_t t = track < 1 ? 1 : track;
+          uint8_t f[6] = {0xAA, 0x07, 0x02, (uint8_t)(t >> 8), (uint8_t)(t & 0xFF), 0};
+          uint16_t sum = 0; for (int i = 0; i < 5; i++) sum += f[i];
+          f[5] = sum & 0xFF;
+          id(dy_sv5w_uart).write_array(f, 6);
+          ESP_LOGI("sound", "play track %u", t);
+
+  # Stop playback.
+  - id: sound_stop
+    then:
+      - lambda: |-
+          uint8_t f[4] = {0xAA, 0x04, 0x00, 0xAE};
+          id(dy_sv5w_uart).write_array(f, 4);
+          ESP_LOGI("sound", "stop");
+
+  # Continuously loop a given track. Loop mode first, brief pause so the module
+  # processes it, then play. Used for both the idle and run sounds.
+  - id: sound_start_loop
+    parameters:
+      track: int
+    mode: restart            # a newer request cancels an in-flight swap
+    then:
+      - script.execute: sound_set_loop_single
+      - delay: 30ms
+      - script.execute:
+          id: sound_play_track
+          track: !lambda 'return track;'
+
+  # State machine: derive the desired sound from the game gate + motor motion and
+  # act only on a change. Polled by the interval below.
+  #   game inactive            -> stopped
+  #   game active, motor idle   -> idle track  (or silence if Idle Track == 0)
+  #   game active, motor moving -> run track
+  - id: sound_update
+    then:
+      - lambda: |-
+          int desired;
+          if (!id(board_active))        desired = 0;   // stopped
+          else if (id(motor_running))   desired = 2;   // run
+          else                          desired = 1;   // idle
+          if (desired == id(sound_state)) return;
+          id(sound_state) = desired;
+          if (desired == 0) {
+            id(sound_stop).execute();
+          } else if (desired == 2) {
+            id(sound_start_loop).execute((int) id(sound_run_track_num).state);
+          } else {
+            int it = (int) id(sound_idle_track_num).state;
+            if (it <= 0) id(sound_stop).execute();     // 0 = silent while idle
+            else         id(sound_start_loop).execute(it);
+          }
+
+# ==============================================================================
+# NUMBER - volume (web UI / persisted)
+# ==============================================================================
+number:
+  - platform: template
+    name: "Sound Volume"
+    id: sound_volume
+    min_value: 0
+    max_value: 30
+    step: 1
+    initial_value: 20
+    restore_value: true
+    optimistic: true
+    icon: "mdi:volume-high"
+    on_value:
+      - script.execute:
+          id: sound_set_volume
+          vol: !lambda 'return (int) x;'
+
+  # Which file (00001.mp3 = 1) loops while the motor is moving.
+  - platform: template
+    name: "Sound Run Track"
+    id: sound_run_track_num
+    min_value: 1
+    max_value: 99
+    step: 1
+    initial_value: ${sound_run_track}
+    restore_value: true
+    optimistic: true
+    icon: "mdi:music-note"
+
+  # Which file loops while the game is active but the motor is idle.
+  # Set to 0 for silence-when-stopped (run sound only while moving).
+  - platform: template
+    name: "Sound Idle Track"
+    id: sound_idle_track_num
+    min_value: 0
+    max_value: 99
+    step: 1
+    initial_value: ${sound_idle_track}
+    restore_value: true
+    optimistic: true
+    icon: "mdi:music-note-outline"
+
+# ==============================================================================
+# BUTTONS - bench testing
+# ==============================================================================
+button:
+  - platform: template
+    name: "Sound Test Run"
+    icon: "mdi:play"
+    on_press:
+      - script.execute:
+          id: sound_start_loop
+          track: !lambda 'return (int) id(sound_run_track_num).state;'
+
+  - platform: template
+    name: "Sound Test Idle"
+    icon: "mdi:play-outline"
+    on_press:
+      - script.execute:
+          id: sound_start_loop
+          track: !lambda 'return (int) id(sound_idle_track_num).state;'
+
+  - platform: template
+    name: "Sound Test Stop"
+    icon: "mdi:stop"
+    on_press:
+      - script.execute: sound_stop
+
+# ==============================================================================
+# WATCH the game gate + motor motion and swap the sound on any change.
+# board_active is owned by motor_can.yaml; motor_running by motor_common.yaml.
+# ==============================================================================
+interval:
+  - interval: 100ms
+    then:
+      - script.execute: sound_update
+
+# ==============================================================================
+# Apply saved volume + loop mode shortly after boot (module needs to power up).
+# ==============================================================================
+esphome:
+  on_boot:
+    - priority: -200
+      then:
+        - delay: 1s
+        - script.execute:
+            id: sound_set_volume
+            vol: !lambda 'return (int) id(sound_volume).state;'
+        - script.execute: sound_set_loop_single
+        - logger.log: "Sound: DY-SV5W initialised (UART 9600 on GPIO21/22)"

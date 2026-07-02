@@ -1,13 +1,17 @@
 # ==============================================================================
-# NEATO-FX SMART MOTOR CONTROLLER - MAIN CONFIGURATION FILE
+# NEATO MOTOR CONTROLLER - MAIN CONFIGURATION FILE
 # ==============================================================================
-# General-purpose bidirectional DC motor controller for linear actuators,
-# winches, animatronic props, automated doors, and reversible DC motor loads.
+# Single entry point. Select the behavior BOARD and (for the standard board)
+# the DRIVE by un-commenting exactly one line in each group below.
+#
+# Standard board = hold-to-run joystick control on the BTN8962TA H-bridge, with
+# a swappable drive so the same firmware runs a 24V DC motor OR a 240VAC
+# controller. Winch / pulse / manual are self-contained alternate boards.
 #
 # Usage:
-#   esphome -s id <id> run Controllers/NeatoMotor/main.yaml
-#   esphome -s id <id> logs Controllers/NeatoMotor/main.yaml
+#   esphome -s id <id> run     Controllers/NeatoMotor/main.yaml
 #   esphome -s id <id> compile Controllers/NeatoMotor/main.yaml
+#   esphome -s id <id> logs    Controllers/NeatoMotor/main.yaml
 # ==============================================================================
 
 # ==============================================================================
@@ -17,24 +21,31 @@ substitutions:
   id: "1"
   name: "motor-${id}"
   friendly_name: "Neato Motor ${id}"
-  project_name: "CodeMakesItGo.Motor"
-  project_version: "1.0.0"
 
 # ==============================================================================
-# PACKAGES - Hardware & Configuration
+# PACKAGES
 # ==============================================================================
 packages:
-  # Hardware definition — select board revision
-  board: !include boards/rev3.yaml
+  # ---- BOARD / BEHAVIOR — select exactly ONE ----
+  board: !include boards/rev3.yaml             # Standard: hold-to-run joystick (pick a DRIVE below)
+  #board: !include boards/rev3_winch.yaml      # Winch: hall-encoder, auto-homing, soft limits
+  #board: !include boards/rev3_pulse.yaml      # Pulse: momentary pulse drive
+  #board: !include boards/rev3_manual.yaml     # Manual: self-contained, never CAN-gated
 
-  # Network configuration — select operating mode
-  # - For networked (Home Assistant): uncomment the next line
-  config: !include configs/networked.yaml
-  # - For standalone AP mode: uncomment the next line
-  #config: !include configs/standalone.yaml
+  # ---- DRIVE — standard board only; select ONE (leave commented for winch/pulse/manual) ----
+  drive: !include boards/common/drive_dc.yaml    # 24V DC motor via PWM ramp (default)
+  #drive: !include boards/common/drive_ac.yaml   # 240VAC controller: ground one input, open the other
+
+  # ---- NETWORK — select ONE ----
+  config: !include configs/networked.yaml        # Home Assistant API + web UI + OTA
+  #config: !include configs/standalone.yaml       # AP-only: local web UI + OTA, no Home Assistant
+
+  # ---- OPTIONAL ADD-ONS ----
+  #can:   !include boards/common/can.yaml         # CAN inter-controller bus (game-gates the joysticks)
+  #sound: !include boards/common/sound.yaml       # DY-SV5W audio module on GPIO21/22
 
 # ==============================================================================
 # DEBUGGING
 # ==============================================================================
 logger:
-  level: WARN  # Change to DEBUG for troubleshooting
+  level: WARN  # INFO or DEBUG for troubleshooting

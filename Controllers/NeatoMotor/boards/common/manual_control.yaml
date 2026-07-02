@@ -1,0 +1,327 @@
+# ==============================================================================
+# NEATO MOTOR CONTROLLER - MANUAL JOYSTICK CONTROL LOGIC
+# ==============================================================================
+# Hold-to-run motor control driven by two joystick inputs and guarded by two
+# hard limit switches. Every motor start ramps up from 0 to speed; every stop
+# is immediate. This gives smooth starts and direction changes without any
+# timing or sequencing complexity.
+#
+# Included by: motor_rev3_0_manual.yaml
+#
+# Hardware IDs consumed from the board file:
+#   Outputs : motor_rpwm, motor_lpwm, motor_r_en, motor_l_en
+#   Sensors : motor_current_forward_raw, motor_current_reverse_raw
+#   Binary  : limit_open, limit_closed, input_1, input_2
+#
+# Behaviour
+# ---------
+#   Input 1 held  → ramp up to speed in direction 1 (forward / open)
+#   Input 2 held  → ramp up to speed in direction 2 (reverse / close)
+#   Either released → motor stops immediately
+#
+# Limit switch enforcement:
+#   open  limit fires → motor stops; Input 1 blocked until released
+#   closed limit fires → motor stops; Input 2 blocked until released
+#
+# The limit switches are hard stops only — they do not auto-reverse.
+# ==============================================================================
+
+packages:
+  esphome_base: !include ../../../../_shared/esphome_base.yaml
+
+substitutions:
+  project_name: "CodeMakesItGo.ManualMotor"
+
+# ==============================================================================
+# GLOBAL VARIABLES
+# ==============================================================================
+globals:
+  # true = H-bridge energised
+  - id: motor_running
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # true = forward (direction 1 / open), false = reverse (direction 2 / close)
+  - id: motor_direction
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+  # Step counter for ramp-up repeat loop
+  - id: motor_ramp_step
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  # true = limit switches are normally-closed (NC); false = normally-open (NO)
+  # NC: idle circuit is closed (LOW); trip = circuit opens (HIGH w/ pullup).
+  # With inverted:true on GPIO: NC idle reads ON, NC tripped reads OFF.
+  # This inverts the trigger edge: motor stops on on_release instead of on_press.
+  - id: limits_nc_mode
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+# ==============================================================================
+# SCRIPTS - Motor Control
+# ==============================================================================
+script:
+  # ---------------------------------------------------------------------------
+  # motor_forward_start
+  # Ramps motor up to speed in direction 1. Blocked if open limit is active.
+  # mode:restart means pressing Input 1 while already ramping forward simply
+  # restarts the ramp (harmless — quickly reaches full speed again).
+  # ---------------------------------------------------------------------------
+  - id: motor_forward_start
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: |-
+              bool open_hit   = id(limits_nc_mode) ? !id(limit_open).state   : id(limit_open).state;
+              bool closed_hit = id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;
+              return open_hit && closed_hit;
+          then:
+            - logger.log: "Manual: both limits active — motor disabled"
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(limits_nc_mode) ? !id(limit_open).state : id(limit_open).state;'
+                then:
+                  - logger.log: "Manual: forward blocked — open limit active"
+                else:
+                  - logger.log: "Manual: ramping forward"
+                  - lambda: |-
+                      id(motor_direction) = true;
+                      id(motor_running)   = true;
+                      id(motor_ramp_step) = 0;
+                  - output.turn_on: motor_r_en
+                  - output.turn_on: motor_l_en
+                  - output.set_level:
+                      id: motor_lpwm
+                      level: 0%
+                  - repeat:
+                      count: 10
+                      then:
+                        - lambda: |-
+                            float speed = id(motor_speed_control).state / 100.0f;
+                            float level = speed * (float)(id(motor_ramp_step) + 1) / 10.0f;
+                            id(motor_rpwm)->set_level(level);
+                            id(motor_ramp_step)++;
+                        - delay: !lambda 'return (uint32_t)std::max(10.0f, id(motor_ramp_ms).state / 10.0f);'
+
+  # ---------------------------------------------------------------------------
+  # motor_reverse_start
+  # Ramps motor up to speed in direction 2. Blocked if closed limit is active.
+  # ---------------------------------------------------------------------------
+  - id: motor_reverse_start
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: |-
+              bool open_hit   = id(limits_nc_mode) ? !id(limit_open).state   : id(limit_open).state;
+              bool closed_hit = id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;
+              return open_hit && closed_hit;
+          then:
+            - logger.log: "Manual: both limits active — motor disabled"
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;'
+                then:
+                  - logger.log: "Manual: reverse blocked — closed limit active"
+                else:
+                  - logger.log: "Manual: ramping reverse"
+                  - lambda: |-
+                      id(motor_direction) = false;
+                      id(motor_running)   = true;
+                      id(motor_ramp_step) = 0;
+                  - output.turn_on: motor_r_en
+                  - output.turn_on: motor_l_en
+                  - output.set_level:
+                      id: motor_rpwm
+                      level: 0%
+                  - repeat:
+                      count: 10
+                      then:
+                        - lambda: |-
+                            float speed = id(motor_speed_control).state / 100.0f;
+                            float level = speed * (float)(id(motor_ramp_step) + 1) / 10.0f;
+                            id(motor_lpwm)->set_level(level);
+                            id(motor_ramp_step)++;
+                        - delay: !lambda 'return (uint32_t)std::max(10.0f, id(motor_ramp_ms).state / 10.0f);'
+
+  # ---------------------------------------------------------------------------
+  # motor_stop_script
+  # Immediately brakes the motor from any state, including mid-ramp.
+  # ---------------------------------------------------------------------------
+  - id: motor_stop_script
+    mode: single
+    then:
+      - script.stop: motor_forward_start
+      - script.stop: motor_reverse_start
+      - lambda: 'id(motor_running) = false;'
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      - output.turn_off: motor_r_en
+      - output.turn_off: motor_l_en
+      - logger.log: "Manual: stopped"
+
+# ==============================================================================
+# NUMBER CONTROLS
+# ==============================================================================
+number:
+  - platform: template
+    name: "Motor Speed"
+    id: motor_speed_control
+    min_value: 1
+    max_value: 100
+    step: 1
+    initial_value: 100
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "%"
+    icon: "mdi:speedometer"
+
+  # Time (ms) for the ramp-up from 0 to full speed on every motor start.
+  # 10 steps are used, so step delay = motor_ramp_ms / 10 (min 10 ms each).
+  # Set to 0 to disable ramping (instant full speed).
+  - platform: template
+    name: "Start Ramp"
+    id: motor_ramp_ms
+    min_value: 0
+    max_value: 2000
+    step: 50
+    initial_value: 300
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "ms"
+    icon: "mdi:sine-wave"
+
+# ==============================================================================
+# SWITCHES
+# ==============================================================================
+switch:
+  # Toggle between normally-open (NO) and normally-closed (NC) limit switches.
+  # Saved to flash — set once to match your hardware and leave it.
+  - platform: template
+    name: "Limit Switches NC Mode"
+    id: limits_nc_mode_switch
+    icon: "mdi:electric-switch"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - lambda: 'id(limits_nc_mode) = true;'
+      - logger.log: "Limit switches: NC mode enabled"
+    turn_off_action:
+      - lambda: 'id(limits_nc_mode) = false;'
+      - logger.log: "Limit switches: NO mode enabled"
+
+# ==============================================================================
+# COVER - Home Assistant integration
+# ==============================================================================
+cover:
+  - platform: template
+    name: "Motor"
+    id: manual_motor
+    device_class: gate
+    optimistic: false
+
+    open_action:
+      - if:
+          condition:
+            lambda: 'return game_active();'
+          then:
+            - script.execute: motor_forward_start
+
+    close_action:
+      - if:
+          condition:
+            lambda: 'return game_active();'
+          then:
+            - script.execute: motor_reverse_start
+
+    stop_action:
+      - script.execute: motor_stop_script
+
+    lambda: |-
+      if (id(limit_open).state)   return COVER_OPEN;
+      if (id(limit_closed).state) return COVER_CLOSED;
+      return {};
+
+# ==============================================================================
+# BINARY SENSORS - Motor Idle State
+# ==============================================================================
+binary_sensor:
+  - platform: template
+    name: "Motor Idle"
+    id: motor_idle
+    device_class: running
+    lambda: 'return !id(motor_running);'
+
+# ==============================================================================
+# TEXT SENSORS - Motor Status
+# ==============================================================================
+text_sensor:
+  - platform: template
+    name: "Motor Status"
+    id: motor_status
+    update_interval: 200ms
+    icon: "mdi:arrow-decision"
+    lambda: |-
+      if (!id(motor_running)) return {"Stopped"};
+      if (id(motor_direction)) return {"Forward"};
+      return {"Reverse"};
+
+# ==============================================================================
+# SENSORS - Averaged Current Display
+# ==============================================================================
+sensor:
+  - platform: template
+    name: "Motor Current Forward"
+    id: motor_current_forward
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+    update_interval: 500ms
+    lambda: 'return id(motor_current_forward_raw).state;'
+    filters:
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+
+  - platform: template
+    name: "Motor Current Reverse"
+    id: motor_current_reverse
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+    update_interval: 500ms
+    lambda: 'return id(motor_current_reverse_raw).state;'
+    filters:
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+
+# ==============================================================================
+# INTERVAL - Push motor_idle state
+# ==============================================================================
+interval:
+  - interval: 200ms
+    then:
+      - binary_sensor.template.publish:
+          id: motor_idle
+          state: !lambda 'return !id(motor_running);'
+      # Game-over enforcement: the game gate is only checked when a move
+      # starts, so an operator holding the joystick past the end of the game
+      # would keep the gantry moving.  Brake as soon as the gate closes (STOP
+      # received, or display heartbeat lost for >3 s).
+      - lambda: |-
+          if (!game_active() && id(motor_running)) {
+            ESP_LOGI("manual", "Game ended while motor running — stopping");
+            id(motor_stop_script).execute();
+          }

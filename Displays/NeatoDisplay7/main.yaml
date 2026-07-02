@@ -1,0 +1,43 @@
+# ==============================================================================
+# NEATO DISPLAY 7" - MAIN CONFIGURATION FILE
+# ==============================================================================
+# Primary config for the 7" (800x480) touch-screen game display. Assembles the
+# Waveshare ESP32-S3-Touch-LCD-7B hardware, network config, game scripts, and
+# the LVGL shooting-gallery UI. This is the general product build — it does NOT
+# include the DigTown excavator game (that lives in Customers/DigTown/).
+#
+# Usage:
+#   esphome run main.yaml                   (starts with station ID 1)
+#   esphome -s id 2 run main.yaml           (station ID 2)
+#   Then adjust settings via the web interface
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  id: "1"                          # Station ID - override with -s id X
+  name: station-20${id}
+  friendly_name: "NEATO Display ${id}"
+  color: "YLW"                     # Screen color: YLW | GRN | BLU | ORG
+  font_color: "0xFFE000"           # YLW=0xFFE000  GRN=0x00E000  BLU=0x00BFFF  ORG=0xFF6000
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  # Hardware board definition
+  board: !include boards/rev1.yaml
+
+  # Network configuration (WiFi, API, web server)
+  config_file: !include configs/networked.yaml
+
+  # Game logic scripts
+  game_scripts: !include scripts/game_scripts.yaml
+
+# ==============================================================================
+# DEBUGGING
+# ==============================================================================
+logger:
+  level: WARN
+  baud_rate: 115200  # Must be non-zero for improv_serial (Made for ESPHome requirement)

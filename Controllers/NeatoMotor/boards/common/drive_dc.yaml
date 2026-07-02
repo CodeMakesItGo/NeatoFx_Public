@@ -1,0 +1,116 @@
+# ==============================================================================
+# SMART MOTOR - DRIVE PACKAGE: 24V DC MOTOR (PWM RAMP)
+# ==============================================================================
+# Direction scripts for a brushed 24V DC motor on the BTN8962TA H-bridge. Each
+# start ramps PWM 0 -> speed over motor_ramp_ms (10 steps), driving one bridge
+# high-side while the other rests at 0%. Pairs with motor_stop_script (shared,
+# in motor_common.yaml) and the limit-switch guards.
+#
+# Select in the main file:
+#   drive: !include boards/common/drive_dc.yaml
+#
+# Consumed IDs (from board + common):
+#   Outputs : motor_rpwm, motor_lpwm, motor_r_en, motor_l_en
+#   Numbers : motor_speed_control, motor_ramp_ms
+#   Globals : current_direction, motor_running, motor_ramp_step, limits_nc_mode
+#   Binary  : limit_open, limit_closed
+# ==============================================================================
+script:
+  # ---------------------------------------------------------------------------
+  # motor_forward_start
+  # Ramps the motor up to speed in direction 1 (forward / open). Blocked if the
+  # open limit (SW1) is active. mode:restart means re-pressing Input 1 mid-ramp
+  # simply restarts the ramp.
+  # ---------------------------------------------------------------------------
+  - id: motor_forward_start
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: |-
+              bool open_hit   = id(limits_nc_mode) ? !id(limit_open).state   : id(limit_open).state;
+              bool closed_hit = id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;
+              return open_hit && closed_hit;
+          then:
+            - logger.log: "Manual: both limits active — motor disabled"
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(limits_nc_mode) ? !id(limit_open).state : id(limit_open).state;'
+                then:
+                  - logger.log: "Manual: forward blocked — open limit (SW1) active"
+                else:
+                  - logger.log:
+                      level: INFO
+                      format: "Manual: ramping forward (ramp=%.0f ms, speed=%.0f%%, step delay=%.0f ms)"
+                      args:
+                        - 'id(motor_ramp_ms).state'
+                        - 'id(motor_speed_control).state'
+                        - 'std::max(10.0f, id(motor_ramp_ms).state / 10.0f)'
+                  - lambda: |-
+                      id(current_direction) = true;
+                      id(motor_running)     = true;
+                      id(motor_ramp_step)   = 0;
+                  - output.turn_on: motor_r_en
+                  - output.turn_on: motor_l_en
+                  - output.set_level:
+                      id: motor_lpwm
+                      level: 0%
+                  - repeat:
+                      count: 10
+                      then:
+                        - lambda: |-
+                            float speed = id(motor_speed_control).state / 100.0f;
+                            float level = speed * (float)(id(motor_ramp_step) + 1) / 10.0f;
+                            id(motor_rpwm)->set_level(level);
+                            id(motor_ramp_step)++;
+                        - delay: !lambda 'return (uint32_t)std::max(10.0f, id(motor_ramp_ms).state / 10.0f);'
+
+  # ---------------------------------------------------------------------------
+  # motor_reverse_start
+  # Ramps the motor up to speed in direction 2 (reverse / close). Blocked if the
+  # closed limit (SW2) is active.
+  # ---------------------------------------------------------------------------
+  - id: motor_reverse_start
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: |-
+              bool open_hit   = id(limits_nc_mode) ? !id(limit_open).state   : id(limit_open).state;
+              bool closed_hit = id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;
+              return open_hit && closed_hit;
+          then:
+            - logger.log: "Manual: both limits active — motor disabled"
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;'
+                then:
+                  - logger.log: "Manual: reverse blocked — closed limit (SW2) active"
+                else:
+                  - logger.log:
+                      level: INFO
+                      format: "Manual: ramping reverse (ramp=%.0f ms, speed=%.0f%%, step delay=%.0f ms)"
+                      args:
+                        - 'id(motor_ramp_ms).state'
+                        - 'id(motor_speed_control).state'
+                        - 'std::max(10.0f, id(motor_ramp_ms).state / 10.0f)'
+                  - lambda: |-
+                      id(current_direction) = false;
+                      id(motor_running)     = true;
+                      id(motor_ramp_step)   = 0;
+                  - output.turn_on: motor_r_en
+                  - output.turn_on: motor_l_en
+                  - output.set_level:
+                      id: motor_rpwm
+                      level: 0%
+                  - repeat:
+                      count: 10
+                      then:
+                        - lambda: |-
+                            float speed = id(motor_speed_control).state / 100.0f;
+                            float level = speed * (float)(id(motor_ramp_step) + 1) / 10.0f;
+                            id(motor_lpwm)->set_level(level);
+                            id(motor_ramp_step)++;
+                        - delay: !lambda 'return (uint32_t)std::max(10.0f, id(motor_ramp_ms).state / 10.0f);'

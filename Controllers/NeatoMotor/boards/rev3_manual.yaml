@@ -1,47 +1,45 @@
 # ==============================================================================
-# NEATO MOTOR CONTROLLER - HARDWARE DEFINITION (REV 3.0, MANUAL HOLD-TO-RUN)
+# NEATO MOTOR CONTROLLER - HARDWARE DEFINITION (REV 3.0 BOARD, MANUAL MODE)
 # ==============================================================================
 # Hardware: Wemos D1 Mini ESP32 + 2× BTN8962TA H-bridge
 # Schematic: motor_ctrl_rev3.2
 #
-# Control logic is hold-to-run manual joystick control (see motor_common.yaml).
-# CAN telemetry / remote drive is preserved (see motor_can.yaml).
+# This board file wires the Rev 3.0 hardware for simple MANUAL JOYSTICK
+# operation. No encoder, no timer, no auto-reverse — pure hold-to-run with
+# hard limit switch stops.
 #
-# Motor Control (BTN8962TA H-bridge):
-#   GPIO19 - R_PWM (IN)  - Right H-bridge (12V-A) - direction 1 / forward / open
-#   GPIO18 - L_PWM (IN)  - Left H-bridge  (12V-B) - direction 2 / reverse / close
-#   GPIO17 - R_EN  (INH) - Right H-bridge enable
-#   GPIO16 - L_EN  (INH) - Left H-bridge enable
-#   GPIO34 - R_IS        - Right H-bridge current sense (ADC input-only)
-#   GPIO35 - L_IS        - Left H-bridge current sense  (ADC input-only)
-#
-# Limit Switches (hard stops — no auto-reverse):
-#   GPIO25 - SW1 / OPEN_SWITCH  (forward end — blocks Input 1 / forward)
-#   GPIO13 - SW2 / CLOSED_SWITCH (reverse end — blocks Input 2 / reverse)
-#
-# CAN Bus (see boards/common/motor_can.yaml):
-#   GPIO5  - CAN TX
-#   GPIO4  - CAN RX
+# Motor H-bridge (BTN8962TA):
+#   GPIO19 - R_PWM — Direction 1 / Forward / Open
+#   GPIO18 - L_PWM — Direction 2 / Reverse / Close
+#   GPIO17 - R_EN  — Right H-bridge enable
+#   GPIO16 - L_EN  — Left H-bridge enable
+#   GPIO34 - R_IS  — Direction 1 current sense (ADC, input-only)
+#   GPIO35 - L_IS  — Direction 2 current sense (ADC, input-only)
 #
 # Joystick Inputs (hold = run, release = stop):
-#   GPIO32 - Input 1 -> motor forward / open  (blocked by SW1)
-#   GPIO27 - Input 2 -> motor reverse / close (blocked by SW2)
-#   Neither active -> motor stops
+#   GPIO32 - Input 1 → motor direction 1 (forward / open)
+#   GPIO27 - Input 2 → motor direction 2 (reverse / close)
+#   Neither active → motor stops
 #
-# Outputs:
+# Limit Switches (hard stops — motor is not allowed to travel past):
+#   GPIO4  - Open switch  — far limit (blocks Input 1 / forward direction)
+#   GPIO13 - Closed switch — near limit (blocks Input 2 / reverse direction)
+#
+# Status LED:
 #   GPIO26 - STATUS LED (external via connector)
-#
-# Behavior is configured via web UI:
-#   Motor Speed          - PWM duty (%) the motor ramps up to
-#   Start Ramp           - ms to ramp 0 -> speed on every start (0 = instant)
-#   Limit Switches NC Mode - invert both end-stops for normally-closed wiring
 # ==============================================================================
 
 # ==============================================================================
-# EXTERNAL PACKAGES
+# PACKAGES
 # ==============================================================================
 packages:
-  common: !include common/common.yaml
+  common: !include common/manual_control.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS
+# ==============================================================================
+substitutions:
+  project_name: "CodeMakesItGo.ManualMotor"
 
 # ==============================================================================
 # CORE CONFIGURATION
@@ -51,8 +49,8 @@ esphome:
   friendly_name: ${friendly_name}
   name_add_mac_suffix: false
   project:
-    name: "CodeMakesItGo.Motor"
-    version: "3.0.0"
+    name: ${project_name}
+    version: "1.0.0"
   on_boot:
     - priority: 900   # Earliest — hold H-bridge safe before GPIO init
       then:
@@ -66,7 +64,7 @@ esphome:
         - light.turn_on:
             id: status_led
             effect: "Heartbeat"
-        - logger.log: "Boot: Manual motor ready — hold Input 1 (forward) or Input 2 (reverse) to run"
+        - logger.log: "Boot: Manual motor ready — hold Input 1 or Input 2 to run"
 
 esp32:
   board: wemos_d1_mini32
@@ -78,18 +76,19 @@ esp32:
 # MOTOR OUTPUTS - BTN8962TA H-Bridge
 # ==============================================================================
 output:
-  # Direction PWM (ledc — R=right H-bridge/12V-A, L=left H-bridge/12V-B)
+  # Direction 1 PWM (forward / open)
   - platform: ledc
     id: motor_rpwm
     pin: GPIO19
     frequency: 1000 Hz
 
+  # Direction 2 PWM (reverse / close)
   - platform: ledc
     id: motor_lpwm
     pin: GPIO18
     frequency: 1000 Hz
 
-  # Half-bridge enable lines (digital)
+  # H-bridge enable lines (both must be ON for motor to run)
   - platform: gpio
     id: motor_r_en
     pin: GPIO17
@@ -123,16 +122,16 @@ light:
 # ==============================================================================
 binary_sensor:
   # ---------------------------------------------------------------------------
-  # SW1 — open / forward end limit switch (blocks forward / direction 1).
+  # Open limit switch — far end of travel (blocks forward/direction 1)
   # NO mode: stop fires on_press  (sensor goes ON  = switch closed to GND).
   # NC mode: stop fires on_release (sensor goes OFF = circuit opened = tripped).
   # ---------------------------------------------------------------------------
   - platform: gpio
     pin:
-      number: GPIO25
+      number: GPIO4
       mode: INPUT_PULLUP
       inverted: true
-    name: "SW1"
+    name: "Open Limit Switch"
     id: limit_open
     device_class: opening
     filters:
@@ -140,20 +139,20 @@ binary_sensor:
     on_press:
       - if:
           condition:
-            lambda: 'return !id(limits_nc_mode) && id(motor_running) && id(current_direction);'
+            lambda: 'return !id(limits_nc_mode) && id(motor_running) && id(motor_direction);'
           then:
-            - logger.log: "Open limit SW1 (NO): stopping motor"
+            - logger.log: "Open limit (NO): stopping motor"
             - script.execute: motor_stop_script
     on_release:
       - if:
           condition:
-            lambda: 'return id(limits_nc_mode) && id(motor_running) && id(current_direction);'
+            lambda: 'return id(limits_nc_mode) && id(motor_running) && id(motor_direction);'
           then:
-            - logger.log: "Open limit SW1 (NC): stopping motor"
+            - logger.log: "Open limit (NC): stopping motor"
             - script.execute: motor_stop_script
 
   # ---------------------------------------------------------------------------
-  # SW2 — closed / reverse end limit switch (blocks reverse / direction 2).
+  # Closed limit switch — near end of travel (blocks reverse/direction 2)
   # NO mode: stop fires on_press  (sensor goes ON  = switch closed to GND).
   # NC mode: stop fires on_release (sensor goes OFF = circuit opened = tripped).
   # ---------------------------------------------------------------------------
@@ -162,7 +161,7 @@ binary_sensor:
       number: GPIO13
       mode: INPUT_PULLUP
       inverted: true
-    name: "SW2"
+    name: "Closed Limit Switch"
     id: limit_closed
     device_class: opening
     filters:
@@ -170,76 +169,72 @@ binary_sensor:
     on_press:
       - if:
           condition:
-            lambda: 'return !id(limits_nc_mode) && id(motor_running) && !id(current_direction);'
+            lambda: 'return !id(limits_nc_mode) && id(motor_running) && !id(motor_direction);'
           then:
-            - logger.log: "Closed limit SW2 (NO): stopping motor"
+            - logger.log: "Closed limit (NO): stopping motor"
             - script.execute: motor_stop_script
     on_release:
       - if:
           condition:
-            lambda: 'return id(limits_nc_mode) && id(motor_running) && !id(current_direction);'
+            lambda: 'return id(limits_nc_mode) && id(motor_running) && !id(motor_direction);'
           then:
-            - logger.log: "Closed limit SW2 (NC): stopping motor"
+            - logger.log: "Closed limit (NC): stopping motor"
             - script.execute: motor_stop_script
 
   # ---------------------------------------------------------------------------
-  # Input 1 (GPIO32) — hold to run forward / direction 1. Blocked by SW1.
+  # Input 1 — hold to run direction 1 (forward / open)
+  # Blocked by open limit switch.
   # ---------------------------------------------------------------------------
   - platform: gpio
     pin:
       number: GPIO32
       mode: INPUT_PULLUP
       inverted: true
-    name: "TGL1"
+    name: "Input 1 (Forward)"
     id: input_1
     filters:
       - delayed_on: 20ms
     on_press:
+      - logger.log: "Input 1: forward"
       - if:
           condition:
-            lambda: 'return id(board_active);'
+            lambda: 'return game_active();'
           then:
-            - logger.log: "Input 1: forward"
             - script.execute: motor_forward_start
-          else:
-            - logger.log: "Input 1 ignored — game inactive (waiting for CAN 0x100 game-active)"
     on_release:
       - logger.log: "Input 1: released — stopping"
       - script.execute: motor_stop_script
 
   # ---------------------------------------------------------------------------
-  # Input 2 (GPIO27) — hold to run reverse / direction 2. Blocked by SW2.
+  # Input 2 — hold to run direction 2 (reverse / close)
+  # Blocked by closed limit switch.
   # ---------------------------------------------------------------------------
   - platform: gpio
     pin:
       number: GPIO27
       mode: INPUT_PULLUP
       inverted: true
-    name: "TGL2"
+    name: "Input 2 (Reverse)"
     id: input_2
     filters:
       - delayed_on: 20ms
     on_press:
+      - logger.log: "Input 2: reverse"
       - if:
           condition:
-            lambda: 'return id(board_active);'
+            lambda: 'return game_active();'
           then:
-            - logger.log: "Input 2: reverse"
             - script.execute: motor_reverse_start
-          else:
-            - logger.log: "Input 2 ignored — game inactive (waiting for CAN 0x100 game-active)"
     on_release:
       - logger.log: "Input 2: released — stopping"
       - script.execute: motor_stop_script
 
 # ==============================================================================
-# SENSORS - Current Monitoring & Stall Detection (Hardware-Specific)
+# SENSORS - Current Monitoring & Stall Detection
 # ==============================================================================
 sensor:
-  # ---------------------------------------------------------------------------
-  # R_IS (GPIO34) — Right H-bridge current sense, fast sampling for stall detection
-  # BTN8962TA IS pin: 1A motor ≈ 0.12V with 1kΩ IS resistor; 8A stall ≈ 0.94V
-  # ---------------------------------------------------------------------------
+  # R_IS (GPIO34) — direction 1 current sense
+  # BTN8962TA: ~0.12V/A with 1kΩ IS resistor; multiply ×8.5 ≈ amps
   - platform: adc
     pin: GPIO34
     id: motor_current_forward_raw
@@ -248,13 +243,16 @@ sensor:
     filters:
       - multiply: 8.5
       - lambda: 'return std::max(0.0f, x);'
-    # Over-current trip lives in the can_broadcast script (motor_can.yaml): it
-    # checks this current against motor_max_current with a 2-sample (~200 ms)
-    # debounce to ride out start-up inrush. No fast single-sample guard here.
+      - sliding_window_moving_average:
+          window_size: 3
+          send_every: 1
+    on_value_range:
+      - above: 8.0
+        then:
+          - logger.log: "WARNING: Stall detected (forward) — emergency stop"
+          - script.execute: motor_stop_script
 
-  # ---------------------------------------------------------------------------
-  # L_IS (GPIO35) — Left H-bridge current sense, fast sampling for stall detection
-  # ---------------------------------------------------------------------------
+  # L_IS (GPIO35) — direction 2 current sense
   - platform: adc
     pin: GPIO35
     id: motor_current_reverse_raw
@@ -263,7 +261,14 @@ sensor:
     filters:
       - multiply: 8.5
       - lambda: 'return std::max(0.0f, x);'
-    # Over-current handled in can_broadcast (see forward sensor above).
+      - sliding_window_moving_average:
+          window_size: 3
+          send_every: 1
+    on_value_range:
+      - above: 8.0
+        then:
+          - logger.log: "WARNING: Stall detected (reverse) — emergency stop"
+          - script.execute: motor_stop_script
 
   - platform: uptime
     name: "Uptime"

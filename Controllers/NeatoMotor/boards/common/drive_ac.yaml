@@ -1,0 +1,100 @@
+# ==============================================================================
+# SMART MOTOR - DRIVE PACKAGE: 240VAC CONTROLLER (GROUND ONE INPUT)
+# ==============================================================================
+# Direction scripts for an external 240VAC motor controller with two logic
+# inputs (M1 / M2). The controller turns when ONE input is pulled to ground and
+# the other is left open/floating. No PWM — it's a dry-contact style control.
+#
+# The BTN8962TA half-bridge gives us exactly that:
+#   EN on  + PWM 0%  -> low-side FET conducts -> output tied to GROUND
+#   EN off           -> output high-impedance -> output OPEN / floating
+#
+# Wire the controller's M1 -> Output A (R-bridge), M2 -> Output B (L-bridge),
+# and the controller's ground to the board ground.
+#
+#   TGL1 (Input 1) held -> Output A = GROUND, Output B = OPEN   (forward)
+#   TGL2 (Input 2) held -> Output B = GROUND, Output A = OPEN   (reverse)
+#   either released     -> both OPEN (motor off, via motor_stop_script)
+#
+# Select in the main file:
+#   drive: !include boards/common/drive_ac.yaml
+#
+# Consumed IDs (from board + common):
+#   Outputs : motor_rpwm, motor_lpwm, motor_r_en, motor_l_en
+#   Globals : current_direction, motor_running, limits_nc_mode
+#   Binary  : limit_open, limit_closed
+# ==============================================================================
+script:
+  # ---------------------------------------------------------------------------
+  # motor_forward_start  (TGL1 held)
+  # Grounds Output A (M1) and leaves Output B (M2) open. Blocked if the open
+  # limit (SW1) is active. mode:restart so a re-press just re-asserts the state.
+  # ---------------------------------------------------------------------------
+  - id: motor_forward_start
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: |-
+              bool open_hit   = id(limits_nc_mode) ? !id(limit_open).state   : id(limit_open).state;
+              bool closed_hit = id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;
+              return open_hit && closed_hit;
+          then:
+            - logger.log: "Manual: both limits active — motor disabled"
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(limits_nc_mode) ? !id(limit_open).state : id(limit_open).state;'
+                then:
+                  - logger.log: "Manual: forward blocked — open limit (SW1) active"
+                else:
+                  - logger.log:
+                      level: INFO
+                      format: "Manual: Output A -> GROUND, Output B -> OPEN (forward)"
+                  - lambda: |-
+                      id(current_direction) = true;
+                      id(motor_running)     = true;
+                  # Output B open first (never ground both inputs at once)
+                  - output.turn_off: motor_l_en
+                  # Output A grounded: low-side on (PWM 0% with bridge enabled)
+                  - output.set_level:
+                      id: motor_rpwm
+                      level: 0%
+                  - output.turn_on: motor_r_en
+
+  # ---------------------------------------------------------------------------
+  # motor_reverse_start  (TGL2 held)
+  # Mirror of forward: grounds Output B (M2), leaves Output A (M1) open. Blocked
+  # if the closed limit (SW2) is active.
+  # ---------------------------------------------------------------------------
+  - id: motor_reverse_start
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: |-
+              bool open_hit   = id(limits_nc_mode) ? !id(limit_open).state   : id(limit_open).state;
+              bool closed_hit = id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;
+              return open_hit && closed_hit;
+          then:
+            - logger.log: "Manual: both limits active — motor disabled"
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;'
+                then:
+                  - logger.log: "Manual: reverse blocked — closed limit (SW2) active"
+                else:
+                  - logger.log:
+                      level: INFO
+                      format: "Manual: Output B -> GROUND, Output A -> OPEN (reverse)"
+                  - lambda: |-
+                      id(current_direction) = false;
+                      id(motor_running)     = true;
+                  # Output A open first (never ground both inputs at once)
+                  - output.turn_off: motor_r_en
+                  # Output B grounded: low-side on (PWM 0% with bridge enabled)
+                  - output.set_level:
+                      id: motor_lpwm
+                      level: 0%
+                  - output.turn_on: motor_l_en

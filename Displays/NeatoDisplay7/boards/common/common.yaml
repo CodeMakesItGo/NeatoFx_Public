@@ -1,0 +1,16 @@
+# ==============================================================================
+# NEATO DISPLAY 7" - COMMON COMPONENTS (800x480)
+# ==============================================================================
+# Shared configuration for the 7" display hardware. Pulls in the ESPHome base
+# package and the LVGL screen definitions.
+#
+# Included by: boards/rev1.yaml
+# ==============================================================================
+
+packages:
+  esphome_base: !include ../../../../_shared/esphome_base.yaml
+  screens: !include screens.yaml
+
+substitutions:
+  device_description: "800x480 Touch Screen"
+  project_name: "CodeMakesItGo.Display7"

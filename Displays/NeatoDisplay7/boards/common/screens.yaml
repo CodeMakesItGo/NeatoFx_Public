@@ -1,0 +1,248 @@
+# ==============================================================================
+# NEATO DISPLAY - SCREENS & UI (7" 800x480)
+# ==============================================================================
+# LVGL pages and widgets for the Waveshare 7" 800x480 landscape display.
+#
+# Pages:
+#   shot_page      - Shooting game UI (boot, game, shots, game-over screens)
+#
+# Included by: boards/common/common.yaml
+# ==============================================================================
+
+# ==============================================================================
+# TEMPLATE SENSORS - Game State
+# ==============================================================================
+sensor:
+  - platform: template
+    name: "Player Score"
+    id: player_${id}_score
+    update_interval: never
+
+  - platform: template
+    name: "Player Hit"
+    id: player_${id}_hit
+    update_interval: never
+
+  - platform: template
+    name: "Player Shots"
+    id: player_${id}_shot
+    update_interval: never
+
+# Images removed to stay within 3.93MB OTA flash partition.
+# Each 800x480 RGB565 image = ~768KB; three images = ~2.3MB.
+# Re-add here once real 800x480 artwork is ready.
+
+# ==============================================================================
+# LVGL - Touch UI (800x480 landscape)
+# ==============================================================================
+lvgl:
+  on_idle:
+    - timeout: 15s
+      then:
+        - logger.log: "LVGL idle 15s timeout"
+
+  page_wrap: true
+  pages:
+
+    # ==========================================================================
+    # SHOT PAGE — shooting gallery game screens (shown/hidden as overlapping objs)
+    # ==========================================================================
+    - id: shot_page
+      skip: false
+      bg_color: 0x000000
+      bg_opa: COVER
+      border_opa: TRANSP
+
+      widgets:
+
+        # ------------------------------------------------------------------
+        # GAME SHOT SCREEN
+        # ------------------------------------------------------------------
+        - obj:
+            id: game_shot_screen
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_opa: COVER
+            radius: 0
+            pad_all: 0
+            border_width: 0
+            bg_color: 0x000000
+            widgets:
+              - label:
+                  x: 410
+                  y: 100
+                  width: 360
+                  height: 50
+                  text_font: label_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${font_color}
+                  text: "SHOTS LEFT"
+                  bg_opa: TRANSP
+              - label:
+                  id: player_shot
+                  x: 410
+                  y: 155
+                  width: 360
+                  height: 200
+                  text_font: shot_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${font_color}
+                  text: ""
+                  bg_opa: TRANSP
+
+        # ------------------------------------------------------------------
+        # GAME SCREEN
+        # ------------------------------------------------------------------
+        - obj:
+            id: game_screen
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_opa: TRANSP
+            radius: 0
+            pad_all: 0
+            border_width: 0
+            bg_color: 0x000000
+            widgets:
+              - label:
+                  x: 410
+                  y: 60
+                  width: 360
+                  height: 45
+                  text_font: label_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${font_color}
+                  text: "HITS"
+                  bg_opa: TRANSP
+              - label:
+                  id: player_hit
+                  x: 410
+                  y: 105
+                  width: 360
+                  height: 110
+                  text_font: hit_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${font_color}
+                  text: ""
+                  bg_opa: TRANSP
+              - label:
+                  x: 410
+                  y: 235
+                  width: 360
+                  height: 45
+                  text_font: label_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${font_color}
+                  text: "SCORE"
+                  bg_opa: TRANSP
+              - label:
+                  id: player_score
+                  x: 410
+                  y: 280
+                  width: 360
+                  height: 150
+                  text_font: score_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${font_color}
+                  text: ""
+                  bg_opa: TRANSP
+
+        # ------------------------------------------------------------------
+        # BOOT SCREEN - Full-width splash + tap-anywhere to continue
+        # ------------------------------------------------------------------
+        - obj:
+            id: boot_screen
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_color: 0x1C1C1C
+            bg_opa: COVER
+            radius: 0
+            pad_all: 0
+            border_width: 0
+            widgets:
+              - label:
+                  x: 0
+                  y: 180
+                  width: 800
+                  height: 80
+                  text_font: hit_font
+                  text_align: CENTER
+                  text_color: ${font_color}
+                  text: "TAP TO START"
+                  bg_opa: TRANSP
+              - button:
+                  x: 0
+                  y: 0
+                  width: 800
+                  height: 480
+                  checkable: false
+                  bg_color: 0x000000
+                  bg_opa: TRANSP
+                  border_color: 0x000000
+                  border_width: 0
+                  border_opa: TRANSP
+                  radius: 0
+                  shadow_width: 0
+                  shadow_color: 0x000000
+                  on_click:
+                    then:
+                      - globals.set:
+                          id: game_over_active
+                          value: 'false'
+                      - lvgl.widget.hide: boot_screen
+                      - lvgl.widget.show: game_screen
+                      - lvgl.widget.show: game_shot_screen
+                      - script.execute: reset_score_script
+                      - lvgl.label.update:
+                          id: player_shot
+                          text: !lambda 'return std::to_string(id(g_max_shots));'
+
+        # ------------------------------------------------------------------
+        # GAME OVER SCREEN
+        # ------------------------------------------------------------------
+        - obj:
+            id: game_over_screen
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_color: 0x000000
+            bg_opa: COVER
+            radius: 0
+            pad_all: 0
+            border_width: 0
+            widgets:
+              - label:
+                  x: 0
+                  y: 120
+                  width: 800
+                  height: 80
+                  text_font: hit_font
+                  text_align: CENTER
+                  text_color: 0xFF2200
+                  text: "GAME OVER"
+                  bg_opa: TRANSP
+              - label:
+                  id: game_over_score
+                  x: 200
+                  y: 200
+                  width: 400
+                  height: 150
+                  text_font: score_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${font_color}
+                  text: ""
+                  bg_opa: TRANSP
+

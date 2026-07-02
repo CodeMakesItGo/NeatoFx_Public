@@ -1,0 +1,52 @@
+# ==============================================================================
+# SERVO MOVEMENT SCRIPT - 90 degree movement with return
+# ==============================================================================
+# This script moves the servo 90 degrees, waits 1 second, then returns to 0
+# Includes the script definition and a button to trigger it
+# ==============================================================================
+
+script:
+  # Servo Movement Script - 90 degrees and back
+  - id: servo_movement_90_return
+    mode: single  # Prevent overlapping movements
+    then:
+      - logger.log: "Starting servo movement: 90 degrees"
+      
+      # Move servo to 90 degrees (0.9 level for 90 degrees)
+      - servo.write:
+          id: servo1
+          level: 0.9
+      
+      # Update the servo slider to reflect the position
+      - number.set:
+          id: servo_slider
+          value: 90
+      
+      # Wait 1 second
+      - delay: 1s
+      
+      - logger.log: "Returning servo to 0 degrees"
+      
+      # Return servo to 0 degrees (0.0 level)
+      - servo.write:
+          id: servo1
+          level: 0.0
+      
+      # Update the servo slider to reflect the position
+      - number.set:
+          id: servo_slider
+          value: 0
+      
+      - logger.log: "Servo movement completed"
+
+# ==============================================================================
+# USER INTERFACE - Button to trigger servo movement
+# ==============================================================================
+button:
+  # Button to trigger the servo movement script
+  - platform: template
+    name: "Move Servo 90°"
+    id: servo_move_button
+    icon: "mdi:rotate-right"
+    on_press:
+      - script.execute: servo_movement_90_return

@@ -1,0 +1,37 @@
+# ==============================================================================
+# NEATO BLASTER - MAIN CONFIGURATION FILE
+# ==============================================================================
+# This is the PRIMARY configuration file that assembles all blaster components.
+# It includes hardware definitions, network configuration, IR transmitter,
+# pump functionality, and optional integrations with Home Assistant.
+#
+# Usage:
+#   esphome run main.yaml                    (starts with ID 0001)
+#   esphome -s id 0001 run main.yaml        (starts with ID 0001)
+#   esphome -s id 0002 run main.yaml        (starts with ID 0002)
+#   Then adjust Blaster ID via web interface number control
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  # Default ID - override with -s id XXXX command line parameter
+  id: "1"                     # Default blaster ID
+  name: blaster-${id}
+  friendly_name: "NEATO PumpBlaster ${id}"
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  # - For Rev 1.x blasters uncomment the next line
+  #board: !include boards/rev1.yaml
+  # - For Rev 3.x blasters uncomment the next line
+  board: !include boards/rev3.yaml
+
+  # - For standalone: uncomment the next line
+  #config: !include configs/standalone.yaml
+  # - For networked: uncomment the next line
+  config: !include configs/networked.yaml
+

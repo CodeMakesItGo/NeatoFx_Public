@@ -1,5 +1,5 @@
 # ==============================================================================
-# NEATO SMART TARGET - MAIN CONFIGURATION FILE
+# NEATO TARGET IR - MAIN CONFIGURATION FILE
 # ==============================================================================
 # This is the PRIMARY configuration file that assembles all target components.
 # It includes hardware definitions, network configuration, IR protocols,
@@ -28,8 +28,9 @@ substitutions:
 # ==============================================================================
 packages:
   # Hardware — select one board revision:
-  target_rev_file: !include boards/rev3.yaml    # Rev 3.x (current production)
-  #target_rev_file: !include boards/rev1.yaml   # Rev 1.x (legacy)
+  target_rev_file: !include boards/rev3.yaml     # Rev 3.x (current production)
+  #target_rev_file: !include boards/rev1.yaml    # Rev 1.x (legacy)
+  #target_rev_file: !include boards/rev3_lcd.yaml # Rev 3.x + GC9A01 round LCD face (IR moves to GPIO32; see docs/LCD_Face_Setup.md)
 
   # Change this manually when changing target_type:
   # - For standalone: uncomment the next line

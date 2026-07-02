@@ -1,0 +1,64 @@
+# ==============================================================================
+# NEATO GOLF - MAIN CONFIGURATION FILE
+# ==============================================================================
+# This is the PRIMARY configuration file that assembles all golf components.
+# It includes hardware definitions, network configuration, IR protocols,
+# and optional integrations like FPP (Falcon Player) support.
+#
+# Usage:
+#   esphome run main.yaml                    (starts with ID 0000)
+#   esphome -s id 0001 run main.yaml        (starts with ID 0001)
+#   Then adjust Golf ID via web interface number control
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  # Default ID - override with -s id XXXX command line parameter
+  id: "1"                        # Default golf ID
+  name: golf-${id}
+  friendly_name: "NEATO Golf ${id}"
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  # - For Rev 3.x targets uncomment the next line
+  board: !include boards/rev3.yaml
+
+  # Change this manually when changing golf_type:
+  # - For standalone: uncomment the next line
+  config: !include configs/standalone.yaml
+  # - For networked: uncomment the next two lines
+  #config: !include configs/networked.yaml
+
+  # Falcon Player Packages (only for networked golf devices)
+  # Uncomment BOTH lines below to enable FPP support
+  #fpp_file: !include integrations/golf_fpp.yaml
+
+  # Hit behavior script - defines what happens when the golf target is hit
+  hit_script: !include scripts/hit_script.yaml
+
+# ==============================================================================
+# GOLF HIT SCRIPTS - what to do when target is hit
+# ==============================================================================
+script:
+  # Main Hit Script - do these things when target is hit
+  - id: run_hit_script
+    mode: parallel
+    then:
+      - script.execute: target_hit_script
+      # Uncomment the next line when FPP package is enabled above
+      #- script.execute: fpp_start_playlist
+      # Uncomment the next line when you want the target to send an ESPHome event to Home Assistant server
+      #- script.execute: esphome_hit_script
+
+
+# ==============================================================================
+# DEBUGGING
+# ==============================================================================
+logger:
+  level: WARN  # Reduced from DEBUG to prevent mobile browser overload
+  #level: DEBUG
+  baud_rate: 0  # Disable serial logging to free up resources

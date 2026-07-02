@@ -1,0 +1,323 @@
+# ==============================================================================
+# NEATO MOTOR CONTROLLER - CAN BUS PACKAGE
+# ==============================================================================
+# Standalone CAN controller. The motor talks to other controllers over CAN only
+# (no display / excavator game, no UDP, no Home Assistant API).
+#
+# Add to motor_main.yaml packages section:
+#   can: !include boards/common/can.yaml
+#
+# ------------------------------------------------------------------------------
+# HARDWARE WIRING (Rev 3.0 board)
+# ------------------------------------------------------------------------------
+#   GPIO5 = CAN TX  (D pin on SN65HVD232 transceiver)
+#   GPIO4 = CAN RX  (R pin on SN65HVD232 transceiver)
+#   250 kbps, standard (11-bit) IDs  (must match all other nodes on the bus)
+#
+#   NOTE: GPIO4 was the open-limit switch; that switch has moved to GPIO25.
+#
+# ------------------------------------------------------------------------------
+# ADDRESSING — this node's address = the `id` substitution (-s id <N>)
+# ------------------------------------------------------------------------------
+# Example below is for id = 1.
+#
+#   0x100        (0x100)  RX  Game active gate (BROADCAST, all nodes)
+#   0x200 + id   (0x201)  TX  Status frame, broadcast periodically
+#   0x300 + id   (0x301)  TX  Motor telemetry, broadcast periodically
+#   0x400 + id   (0x401)  RX  Remote commands
+#   (0x500 + id config commands retired — settings now ride in the 0x100 update)
+#
+# ------------------------------------------------------------------------------
+# 0x100  UPDATE  (RX, broadcast, 8 bytes) — game gate + settings, @ 5Hz
+# ------------------------------------------------------------------------------
+#   byte1    active       : 1 = game active, 0 = game off / timed out
+#   byte2-3  motor ramp   : uint16 LE milliseconds (0-500)
+#   byte4    motor speed  : percent (50-100)
+#   byte5    max current  : amps (4-30)  — over-current trip point
+#   byte6    game timer   : seconds (60-180) — for the display; motor ignores
+#   byte7-8  unused (0xFF)
+#
+#   A single broadcast frame from the display gates EVERY node on the bus (this
+#   replaces the old per-node 0x100+id enable). While inactive the physical
+#   joystick inputs (Input 1 / Input 2) are ignored. The CAN remote drive
+#   commands (0x400+id) are ALWAYS honored regardless of this state, so the
+#   motor can still be operated over CAN while inactive. Defaults to inactive on
+#   boot — a game-active frame is required before the joysticks drive the motor.
+#   The settings bytes are applied only when they change (to spare flash) and
+#   keep a rebooted node in sync; 0x500+id config commands do the same on demand.
+#
+# ------------------------------------------------------------------------------
+# 0x200+id  STATUS  (8 bytes) — TX every ${can_broadcast_interval}
+# ------------------------------------------------------------------------------
+#   byte1  input 1   : toggle 1 input (GPIO32)   0=off 1=on
+#   byte2  input 2   : toggle 2 input (GPIO27)   0=off 1=on
+#   byte3  sw 1      : open limit switch (GPIO25) 0=off 1=on
+#   byte4  sw 2      : closed limit switch (GPIO13) 0=off 1=on
+#   byte5  status    : bit0=output A active, bit1=output B active,
+#                      bit2=under CAN control, bit3=board active (joysticks armed)
+#   byte6-8          : 0xFF (unused)
+#
+# ------------------------------------------------------------------------------
+# 0x300+id  TELEMETRY  (8 bytes, little-endian uint16) — TX every interval
+# ------------------------------------------------------------------------------
+#   bytes1-2  motor output A pwm   (0-100)
+#   bytes3-4  motor output A current  (amps x10, 0-500 = 0-50.0 A)
+#   bytes5-6  motor output B pwm   (0-100)
+#   bytes7-8  motor output B current  (amps x10, 0-500 = 0-50.0 A)
+#
+#   Output A = R H-bridge (12V-A, GPIO19 PWM / GPIO34 current sense)
+#   Output B = L H-bridge (12V-B, GPIO18 PWM / GPIO35 current sense)
+#
+# ------------------------------------------------------------------------------
+# 0x400+id  REMOTE COMMANDS  (RX) — byte1 = cmd type, bytes2-8 = payload
+# ------------------------------------------------------------------------------
+#   0x01  Set A pwm   payload[0] = 0-100   drive output A at this duty
+#   0x02  Set B pwm   payload[0] = 0-100   drive output B at this duty
+#   0x03  Stop        (no payload)         stop both outputs
+#   0x04  Ping        (no payload)         immediately broadcast status+telemetry
+#
+#   Once any drive command is received the node is "CAN controlled" and reports
+#   the commanded A/B values until a Stop (0x03) is received. Local toggle/limit
+#   control still physically drives the motor.
+#
+# ------------------------------------------------------------------------------
+# 0x500+id  CONFIG COMMANDS  — RETIRED
+# ------------------------------------------------------------------------------
+#   Speed / ramp / max-current settings now arrive in the 0x100 update broadcast
+#   (bytes 2-5), applied on change. The old per-node 0x500 config path is gone.
+# ==============================================================================
+
+substitutions:
+  # How often the status (0x200+id) and telemetry (0x300+id) frames are sent.
+  can_broadcast_interval: "100ms"
+
+# ==============================================================================
+# GLOBALS - CAN control state (telemetry source of truth)
+# ==============================================================================
+globals:
+  # true once a CAN drive command has taken over; cleared by CAN Stop (0x03)
+  - id: can_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # board_active is defined in common.yaml (default ON for standalone). This
+  # package drives it from the 0x100 game-active frame below for game-gating.
+
+  # Last commanded / derived PWM for each output (0-100), used for telemetry
+  - id: motor_a_pwm
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: motor_b_pwm
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+# ==============================================================================
+# CAN BUS
+# ==============================================================================
+canbus:
+  - platform: esp32_can
+    id: can_bus
+    tx_pin: GPIO5
+    rx_pin: GPIO4
+    can_id: ${id}            # This node's address = -s id <N>
+    bit_rate: 250kbps        # Must match every node on the bus (display = 250k)
+    on_frame:
+      # Match every frame, then dispatch on this node's command/config IDs.
+      - can_id: 0
+        can_id_mask: 0
+        then:
+          - lambda: |-
+              const uint32_t EN_ID  = 0x100;          // broadcast update (gate + settings)
+              const uint32_t CMD_ID = 0x400 + ${id};
+
+              // ---------------- 0x100 : update broadcast (game gate + settings) ----------------
+              // 8-byte frame from the display @ 5Hz for the whole bus:
+              //   byte0 game active (0/1)   byte1-2 ramp ms (LE)
+              //   byte3 speed %             byte4 max current A
+              //   byte5 game timer s        byte6-7 unused (0xFF)
+              // byte0 gates the local joysticks; the rest keep this motor's
+              // settings in sync (only written on change to spare flash).
+              if (can_id == EN_ID) {
+                if (x.empty()) return;
+                id(game_set_active).execute(x[0] != 0);
+                if (x.size() >= 6) {
+                  int ramp  = x[1] | (x[2] << 8);
+                  int speed = x[3];
+                  int maxc  = x[4];
+                  // byte5 (timer) is for the display/game; the motor ignores it.
+                  if (ramp >= 0 && ramp <= 2000 && ramp != (int) id(motor_ramp_ms).state)
+                    id(motor_ramp_ms).make_call().set_value(ramp).perform();
+                  if (speed >= 1 && speed <= 100 && speed != (int) id(motor_speed_control).state)
+                    id(motor_speed_control).make_call().set_value(speed).perform();
+                  if (maxc >= 4 && maxc <= 30 && maxc != (int) id(motor_max_current).state)
+                    id(motor_max_current).make_call().set_value(maxc).perform();
+                }
+                return;
+              }
+
+              // ---------------- 0x400+id : remote commands ----------------
+              if (can_id == CMD_ID) {
+                if (x.empty()) return;
+                uint8_t cmd = x[0];
+                int v = (x.size() > 1) ? x[1] : 0;
+                switch (cmd) {
+                  case 0x01: id(motor_set_a).execute(v); break;   // Set A pwm
+                  case 0x02: id(motor_set_b).execute(v); break;   // Set B pwm
+                  case 0x03: id(motor_stop_all).execute();  break; // Stop
+                  case 0x04: id(can_broadcast).execute();   break; // Ping
+                  default:   ESP_LOGW("can", "Unknown cmd 0x%02X", cmd);
+                }
+                return;
+              }
+
+              // 0x500+id config commands were retired — all settings now arrive
+              // in the 5Hz 0x100 update broadcast (parsed above).
+
+# ==============================================================================
+# SCRIPTS - Drive helpers (shared by CAN handler and bench-test buttons)
+# ==============================================================================
+script:
+  # Set the game-active gate (from the broadcast 0x100 frame or a test button).
+  # On the active->inactive edge (game timer expired) the local joysticks are
+  # disarmed. If a joystick is still being held the motor would otherwise keep
+  # running until physically released, so stop the locally-driven motor now.
+  # CAN-driven motion (0x400+id) ignores the game gate and is left untouched.
+  - id: game_set_active
+    parameters:
+      active: bool
+    then:
+      - lambda: |-
+          if (active == id(board_active)) return;
+          id(board_active) = active;
+          ESP_LOGI("can", "Game %s (joysticks %s)",
+                   active ? "ACTIVE" : "INACTIVE",
+                   active ? "armed" : "ignored");
+          if (!active && !id(can_active) && id(motor_running)) {
+            id(motor_stop_script).execute();
+            ESP_LOGI("can", "Game over with joystick held — motor disabled");
+          }
+
+  # Drive output A (R H-bridge, 12V-A) at pwm 0-100
+  - id: motor_set_a
+    parameters:
+      pwm: int
+    then:
+      - lambda: |-
+          int v = pwm; if (v < 0) v = 0; if (v > 100) v = 100;
+          id(can_active)  = true;
+          id(motor_a_pwm) = v;
+          id(motor_r_en).turn_on();
+          id(motor_rpwm).set_level(v / 100.0f);
+          id(motor_running) = (id(motor_a_pwm) > 0 || id(motor_b_pwm) > 0);
+          ESP_LOGI("can", "Drive A = %d%%", v);
+
+  # Drive output B (L H-bridge, 12V-B) at pwm 0-100
+  - id: motor_set_b
+    parameters:
+      pwm: int
+    then:
+      - lambda: |-
+          int v = pwm; if (v < 0) v = 0; if (v > 100) v = 100;
+          id(can_active)  = true;
+          id(motor_b_pwm) = v;
+          id(motor_l_en).turn_on();
+          id(motor_lpwm).set_level(v / 100.0f);
+          id(motor_running) = (id(motor_a_pwm) > 0 || id(motor_b_pwm) > 0);
+          ESP_LOGI("can", "Drive B = %d%%", v);
+
+  # Stop both outputs and release CAN control
+  - id: motor_stop_all
+    then:
+      - lambda: |-
+          id(can_active)    = false;
+          id(motor_a_pwm)   = 0;
+          id(motor_b_pwm)   = 0;
+          id(motor_running) = false;
+          id(motor_rpwm).set_level(0.0f);
+          id(motor_lpwm).set_level(0.0f);
+          id(motor_r_en).turn_off();
+          id(motor_l_en).turn_off();
+          ESP_LOGI("can", "Stop all");
+
+  # Build and broadcast the status (0x200+id) and telemetry (0x300+id) frames
+  - id: can_broadcast
+    mode: single
+    then:
+      - lambda: |-
+          // Refresh A/B PWM for telemetry.
+          if (id(can_active)) {
+            // Under CAN control: if outputs were stopped externally (stall),
+            // reflect that.
+            if (!id(motor_running)) { id(motor_a_pwm) = 0; id(motor_b_pwm) = 0; }
+          } else {
+            // Local control (toggle/limit/cover): single-sided per direction.
+            int s = (int) lroundf(id(motor_speed_control).state);
+            id(motor_a_pwm) = (id(motor_running) &&  id(current_direction)) ? s : 0;
+            id(motor_b_pwm) = (id(motor_running) && !id(current_direction)) ? s : 0;
+          }
+          int a = id(motor_a_pwm);
+          int b = id(motor_b_pwm);
+
+          // ---- 0x200+id : status ----
+          std::vector<uint8_t> st(8, 0xFF);
+          st[0] = id(input_1).state         ? 1 : 0;  // input 1
+          st[1] = id(input_2).state         ? 1 : 0;  // input 2
+          // Report the TRIPPED state (NC-adjusted), matching the manual-control
+          // trip logic. In NC mode the switch idles ON and trips OFF, so the raw
+          // .state must be inverted before it goes on the bus — otherwise the
+          // display's limit pill reads backwards (red at rest, green when hit).
+          bool sw1_hit = id(limits_nc_mode) ? !id(limit_open).state   : id(limit_open).state;
+          bool sw2_hit = id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;
+          st[2] = sw1_hit ? 1 : 0;  // sw 1
+          st[3] = sw2_hit ? 1 : 0;  // sw 2
+          uint8_t status = 0;
+          if (a > 0)            status |= 0x01;
+          if (b > 0)            status |= 0x02;
+          if (id(can_active))   status |= 0x04;
+          if (id(board_active)) status |= 0x08;
+          st[4] = status;
+          // st[5..7] stay 0xFF (unused)
+          id(can_bus).send_data(0x200 + ${id}, false, st);
+
+          // ---- 0x300+id : telemetry (little-endian uint16) ----
+          int ca = (int) lroundf(id(motor_current_forward_raw).state * 10.0f);
+          int cb = (int) lroundf(id(motor_current_reverse_raw).state * 10.0f);
+          if (ca < 0) ca = 0; if (ca > 500) ca = 500;   // 0-50.0 A
+          if (cb < 0) cb = 0; if (cb > 500) cb = 500;
+
+          // ---- Over-current protection ----
+          // Trip if a driven output's sensed current exceeds the Max Current
+          // limit for 2 consecutive samples (~200 ms) — rides out brief start-up
+          // inrush, then cuts all output. Applies to CAN- and locally-driven.
+          {
+            int limit10 = (int) lroundf(id(motor_max_current).state * 10.0f);
+            bool over = ((a > 0 && ca > limit10) || (b > 0 && cb > limit10));
+            static int oc_count = 0;
+            if (over && ++oc_count >= 2) {
+              ESP_LOGW("can", "OVER-CURRENT A=%.1f B=%.1f > %.0fA limit — stopping",
+                       ca / 10.0f, cb / 10.0f, id(motor_max_current).state);
+              id(motor_stop_all).execute();
+              oc_count = 0;
+              a = b = 0;
+            } else if (!over) {
+              oc_count = 0;
+            }
+          }
+          std::vector<uint8_t> tm(8, 0);
+          tm[0] = a  & 0xFF; tm[1] = (a  >> 8) & 0xFF;   // A pwm
+          tm[2] = ca & 0xFF; tm[3] = (ca >> 8) & 0xFF;   // A current x10
+          tm[4] = b  & 0xFF; tm[5] = (b  >> 8) & 0xFF;   // B pwm
+          tm[6] = cb & 0xFF; tm[7] = (cb >> 8) & 0xFF;   // B current x10
+          id(can_bus).send_data(0x300 + ${id}, false, tm);
+
+# ==============================================================================
+# INTERVAL - Periodic status + telemetry broadcast
+# ==============================================================================
+interval:
+  - interval: ${can_broadcast_interval}
+    then:
+      - script.execute: can_broadcast
