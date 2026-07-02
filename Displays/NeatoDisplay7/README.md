@@ -1,6 +1,6 @@
-# NEATO Display 7
+# NeatoFx Display 7
 
-> **7" (800x480) Waveshare ESP32-S3-Touch-LCD-7B variant** of the Neato game display.
+> **7" (800x480) Waveshare ESP32-S3-Touch-LCD-7B variant** of the NeatoFx game display.
 > Runs the standard shooting-gallery UI (`shot_page`). The DigTown excavator game is
 > intentionally **not** included here — it lives in `Customers/DigTown/`.
 > NOTE: this build was assembled from the 7" hardware + the shared game scripts;

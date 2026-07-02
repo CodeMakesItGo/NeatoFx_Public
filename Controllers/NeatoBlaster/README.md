@@ -1,6 +1,6 @@
-# NeatoBlaster - WiFi Enabled Infrared Blaster
+# NeatoFx Blaster - WiFi Enabled Infrared Blaster
 
-The NEATO-FX NeatoBlaster is a professional-grade WiFi-enabled infrared transmitter for interactive shooting galleries, laser tag games, and entertainment attractions. It features realistic trigger mechanics with optional pump-action gameplay and full game integration capabilities.
+The NeatoFx Blaster is a professional-grade WiFi-enabled infrared transmitter for interactive shooting galleries, laser tag games, and entertainment attractions. It features realistic trigger mechanics with optional pump-action gameplay and full game integration capabilities.
 
 ## Table of Contents
 

@@ -13,7 +13,7 @@
 substitutions:
   id: "1"
   name: audio-${id}
-  friendly_name: "NEATO Audio ${id}"
+  friendly_name: "NeatoFx Audio ${id}"
 
 # ==============================================================================
 # PACKAGES

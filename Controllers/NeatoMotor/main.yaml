@@ -20,7 +20,7 @@
 substitutions:
   id: "1"
   name: "motor-${id}"
-  friendly_name: "Neato Motor ${id}"
+  friendly_name: "NeatoFx Motor ${id}"
 
 # ==============================================================================
 # PACKAGES

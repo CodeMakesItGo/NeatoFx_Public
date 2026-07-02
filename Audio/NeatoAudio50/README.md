@@ -1,6 +1,6 @@
-# NEATO Audio 50 - WiFi Audio Controller
+# NeatoFx Audio 50 - WiFi Audio Controller
 
-The NEATO Audio 50 is a modular WiFi-enabled audio controller designed for interactive shooting galleries, escape rooms, and entertainment attractions. It delivers synchronized sound effects triggered by external inputs, with flexible audio output controls and game integration capabilities.
+The NeatoFx Audio 50 is a modular WiFi-enabled audio controller designed for interactive shooting galleries, escape rooms, and entertainment attractions. It delivers synchronized sound effects triggered by external inputs, with flexible audio output controls and game integration capabilities.
 
 ## Table of Contents
 

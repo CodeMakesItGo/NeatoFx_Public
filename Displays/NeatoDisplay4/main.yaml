@@ -17,7 +17,7 @@
 substitutions:
   id: "1"                          # Station ID - override with -s id X
   name: station-20${id}
-  friendly_name: "NEATO Display ${id}"
+  friendly_name: "NeatoFx Display ${id}"
   color: "YLW"                     # Screen color: YLW | GRN | BLU | ORG
   font_color: "0xFFE000"           # YLW=0xFFE000  GRN=0x00E000  BLU=0x00BFFF  ORG=0xFF6000
 

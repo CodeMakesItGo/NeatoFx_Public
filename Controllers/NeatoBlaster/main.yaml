@@ -19,7 +19,7 @@ substitutions:
   # Default ID - override with -s id XXXX command line parameter
   id: "1"                     # Default blaster ID
   name: blaster-${id}
-  friendly_name: "NEATO PumpBlaster ${id}"
+  friendly_name: "NeatoFx PumpBlaster ${id}"
 
 # ==============================================================================
 # EXTERNAL PACKAGES

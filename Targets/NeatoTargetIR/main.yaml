@@ -18,7 +18,7 @@ substitutions:
   # Default ID - override with -s id XXXX command line parameter
   id: "1"                     # Default target ID
   name: target-${id}             
-  friendly_name: "NEATO Target ${id}"
+  friendly_name: "NeatoFx Target ${id}"
   # Servo PWM effect — only used when servo_pwm_effects package is enabled below
   # Options: servo_pwm_sawzall | servo_pwm_flicker
   # servo_pwm_script: "servo_pwm_flicker"

@@ -18,7 +18,7 @@ substitutions:
   # Default ID - override with -s id XXXX command line parameter
   id: "1"                        # Default golf ID
   name: golf-${id}
-  friendly_name: "NEATO Golf ${id}"
+  friendly_name: "NeatoFx Golf ${id}"
 
 # ==============================================================================
 # EXTERNAL PACKAGES

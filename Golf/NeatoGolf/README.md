@@ -1,6 +1,6 @@
-# NeatoGolf - WiFi Enabled Golf Course Target System
+# NeatoFx Golf - WiFi Enabled Golf Course Target System
 
-The NEATO-FX NeatoGolf is a professional-grade WiFi-enabled IR-sensitive target system designed for indoor golf entertainment, mini-golf courses, and interactive golf-themed attractions. Each target detects IR signals from golf clubs or sensors and responds with visual effects, sound, and game integration.
+The NeatoFx Golf is a professional-grade WiFi-enabled IR-sensitive target system designed for indoor golf entertainment, mini-golf courses, and interactive golf-themed attractions. Each target detects IR signals from golf clubs or sensors and responds with visual effects, sound, and game integration.
 
 ## Table of Contents
 

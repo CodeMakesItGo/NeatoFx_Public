@@ -1,4 +1,4 @@
-# NEATO Display 4
+# NeatoFx Display 4
 
 A modular ESPHome project for the 480×480 touch-screen game display station.
 

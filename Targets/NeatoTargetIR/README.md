@@ -1,6 +1,6 @@
-# NEATO Target IR
+# NeatoFx Target IR
 
-The Smart Target is a modular WiFi enabled target for shooting galleries, interactive attractions, and advanced automation entertainment applications. 
+The NeatoFx Target is a modular WiFi enabled target for shooting galleries, interactive attractions, and advanced automation entertainment applications. 
 These targets are unique in that it is an all-in-one solution to control props with colorful eye-catching visuals.
 
 ## 📋 Table of Contents
