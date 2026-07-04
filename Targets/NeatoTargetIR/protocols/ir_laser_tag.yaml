@@ -1,4 +1,15 @@
 # ==============================================================================
+# GLOBAL VARIABLES - Laser Tag Options
+# ==============================================================================
+globals:
+  # When enabled, the target changes to the detecting team's color on hit.
+  # Only present when the laser tag protocol is in use. On by default.
+  - id: team_color_enabled
+    type: bool
+    restore_value: yes
+    initial_value: 'true'
+
+# ==============================================================================
 # TEXT SENSORS - Team Detection
 # ==============================================================================
 text_sensor:
@@ -8,6 +19,28 @@ text_sensor:
     id: detected_team
     icon: "mdi:target"
     update_interval: never  # Only updated when team is detected
+
+# ==============================================================================
+# SWITCHES - Laser Tag Options
+# ==============================================================================
+switch:
+  # Toggle whether the target changes to the team's color when hit
+  - platform: template
+    name: "Team Color On Hit"
+    id: team_color_on_hit_switch
+    icon: "mdi:palette"
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+    turn_on_action:
+      - globals.set:
+          id: team_color_enabled
+          value: 'true'
+      - logger.log: "Team color on hit enabled"
+    turn_off_action:
+      - globals.set:
+          id: team_color_enabled
+          value: 'false'
+      - logger.log: "Team color on hit disabled"
 
 # ==============================================================================
 # INFRARED RECEIVER - LASER TAG TEAM DETECTION
@@ -189,19 +222,19 @@ remote_receiver:
                 int team_id = 0;  // Default unknown
                 if (team == "Red") {
                   team_id = 3;
-                  id(led_strip).make_call().set_rgb(1.0, 0.0, 0.0).perform();
+                  if (id(team_color_enabled)) id(led_strip).make_call().set_rgb(1.0, 0.0, 0.0).perform();
                 }
                 else if (team == "Green") {
                   team_id = 2;
-                  id(led_strip).make_call().set_rgb(0.0, 1.0, 0.0).perform();
+                  if (id(team_color_enabled)) id(led_strip).make_call().set_rgb(0.0, 1.0, 0.0).perform();
                 }
                 else if (team == "Blue") {
                   team_id = 1;
-                  id(led_strip).make_call().set_rgb(0.0, 0.0, 1.0).perform();
+                  if (id(team_color_enabled)) id(led_strip).make_call().set_rgb(0.0, 0.0, 1.0).perform();
                 }
                 else if (team == "White") {
                   team_id = 4;
-                  id(led_strip).make_call().set_rgb(1.0, 1.0, 1.0).perform();
+                  if (id(team_color_enabled)) id(led_strip).make_call().set_rgb(1.0, 1.0, 1.0).perform();
                 }
                 
                 id(ir_command) = team_id;

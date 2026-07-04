@@ -28,15 +28,15 @@ substitutions:
 # ==============================================================================
 packages:
   # Hardware — select one board revision:
-  target_rev_file: !include boards/rev3.yaml     # Rev 3.x (current production)
-  #target_rev_file: !include boards/rev1.yaml    # Rev 1.x (legacy)
-  #target_rev_file: !include boards/rev3_lcd.yaml # Rev 3.x + GC9A01 round LCD face (IR moves to GPIO32; see docs/LCD_Face_Setup.md)
+  board: !include boards/rev3.yaml     # Rev 3.x (current production)
+  #board: !include boards/rev1.yaml    # Rev 1.x (legacy)
+  #board: !include boards/rev3_lcd.yaml # Rev 3.x + GC9A01 round LCD face (IR moves to GPIO32; see docs/LCD_Face_Setup.md)
 
   # Change this manually when changing target_type:
   # - For standalone: uncomment the next line
-  config_file: !include configs/standalone.yaml
+  #config_file: !include configs/standalone.yaml
   # - For networked: uncomment the next line
-  #config_file: !include configs/networked.yaml
+  config_file: !include configs/networked.yaml
 
   # IR receiver configuration
   #ir_receiver: !include protocols/ir_nec.yaml
@@ -49,8 +49,8 @@ packages:
   #fpp_file: !include integrations/target_fpp.yaml
 
   # Servo movement — include EXACTLY ONE of these two:
-  #servo_scripts: !include scripts/servo_movement_script.yaml  # with servo
-  servo_scripts: !include scripts/servo_stubs.yaml           # no servo
+  servo_scripts: !include scripts/servo_movement_script.yaml  # with servo
+  #servo_scripts: !include scripts/servo_stubs.yaml           # no servo
 
   # Servo Pin PWM Effects - uncomment to enable a device effect on hit
   # Also uncomment + set servo_pwm_script in substitutions below

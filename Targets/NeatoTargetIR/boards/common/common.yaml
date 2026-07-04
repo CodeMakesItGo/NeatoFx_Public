@@ -1,5 +1,5 @@
 # ==============================================================================
-# NEATO SMART TARGET - COMMON COMPONENTS
+# NEATO TARGET IR - COMMON COMPONENTS
 # ==============================================================================
 # This file contains shared components used by all target hardware revisions.
 # It includes common substitutions, networking, sensors, controls, and globals
@@ -25,6 +25,7 @@ substitutions:
 
   # Common GPIO Pins (consistent across revisions)
   led_gpio: GPIO5        # Main target LED strip
+  led_ignore_strapping: "true"  # GPIO5 is a strapping pin; variants override
   ir_gpio: GPIO19        # IR receiver
   relay_gpio: GPIO23     # Relay output
   tx_gpio: GPIO01        # UART TX
@@ -79,6 +80,26 @@ switch:
     on_turn_off:
       - logger.log: "Relay 1 deactivated"
 
+  # GND switch ramp enable — when on, the GND switch ramps 0→100% over the
+  # relay window on hit (soft start); when off it snaps on instantly (legacy).
+  # Ramp logic lives in scripts/hit_script.yaml; the pin is PWM-backed on Rev 3.x.
+  - platform: template
+    name: "GND Ramp"
+    id: gnd_ramp_switch
+    icon: "mdi:transfer-up"
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+    turn_on_action:
+      - globals.set:
+          id: gnd_ramp_enabled
+          value: 'true'
+      - logger.log: "GND switch ramp enabled"
+    turn_off_action:
+      - globals.set:
+          id: gnd_ramp_enabled
+          value: 'false'
+      - logger.log: "GND switch ramp disabled"
+
   # GPIO25 hit trigger enable/disable
   - platform: template
     name: "GPIO25 Hit Trigger"
@@ -122,7 +143,7 @@ light:
     rgb_order: GRB
     pin: 
       number: ${led_gpio}
-      ignore_strapping_warning: true
+      ignore_strapping_warning: ${led_ignore_strapping}
     num_leds: 6
     name: "Target LEDs"
     id: led_strip
@@ -160,6 +181,7 @@ light:
           else if (current_effect == "Color Wipe Effect") effect_index = 2;
           else if (current_effect == "Scanner Effect") effect_index = 3;
           else if (current_effect == "Twinkle Effect") effect_index = 4;
+          else if (current_effect == "Heartbeat Effect") effect_index = 5;
           
           id(saved_effect_index) = effect_index;
           
@@ -192,6 +214,47 @@ light:
           name: Scanner Effect
       - addressable_twinkle:
           name: Twinkle Effect
+      # Realistic "lub-dub" cardiac heartbeat in red
+      - addressable_lambda:
+          name: "Heartbeat Effect"
+          update_interval: 16ms
+          lambda: |-
+            // Persistent state across updates
+            static uint32_t cycle_start = 0;
+            static uint32_t cycle_len   = 1100;   // full cardiac cycle (ms)
+            static float    beat1_peak  = 1.00f;  // "lub" (systole) strength
+            static float    beat2_peak  = 0.55f;  // "dub" (diastole) strength
+
+            uint32_t now = millis();
+            if (initial_run || cycle_start == 0) cycle_start = now;
+            uint32_t t = now - cycle_start;
+
+            // At the end of each cycle, roll new values so no two beats look
+            // identical (heart-rate variability + beat-to-beat amplitude drift).
+            if (t >= cycle_len) {
+              cycle_start = now;
+              t = 0;
+              uint32_t s = now;
+              float r1 = ((s >> 4) & 0xFF) / 255.0f;
+              float r2 = ((s >> 9) & 0xFF) / 255.0f;
+              cycle_len  = 950 + (uint32_t)(r1 * 400.0f);  // ~44-63 bpm
+              beat1_peak = 0.85f + r2 * 0.15f;             // strong first bump
+              beat2_peak = 0.45f + r1 * 0.18f;             // softer second bump
+            }
+
+            float tf = (float)t;
+            // Two Gaussian pulses: the "lub" then a softer, slightly wider "dub".
+            float d1  = (tf -  90.0f) / 45.0f;
+            float d2  = (tf - 320.0f) / 55.0f;
+            float lub = beat1_peak * expf(-0.5f * d1 * d1);
+            float dub = beat2_peak * expf(-0.5f * d2 * d2);
+
+            float level = 0.04f + lub + dub;   // 0.04 = faint resting glow
+            if (level > 1.0f) level = 1.0f;
+
+            uint8_t r = (uint8_t)(level * 255.0f);
+            uint8_t g = (uint8_t)(level * level * level * 30.0f); // faint warm flash on peaks
+            it.all() = Color(r, g, 0);
 
   # Secondary LED Strip (Configurable count) - Full power available
   - platform: esp32_rmt_led_strip
@@ -230,6 +293,43 @@ light:
           name: Scanner Effect
       - addressable_twinkle:
           name: Twinkle Effect
+      # Realistic "lub-dub" cardiac heartbeat in red
+      - addressable_lambda:
+          name: "Heartbeat Effect"
+          update_interval: 16ms
+          lambda: |-
+            static uint32_t cycle_start = 0;
+            static uint32_t cycle_len   = 1100;
+            static float    beat1_peak  = 1.00f;
+            static float    beat2_peak  = 0.55f;
+
+            uint32_t now = millis();
+            if (initial_run || cycle_start == 0) cycle_start = now;
+            uint32_t t = now - cycle_start;
+
+            if (t >= cycle_len) {
+              cycle_start = now;
+              t = 0;
+              uint32_t s = now;
+              float r1 = ((s >> 4) & 0xFF) / 255.0f;
+              float r2 = ((s >> 9) & 0xFF) / 255.0f;
+              cycle_len  = 950 + (uint32_t)(r1 * 400.0f);
+              beat1_peak = 0.85f + r2 * 0.15f;
+              beat2_peak = 0.45f + r1 * 0.18f;
+            }
+
+            float tf = (float)t;
+            float d1  = (tf -  90.0f) / 45.0f;
+            float d2  = (tf - 320.0f) / 55.0f;
+            float lub = beat1_peak * expf(-0.5f * d1 * d1);
+            float dub = beat2_peak * expf(-0.5f * d2 * d2);
+
+            float level = 0.04f + lub + dub;
+            if (level > 1.0f) level = 1.0f;
+
+            uint8_t r = (uint8_t)(level * 255.0f);
+            uint8_t g = (uint8_t)(level * level * level * 30.0f);
+            it.all() = Color(r, g, 0);
 
 
 # ==============================================================================
@@ -302,6 +402,8 @@ select:
       - "Color Wipe Effect"
       - "Scanner Effect"
       - "Twinkle Effect"
+      - "Heartbeat Effect"
+      - "Strobe Flash"
       - "Solid Color"
     initial_option: "Color Wipe Effect"
     restore_value: true
@@ -314,6 +416,8 @@ select:
           else if (x == "Color Wipe Effect") effect_index = 2;
           else if (x == "Scanner Effect") effect_index = 3;
           else if (x == "Twinkle Effect") effect_index = 4;
+          else if (x == "Heartbeat Effect") effect_index = 5;
+          else if (x == "Strobe Flash") effect_index = 0;  // transient — no persistent effect
           else if (x == "Solid Color") effect_index = 0;
           
           ESP_LOGI("LED", "💾 Saved hit effect: %s (index=%d)", x.c_str(), effect_index);
@@ -331,6 +435,12 @@ globals:
 
   # GPIO25 hit trigger enable/disable (persisted across reboots)
   - id: gpio25_hit_enabled
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+  # GND switch ramp enable — soft-start the GND switch 0→100% on hit (persisted)
+  - id: gnd_ramp_enabled
     type: bool
     restore_value: yes
     initial_value: 'false'

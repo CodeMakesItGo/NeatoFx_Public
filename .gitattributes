@@ -1,0 +1,12 @@
+# Normalize line endings — YAML/scripts/docs are always LF in the repo.
+* text=auto
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.js text eol=lf
+*.pdf binary
+*.png binary
+*.jpg binary
+*.ttf binary

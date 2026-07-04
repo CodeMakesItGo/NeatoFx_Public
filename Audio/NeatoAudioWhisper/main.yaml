@@ -1,0 +1,39 @@
+# ==============================================================================
+# NEATO AUDIO WHISPER - MAIN CONFIGURATION FILE
+# ==============================================================================
+# A minimal MP3 player: plays / loops a track number on request via the API,
+# plus web-UI test buttons. Built on the DY-SV8F voice module over UART.
+#
+# Usage:
+#   esphome -s id 1 compile main.yaml
+#   esphome -s id 1 run     main.yaml
+#   esphome -s id 1 logs    main.yaml
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  id: "1"
+  name: whisper-${id}
+  friendly_name: "NeatoFx Audio Whisper ${id}"
+
+# ==============================================================================
+# PACKAGES
+# ==============================================================================
+packages:
+  # Hardware
+  board:        !include boards/rev1.yaml
+
+  # Network / standalone mode — swap these lines to switch:
+  #config:       !include configs/networked.yaml
+  config:       !include configs/standalone.yaml
+
+  # Scripts (DY-SV8F UART command frames)
+  mp3_scripts:  !include scripts/mp3_control.yaml
+
+# ==============================================================================
+# DEBUGGING
+# ==============================================================================
+logger:
+  level: WARN

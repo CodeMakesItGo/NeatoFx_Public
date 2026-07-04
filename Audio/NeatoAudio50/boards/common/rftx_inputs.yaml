@@ -179,73 +179,8 @@ number:
     optimistic: true
 
 # ==============================================================================
-# RF SELECT CONTROLS - Output Routing
-# ==============================================================================
-select:
-  - platform: template
-    name: "RF A Output"
-    id: rf_a_output_select
-    optimistic: true
-    restore_value: true
-    initial_option: "None"
-    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
-
-  - platform: template
-    name: "RF B Output"
-    id: rf_b_output_select
-    optimistic: true
-    restore_value: true
-    initial_option: "None"
-    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
-
-  - platform: template
-    name: "RF C Output"
-    id: rf_c_output_select
-    optimistic: true
-    restore_value: true
-    initial_option: "None"
-    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
-
-  - platform: template
-    name: "RF D Output"
-    id: rf_d_output_select
-    optimistic: true
-    restore_value: true
-    initial_option: "None"
-    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
-
-# ==============================================================================
-# AUX BUTTONS - Manual Test Triggers
-# ==============================================================================
-button:
-  - platform: template
-    id: test_aux_1
-    name: "Test Aux 1 (RFTX0)"
-    on_press:
-      - script.execute: run_aux1_script
-
-  - platform: template
-    id: test_aux_2
-    name: "Test Aux 2 (RFTX1)"
-    on_press:
-      - script.execute: run_aux2_script
-
-  - platform: template
-    id: test_aux_3
-    name: "Test Aux 3 (RFTX2)"
-    on_press:
-      - script.execute: run_aux3_script
-
-  - platform: template
-    id: test_aux_4
-    name: "Test Aux 4 (RFTX3)"
-    on_press:
-      - script.execute: run_aux4_script
-
-# ==============================================================================
 # AUX NUMBER CONTROLS - MP3 File Assignment
 # ==============================================================================
-number:
   - platform: template
     name: "Aux 1 MP3"
     id: aux1_mp3_select
@@ -292,9 +227,44 @@ number:
     optimistic: true
 
 # ==============================================================================
-# AUX SELECT CONTROLS - Output Routing
+# RF SELECT CONTROLS - Output Routing
 # ==============================================================================
 select:
+  - platform: template
+    name: "RF A Output"
+    id: rf_a_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+
+  - platform: template
+    name: "RF B Output"
+    id: rf_b_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+
+  - platform: template
+    name: "RF C Output"
+    id: rf_c_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+
+  - platform: template
+    name: "RF D Output"
+    id: rf_d_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+
+# ==============================================================================
+# AUX SELECT CONTROLS - Output Routing
+# ==============================================================================
   - platform: template
     name: "Aux 1 Output"
     id: aux1_output_select
@@ -326,6 +296,34 @@ select:
     restore_value: true
     initial_option: "None"
     options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+
+# ==============================================================================
+# AUX BUTTONS - Manual Test Triggers
+# ==============================================================================
+button:
+  - platform: template
+    id: test_aux_1
+    name: "Test Aux 1 (RFTX0)"
+    on_press:
+      - script.execute: run_aux1_script
+
+  - platform: template
+    id: test_aux_2
+    name: "Test Aux 2 (RFTX1)"
+    on_press:
+      - script.execute: run_aux2_script
+
+  - platform: template
+    id: test_aux_3
+    name: "Test Aux 3 (RFTX2)"
+    on_press:
+      - script.execute: run_aux3_script
+
+  - platform: template
+    id: test_aux_4
+    name: "Test Aux 4 (RFTX3)"
+    on_press:
+      - script.execute: run_aux4_script
 
 # ==============================================================================
 # AUX SCRIPTS - Trigger Handlers and MP3 Playback

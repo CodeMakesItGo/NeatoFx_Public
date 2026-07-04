@@ -1,0 +1,21 @@
+# ==============================================================================
+# NEATO AUDIO WHISPER - STANDALONE CONFIGURATION
+# ==============================================================================
+# Creates its own WiFi AP and serves the local web interface only. There is no
+# Home Assistant API in this mode, so the play/loop/stop *API actions* are not
+# available — use the "Test Play MP3" / "Test Loop MP3" / "Stop" buttons in the
+# web UI instead. For the API, use configs/networked.yaml.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  standalone_base: !include ../../../_shared/standalone_base.yaml
+
+# ==============================================================================
+# BUTTONS - Clear WiFi credentials
+# ==============================================================================
+button:
+  - platform: factory_reset
+    name: "Clear WiFi & Restart"
+    id: factory_reset_button
+    icon: "mdi:wifi-off"

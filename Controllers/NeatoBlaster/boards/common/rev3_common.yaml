@@ -1,0 +1,179 @@
+# ==============================================================================
+# NEATO BLASTER REV 3.X - COMMON COMPONENTS
+# ==============================================================================
+# This file contains shared components used by all blaster hardware revisions.
+# It includes common substitutions, networking, sensors, controls, and globals
+# that are consistent across different hardware versions.
+#
+# Included by: rev3.yaml
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  esphome_base: !include ../../../../_shared/esphome_base.yaml
+
+# ==============================================================================
+# COMMON SUBSTITUTIONS - Shared Configuration Variables
+# ==============================================================================
+substitutions:
+  # Hardware Configuration (common across all revisions)
+  default_relay_time: "3000"           # Relay activation time in milliseconds
+  default_cooldown_time: "1000"        # Cooldown period in milliseconds
+  default_relay_trigger_time: "200"    # Relay on-trigger pulse duration in milliseconds
+
+  # Common GPIO Pins (consistent across revisions)
+  relay_gpio: GPIO23     # Relay output
+  tx_gpio: GPIO01        # UART TX
+  rx_gpio: GPIO03        # UART RX
+
+  # Project Information
+  project_name: "CodeMakesItGo.Blaster"
+
+# ==============================================================================
+# ESP32 FRAMEWORK - Common Settings
+# ==============================================================================
+esp32:
+  board: wemos_d1_mini32
+  framework:
+    type: arduino
+    version: recommended
+  flash_size: 4MB
+
+# ==============================================================================
+# LOGGING
+# ==============================================================================
+logger:
+  level: WARN  # Change to DEBUG for troubleshooting
+
+# ==============================================================================
+# COMMON SENSORS - System Monitoring
+# ==============================================================================
+sensor:
+  - platform: template
+    name: "Player Active"
+    id: player_active
+    icon: "mdi:account-check"
+    accuracy_decimals: 0
+    lambda: 'return (float)id(game_active);'
+    update_interval: 5s
+
+  # System uptime monitoring
+  - platform: uptime
+    name: "Uptime Sensor"
+    update_interval: 60s  # Reduce frequency for less spam
+
+# ==============================================================================
+# COMMON SWITCHES - System Controls
+# ==============================================================================
+switch:
+  # Main relay output control
+  - platform: gpio
+    pin: ${relay_gpio}
+    name: "Relay 1"
+    id: relay_1
+    restore_mode: ALWAYS_OFF
+    icon: "mdi:electric-switch"
+    on_turn_on:
+      - logger.log: "Relay 1 activated"
+    on_turn_off:
+      - logger.log: "Relay 1 deactivated"
+
+  # Enable relay pulse when trigger is pulled
+  - platform: template
+    name: "Relay on Trigger"
+    id: relay_on_trigger
+    icon: "mdi:electric-switch-closed"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+# ==============================================================================
+# USER CONTROLS - Numbers and Selects
+# ==============================================================================
+number:
+  # Relay activation duration control
+  - platform: template
+    name: "Relay Timer"
+    id: relay_timer_control
+    min_value: 100
+    max_value: 60000
+    step: 100
+    restore_value: true
+    optimistic: true
+    initial_value: ${default_relay_time}
+    icon: "mdi:timer-outline"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          id(relay_timer) = value;
+          ESP_LOGI("config", "Relay timer set to: %d ms", value);
+
+  # Relay on-trigger pulse duration
+  - platform: template
+    name: "Relay Trigger Duration"
+    id: relay_trigger_duration_control
+    min_value: 50
+    max_value: 500
+    step: 50
+    restore_value: true
+    optimistic: true
+    initial_value: ${default_relay_trigger_time}
+    icon: "mdi:timer-outline"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          id(relay_trigger_time) = value;
+          ESP_LOGI("config", "Relay trigger duration set to: %d ms", value);
+
+  # Cooldown period control
+  - platform: template
+    name: "Cooldown Timer"
+    id: cooldown_timer_control
+    min_value: 0
+    max_value: 60000
+    step: 100
+    restore_value: true
+    optimistic: true
+    initial_value: ${default_cooldown_time}
+    icon: "mdi:timer-sand"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          id(cooldown_timer) = value;
+          ESP_LOGI("config", "Cooldown timer set to: %d ms", value);
+
+# ==============================================================================
+# GLOBAL VARIABLES - Common State Management
+# ==============================================================================
+globals:
+  # Blaster pump state
+  - id: blaster_pumped
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Game active state - false blocks trigger (set by HA helper player_${id}_active)
+  - id: game_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Relay activation duration (milliseconds)
+  - id: relay_timer
+    type: int
+    restore_value: true
+    initial_value: ${default_relay_time}
+
+  # Cooldown period (milliseconds)
+  - id: cooldown_timer
+    type: int
+    restore_value: true
+    initial_value: ${default_cooldown_time}
+
+  # Relay on-trigger pulse duration (milliseconds)
+  - id: relay_trigger_time
+    type: int
+    restore_value: true
+    initial_value: ${default_relay_trigger_time}

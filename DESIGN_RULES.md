@@ -38,17 +38,29 @@ Anything that would otherwise be a separate main becomes either a **board varian
 │   ├── rev3_<variant>.yaml       # self-contained hardware variants (lcd, winch, pulse, manual)
 │   └── common/
 │       ├── common.yaml           # shared logic; drive-AGNOSTIC where drives are swappable
-│       ├── <feature>.yaml        # swappable/optional packages (drive_dc, drive_ac, can, sound, color_controls)
+│       ├── rev<N>_common.yaml    # ONLY when revisions can't share one common (e.g. Blaster rev1/rev3)
+│       ├── <feature>.yaml        # swappable/optional packages (drive_dc, drive_ac, can, sound, rftx_*, color_controls)
 │       └── custom_ui.js          # web UI
 ├── configs/
 │   ├── networked.yaml            # Home Assistant + web + OTA
-│   └── standalone.yaml           # AP-only
+│   └── standalone.yaml           # AP-only (omit ONLY for networked-only products, e.g. Displays)
 ├── protocols/                    # IR variants (targets / blaster)
-├── integrations/                 # FPP
+├── integrations/                 # <product>_fpp.yaml (FPP integration)
 ├── scripts/                      # behavior (hit_script, servo, game_scripts)
-├── docs/                         # manuals & setup guides (NEVER schematics)
+├── docs/                         # manuals & setup guides (NEVER schematics); omit if no docs yet
 ├── README.md
 └── .gitignore
+```
+
+Package keys in `main.yaml` use the standard names: `board`, `drive`, `rftx`, `config`, `fpp_file`, plus script/protocol keys. Variant selectors (board revisions, drive types, RFTX modes) live in `boards/` or `boards/common/`; product-name prefixes on standard files (`golf_common.yaml`, `blaster_networked_config.yaml`) are not allowed.
+
+Every project's `.gitignore` is identical:
+
+```
+/.esphome/
+/build/
+secrets.yaml
+.DS_Store
 ```
 
 ## 3. Drive-agnostic common (so drives swap)
@@ -87,11 +99,12 @@ substitutions:
 
 ## 7. "Made for ESPHome" / boot / logging conventions
 
-- `configs/networked.yaml` includes `improv_serial:` + `dashboard_import:` (MFE compliance) and the `firmware_update` package (web OTA).
-- `logger.baud_rate` must be non-zero when improv_serial is used.
+- `configs/networked.yaml` includes `improv_serial:` + `dashboard_import:` (MFE compliance). The `dashboard_import.package_import_url` must point at THIS device's `main.yaml` (copy-paste from a sibling device has caused wrong-URL bugs — always verify).
+- The `firmware_update` package + `update:` block are included where a published manifest exists at `firmware/<product>/manifest.json`. When a new product's firmware is published, add both.
+- `logger.baud_rate` must be non-zero when improv_serial is used (never `baud_rate: 0` in a device that can run the networked config).
 - `logger.level: WARN` for production (`INFO`/`DEBUG` for troubleshooting).
 - `on_boot`: force hardware to a safe state at the earliest priority (e.g. 900); do status-LED/ready actions last (negative priority).
-- `web_server` uses `js_include: "boards/common/custom_ui.js"`.
+- `web_server` uses `js_include: "boards/common/custom_ui.js"` where the device ships a custom web UI.
 
 ## 8. Public vs private (what belongs in this submodule)
 
@@ -104,6 +117,16 @@ substitutions:
 - `.esphome/`, `build/`, `.venv/`, `secrets.yaml`, `.DS_Store`, `.vscode/` are gitignored.
 - Validate every change with `esphome config <Line>/Neato<Product>/main.yaml` before commit.
 - Batch flashing is via the repo-root `program.sh <device>` (target, display, speaker, motor, blaster, golf).
+
+## 10. Automated enforcement (CI)
+
+Rules 1–9 are enforced automatically — don't rely on memory:
+
+- **Pre-commit hook** (`tools/hooks/pre-commit`, installed via `tools/install-hooks.sh`): runs `esphome config` on every device whose files changed, plus the repo lint script (`tools/lint_repo.py`) that checks naming, layout, include depths, and dashboard-import URLs.
+- **GitHub Actions** (`.github/workflows/ci.yaml`): on every PR and push to `main`, compiles **every device × variant combination** (from `tools/variants.yaml`) with the **latest ESPHome release** and fails on any warning. CI uses `tools/ci_secrets.yaml` as a dummy `secrets.yaml`.
+- **Hardware-in-the-loop**: PRs labeled `hw-test` (or pushes to `main`) additionally run the physical test bench via the self-hosted runner (see `testbench/` in the private repo).
+
+If CI is red, the change does not merge. If a new variant axis is added to a `main.yaml`, add it to `tools/variants.yaml` in the same PR — the lint script fails if a commented package option is missing from the matrix.
 
 ---
 

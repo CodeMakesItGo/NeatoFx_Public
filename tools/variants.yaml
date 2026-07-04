@@ -1,0 +1,100 @@
+# ==============================================================================
+# NEATO-FX VARIANT BUILD MATRIX
+# ==============================================================================
+# Consumed by tools/build_variant.py (local + test bench) and
+# .github/workflows/ci.yaml (PR compile matrix).
+#
+# Every selectable option in each device's main.yaml packages block must be
+# enabled by at least one variant here (tools/lint_repo.py enforces this).
+#
+# Variant spec: package_key -> include path to enable (all other options for
+# that key are commented out). `null` disables the key entirely (used for
+# Motor drive packages when a self-contained board variant is selected).
+# `default` ({}) builds main.yaml exactly as committed.
+# ==============================================================================
+
+devices:
+  target:
+    path: Targets/NeatoTargetIR/main.yaml
+    label: "Neato Target IR"
+    variants:
+      default: {}   # rev3 + networked + ir_nec + servo
+      rev1_standalone:
+        board: boards/rev1.yaml
+        config: configs/standalone.yaml
+        ir_receiver: protocols/ir_raw.yaml
+        servo_scripts: scripts/servo_stubs.yaml
+      lcd_lasertag_fpp:
+        board: boards/rev3_lcd.yaml
+        ir_receiver: protocols/ir_laser_tag.yaml
+        fpp_file: integrations/target_fpp.yaml
+        servo_pwm_effects: scripts/servo_pwm_effects.yaml
+      custom_ir:
+        ir_receiver: protocols/ir_custom.yaml
+
+  motor:
+    path: Controllers/NeatoMotor/main.yaml
+    label: "Neato Motor"
+    variants:
+      default: {}   # rev3 + drive_dc + networked
+      ac_standalone:
+        drive: boards/common/drive_ac.yaml
+        config: configs/standalone.yaml
+      dc_can_sound:            # CAN/sound add-ons pair with the STANDARD board
+        can: boards/common/can.yaml
+        sound: boards/common/sound.yaml
+      winch:
+        board: boards/rev3_winch.yaml
+        drive: null
+      pulse:
+        board: boards/rev3_pulse.yaml
+        drive: null
+      manual_standalone:
+        board: boards/rev3_manual.yaml
+        drive: null
+        config: configs/standalone.yaml
+
+  blaster:
+    path: Controllers/NeatoBlaster/main.yaml
+    label: "Neato Blaster"
+    variants:
+      default: {}   # rev3 + networked
+      rev1_standalone:
+        board: boards/rev1.yaml
+        config: configs/standalone.yaml
+
+  golf:
+    path: Golf/NeatoGolf/main.yaml
+    label: "Neato Golf"
+    variants:
+      default: {}   # rev3 + standalone
+      networked_fpp:
+        config: configs/networked.yaml
+        fpp_file: integrations/golf_fpp.yaml
+
+  speaker:
+    path: Audio/NeatoAudio50/main.yaml
+    label: "Neato Audio 50"
+    variants:
+      default: {}   # rev2_3 + rftx_none + standalone
+      rev24_outputs_networked_fpp:
+        board: boards/rev2_4.yaml
+        rftx: boards/common/rftx_outputs.yaml
+        config: configs/networked.yaml
+        fpp_file: integrations/speaker_fpp.yaml
+      rftx_inputs:
+        rftx: boards/common/rftx_inputs.yaml
+
+  display:
+    path: Displays/NeatoDisplay4/main.yaml
+    label: "Neato Display 4"
+    substitutions: { color: "YLW", font_color: "0xFFE000" }
+    variants:
+      default: {}
+
+  display7:
+    path: Displays/NeatoDisplay7/main.yaml
+    label: "Neato Display 7"
+    substitutions: { color: "YLW", font_color: "0xFFE000" }
+    variants:
+      default: {}

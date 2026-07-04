@@ -17,7 +17,7 @@ The NeatoFx Audio 50 is a modular WiFi-enabled audio controller designed for int
 
 ## Overview
 
-SmartSpeaker is a professional-grade audio controller that responds to trigger inputs from IR detectors, buttons, or RF signals. It's perfect for:
+The Neato Audio 50 is a professional-grade audio controller that responds to trigger inputs from IR detectors, buttons, or RF signals. It's perfect for:
 
 - **Shooting Galleries**: Synchronized audio feedback for targets
 - **Escape Rooms**: Audio cues and ambient sound management
@@ -104,10 +104,10 @@ Each speaker features multiple input channels, selectable audio outputs, backgro
 2. Choose operating mode in `main.yaml`:
    ```yaml
    # For networked mode (with Home Assistant):
-   config_file: !include configs/networked.yaml
+   config: !include configs/networked.yaml
 
    # For standalone mode (WiFi AP only):
-   #config_file: !include configs/standalone.yaml
+   #config: !include configs/standalone.yaml
    ```
 
 3. Optionally select board revision and RFTX mode in `main.yaml`:
@@ -118,9 +118,9 @@ Each speaker features multiple input channels, selectable audio outputs, backgro
    #board: !include boards/rev2_3.yaml
 
    # RFTX connector as RF transmitter outputs (default):
-   rftx: !include boards/rftx_outputs.yaml
+   rftx: !include boards/common/rftx_outputs.yaml
    # RFTX connector as 4 trigger inputs:
-   #rftx: !include boards/rftx_inputs.yaml
+   #rftx: !include boards/common/rftx_inputs.yaml
    ```
 
 4. Place your WiFi credentials in `secrets.yaml` (one directory above this repo).

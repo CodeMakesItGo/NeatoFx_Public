@@ -1,5 +1,5 @@
 # ==============================================================================
-# NEATO SMART DISPLAY - COMMON COMPONENTS
+# NEATO DISPLAY - COMMON COMPONENTS
 # ==============================================================================
 # Shared configuration used by all display hardware revisions.
 # Includes ESPHome project identity, external components, OTA, and

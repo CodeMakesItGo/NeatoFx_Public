@@ -1,0 +1,128 @@
+# ==============================================================================
+# NEATO AUDIO WHISPER - HARDWARE (Rev 1, ESP32 D1 Mini)
+# ==============================================================================
+# Minimal MP3 player built around the DY-SV8F voice module.
+#
+# The DY-SV8F speaks a 0xAA-framed UART protocol (NOT the DFPlayer protocol),
+# so it is driven with raw uart.write frames — see scripts/mp3_control.yaml.
+#
+# DY-SV8F wiring (module must be in UART Mode: DIP CON1=OFF CON2=OFF CON3=ON):
+#   ESP32 GPIO21 (TX) ---> module RXD/IO1 (pin 4)
+#   ESP32 GPIO22 (RX) <--- module TXD/IO0 (pin 3)
+#   ESP32 GND        ----> module 5V- / GND
+#   5V               ----> module 5V+
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  esphome_base: !include ../../../_shared/esphome_base.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  id: "0000"                      # Default ID - override with -s id XXXX
+  name: whisper-${id}
+  friendly_name: "NEATO Audio Whisper ${id}"
+  project_name: "CodeMakesItGo.AudioWhisper"
+  project_version: "1.0.0"
+
+# ==============================================================================
+# ESP32 FRAMEWORK
+# ==============================================================================
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# ==============================================================================
+# BOOT SEQUENCE
+# ==============================================================================
+esphome:
+  on_boot:
+    priority: 300
+    then:
+      - delay: 1500ms                 # Let the DY-SV8F finish its own boot
+      - script.execute:               # Push saved volume to the module
+          id: set_volume
+          vol: !lambda 'return (int) id(volume).state;'
+      - logger.log: "Boot complete - MP3 module initialized"
+
+# ==============================================================================
+# UART - DY-SV8F MP3 module (9600 8N1)
+# ==============================================================================
+uart:
+  id: mp3_uart
+  tx_pin: GPIO21   # ESP32 TX -> module RXD/IO1
+  rx_pin: GPIO22   # ESP32 RX <- module TXD/IO0
+  baud_rate: 9600
+
+# ==============================================================================
+# SENSORS
+# ==============================================================================
+sensor:
+  - platform: uptime
+    id: uptime_sensor
+    name: "Uptime Sensor"
+    update_interval: 60s
+
+# ==============================================================================
+# USER CONTROLS - Volume + test track selector
+# ==============================================================================
+number:
+  - platform: template
+    name: "Volume"
+    id: volume
+    min_value: 0
+    max_value: 30
+    step: 1
+    initial_value: 20
+    restore_value: true
+    optimistic: true
+    set_action:
+      - script.execute:
+          id: set_volume
+          vol: !lambda 'return (int) x;'
+
+  - platform: template
+    name: "Test MP3 Number"
+    id: test_mp3_number
+    min_value: 1
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+    # File to play with the "Test Play MP3" / "Test Loop MP3" buttons
+
+# ==============================================================================
+# BUTTONS
+# ==============================================================================
+button:
+  - platform: restart
+    name: "Restart ${friendly_name}"
+
+  - platform: template
+    name: "Test Play MP3"
+    id: test_play_mp3
+    on_press:
+      - script.execute:
+          id: play_track
+          file: !lambda 'return (int) id(test_mp3_number).state;'
+          loop: false
+
+  - platform: template
+    name: "Test Loop MP3"
+    id: test_loop_mp3
+    on_press:
+      - script.execute:
+          id: play_track
+          file: !lambda 'return (int) id(test_mp3_number).state;'
+          loop: true
+
+  - platform: template
+    name: "Stop"
+    id: test_stop
+    on_press:
+      - script.execute: stop_track

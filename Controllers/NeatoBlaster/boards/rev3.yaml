@@ -1,0 +1,311 @@
+# ==============================================================================
+# NEATO BLASTER - REV 3.X HARDWARE
+# ==============================================================================
+# This file defines the hardware configuration for Rev 3.x blaster boards.
+# It includes GPIO pin mappings, IR transmitter, trigger/pump sensors,
+# MP3 player control, and power management.
+#
+# Hardware Features:
+# - ESP32 microcontroller with optimized pin layout
+# - IR transmitter (GPIO4) for target communication
+# - Trigger sensor (GPIO22)
+# - Pump sensor (GPIO34)
+# - MP3 player outputs (individual pins for each sound):
+#   Pin 17: Sound 1 - Empty trigger (game inactive or no pump)
+#   Pin 25: Sound 2 - Pump action
+#   Pin 16: Sound 3 - Fire shot
+# - Relay output (GPIO23) for external device control
+# - Auxiliary power control (GPIO26)
+# - Multiple I/O pins for expansion
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Rev 3.x Specific Configuration Variables
+# ==============================================================================
+substitutions:
+  # Rev 3.x specific hardware
+  aux_pwr_gpio: GPIO26           # Auxiliary power control
+
+  # Right Side Connector Pins (Rev 3.x specific)
+  mp3_bit1_gpio: GPIO16          # MP3 player bit 1 (audio output)
+  mp3_bit2_gpio: GPIO17          # MP3 player bit 2 (audio output)
+  mp3_bit3_gpio: GPIO25          # MP3 player bit 3 (audio output)
+
+  # Left Side Connector Pins (Rev 3.x specific)
+  ir_tx_gpio: GPIO04     # IR transmitter [servo]
+  trigger_gpio: GPIO22   # Trigger sensor (blaster trigger) [LED2]
+  pump_gpio: GPIO34      # Pump sensor (blaster pump action)
+  tx_gpio: GPIO03        # RX pin (free when baud_rate: 0) - start game button
+
+  # Project Information (Rev 3.x specific)
+  project_version: "3.0.0"
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  # Include common components shared across all revisions
+  common_components: !include common/rev3_common.yaml
+
+# ==============================================================================
+# CORE CONFIGURATION - Rev 3.x Specific Boot Sequence
+# ==============================================================================
+esphome:
+  min_version: 2025.8.2
+  on_boot:
+    - priority: 600
+      then:
+        - logger.log: "=== NEATO BLASTER REV 3.X STARTUP ==="
+        - delay: 100ms
+
+        # Initialize blaster state
+        - lambda: |-
+            ESP_LOGI("blaster", "Neato Blaster ${id} initialized");
+            id(blaster_pumped) = false;
+
+        - logger.log: "Basic systems initialized"
+        - delay: 500ms
+
+        # Enable auxiliary power
+        - switch.turn_on: aux_pwr
+        - delay: 1s
+
+        # Verify power
+        - if:
+            condition:
+              switch.is_on: aux_pwr
+            then:
+              - logger.log: "✓ Auxiliary power stable"
+            else:
+              - logger.log: "⚠ Power supply issue - retrying..."
+              - delay: 1s
+              - switch.turn_on: aux_pwr
+              - delay: 1s
+              - if:
+                  condition:
+                    switch.is_on: aux_pwr
+                  then:
+                    - logger.log: "✓ Auxiliary power stable after retry"
+                  else:
+                    - logger.log: "❌ CRITICAL: Power supply insufficient!"
+
+        - logger.log: "✅ Neato Blaster startup complete"
+
+# ==============================================================================
+# IR TRANSMITTER - For communicating with targets
+# ==============================================================================
+remote_transmitter:
+  pin: ${ir_tx_gpio}
+  carrier_duty_percent: 50%
+
+# ==============================================================================
+# MP3 PLAYER OUTPUT CONTROL SWITCHES
+# ==============================================================================
+switch:
+  # Auxiliary power control
+  - platform: gpio
+    pin:
+      number: ${aux_pwr_gpio}
+    name: "Aux Pwr"
+    id: aux_pwr
+
+  # MP3 player bit 1 (pin 17)
+  - platform: gpio
+    pin: ${mp3_bit1_gpio}
+    id: mp3_bit_1
+    internal: true
+    inverted: true
+    restore_mode: ALWAYS_OFF
+
+  # MP3 player bit 2 (pin 25)
+  - platform: gpio
+    pin: ${mp3_bit2_gpio}
+    id: mp3_bit_2
+    internal: true
+    inverted: true
+    restore_mode: ALWAYS_OFF
+
+  # MP3 player bit 3 (pin 16)
+  - platform: gpio
+    pin: ${mp3_bit3_gpio}
+    id: mp3_bit_3
+    internal: true
+    inverted: true
+    restore_mode: ALWAYS_OFF
+
+  # Pump requirement toggle
+  - platform: template
+    name: "Pump Required"
+    id: pump_required
+    icon: "mdi:pump"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
+# ==============================================================================
+# BINARY SENSORS - Trigger and Pump Detection
+# ==============================================================================
+binary_sensor:
+  # Pump sensor - detects when blaster is pumped
+  - platform: gpio
+    pin:
+      number: ${pump_gpio}
+      mode: INPUT
+      inverted: True
+    name: "Pump Sensor"
+    id: pump_sensor
+    icon: "mdi:pump"
+    filters:
+      - delayed_on: 1ms
+      - delayed_off: 10ms
+    on_press:
+      - lambda: |-
+          id(blaster_pumped) = true;
+          ESP_LOGD("pump", "Blaster pumped - ready to fire");
+      # Play pump sound (sound 5)
+      - script.execute: play_pump_sound
+
+  # Trigger sensor - detects when trigger is pulled
+  - platform: gpio
+    pin:
+      number: ${trigger_gpio}
+      mode: INPUT_PULLUP
+      inverted: True
+    name: "Blaster Trigger"
+    id: blaster_trigger
+    icon: "mdi:pistol"
+    filters:
+      - delayed_on: 1ms
+      - delayed_off: 20ms
+    on_press:
+      - if:
+          condition:
+            lambda: |-
+              // Block firing while game start screen is active
+              if (!id(game_active)) {
+                ESP_LOGD("trigger", "Game not active - trigger disabled");
+                return false;
+              }
+              // If pump is not required, always allow firing
+              if (!id(pump_required).state) {
+                return true;
+              }
+              // If pump is required, check if blaster has been pumped
+              if (id(blaster_pumped)) {
+                return true;
+              }
+              ESP_LOGD("trigger", "Pump required but blaster not pumped");
+              return false;
+          then:
+            - lambda: |-
+                // Reset pump state after firing
+                id(blaster_pumped) = false;
+            - button.press: trigger_action
+          else:
+            - script.execute: play_no_pump_sound
+
+  # Start game button on TX pin (GPIO01, free when baud_rate: 0)
+  - platform: gpio
+    pin:
+      number: ${tx_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Start Game Button"
+    id: start_game_button
+    icon: "mdi:play-circle"
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+    on_press:
+      - if:
+          condition:
+            lambda: 'return !id(game_active);'
+          then:
+            - homeassistant.event:
+                event: esphome.game_start_requested
+                data:
+                  blaster_id: "${id}"
+
+# ==============================================================================
+# BUTTON - Trigger Action Handler
+# ==============================================================================
+button:
+  - platform: template
+    id: trigger_action
+    name: "Fire Blaster"
+    icon: "mdi:bullseye-arrow"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(game_active);'
+          then:
+            # Play shot sound (cycling through 2-4)
+            - script.execute: play_shot_sound
+            # Execute custom script from main yaml
+            - script.execute: blaster_trigger_pressed
+            # Transmit IR signal to target
+            - remote_transmitter.transmit_nec:
+                address: 0x0003
+                command: 7${id}
+                repeat: 3
+
+
+# ==============================================================================
+# SCRIPTS - Audio Feedback (MP3 Player Control)
+# ==============================================================================
+script:
+  # Play shot sound - sound 3 (fire sound)
+  - id: play_shot_sound
+    mode: single
+    then:
+     - lambda: |-
+          if (!id(game_active)) {
+            // Game not active - trigger pin 17 (sound 1: empty trigger)
+            ESP_LOGI("audio", "Game not active - playing empty sound 1 on pin 17");
+            id(mp3_bit_3).turn_on();
+          } else {
+            // Game active - trigger pin 16 (sound 3: fire shot)
+            ESP_LOGI("audio", "Playing fire sound 3 on pin 16");
+            id(mp3_bit_2).turn_on();
+          }
+    # Pulse relay if relay-on-trigger is enabled
+     - if:
+        condition:
+          switch.is_on: relay_on_trigger
+        then:
+          - switch.turn_on: relay_1
+          - delay: !lambda "return id(relay_trigger_time);"
+          - switch.turn_off: relay_1
+     - delay: 50ms
+     - lambda: |-
+          // Turn off all pins after pulse
+          id(mp3_bit_1).turn_off();
+          id(mp3_bit_2).turn_off();
+          id(mp3_bit_3).turn_off();
+
+  # Play pump sound - sound 2 (pump action sound)
+  - id: play_pump_sound
+    mode: single
+    then:
+      - lambda: |-
+          ESP_LOGI("audio", "Playing pump sound 2 on pin 25");
+          // Trigger pin 25 (sound 2: pump action)
+          id(mp3_bit_1).turn_on();
+      - delay: 50ms
+      - lambda: |-
+          id(mp3_bit_1).turn_off();
+          id(mp3_bit_2).turn_off();
+          id(mp3_bit_3).turn_off();
+
+  # Play no-pump sound - sound 1 (empty trigger sound)
+  - id: play_no_pump_sound
+    mode: single
+    then:
+      - lambda: |-
+          ESP_LOGI("audio", "Pump required but not pumped - playing empty sound 1 on pin 17");
+          // Trigger pin 17 (sound 1: empty trigger)
+          id(mp3_bit_3).turn_on();
+      - delay: 50ms
+      - lambda: |-
+          id(mp3_bit_1).turn_off();
+          id(mp3_bit_2).turn_off();
+          id(mp3_bit_3).turn_off();

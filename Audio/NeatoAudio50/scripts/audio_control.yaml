@@ -1,5 +1,5 @@
 # ==============================================================================
-# SMART SPEAKER - AUDIO CONTROL SCRIPTS
+# NEATO AUDIO 50 - AUDIO CONTROL SCRIPTS
 # ==============================================================================
 # This file contains all DFPlayer MP3 playback scripts. These define what audio
 # plays in response to each input trigger. Included by speaker_main.yaml.

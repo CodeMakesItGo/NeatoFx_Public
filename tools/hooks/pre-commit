@@ -1,0 +1,58 @@
+#!/bin/bash
+# ==============================================================================
+# NEATO-FX pre-commit hook — fast local gate before CI
+# Install with: tools/install-hooks.sh
+# ==============================================================================
+# 1. Repo lint (naming / layout / include depths / MFE / variant coverage)
+# 2. `esphome config` on the default variant of every device whose files
+#    changed in this commit (fast; full variant compile happens in CI)
+# ==============================================================================
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+echo "pre-commit: repo lint..."
+python3 tools/lint_repo.py
+
+# Find esphome (repo-local .venv, parent .venv, or PATH)
+ESPHOME="esphome"
+for c in ./.venv/bin/esphome ../.venv/bin/esphome; do
+    [[ -x "$c" ]] && ESPHOME="$c" && break
+done
+
+# Ensure a secrets file exists for validation
+[[ -f _shared/secrets.yaml ]] || cp _shared/secrets.template.yaml _shared/secrets.yaml
+
+# Map changed paths -> devices, then config-check each affected device
+changed=$(git diff --cached --name-only)
+declare -A dirs=(
+    [Targets/NeatoTargetIR]=target
+    [Controllers/NeatoMotor]=motor
+    [Controllers/NeatoBlaster]=blaster
+    [Displays/NeatoDisplay4]=display
+    [Displays/NeatoDisplay7]=display7
+    [Audio/NeatoAudio50]=speaker
+    [Golf/NeatoGolf]=golf
+)
+
+# A _shared/ or tools/ change affects everything
+if echo "$changed" | grep -qE "^(_shared/|tools/)"; then
+    affected=$(printf "%s\n" "${dirs[@]}")
+else
+    affected=""
+    for d in "${!dirs[@]}"; do
+        echo "$changed" | grep -q "^$d/" && affected+="${dirs[$d]}"$'\n'
+    done
+fi
+
+for dev in $(echo "$affected" | sort -u); do
+    [[ -z "$dev" ]] && continue
+    echo "pre-commit: esphome config check — $dev (default variant)..."
+    PATH="$(dirname "$ESPHOME"):$PATH" python3 tools/build_variant.py "$dev" default --check config \
+        > /tmp/precommit_"$dev".log 2>&1 || {
+        tail -30 /tmp/precommit_"$dev".log
+        echo "pre-commit: $dev failed config check (full log: /tmp/precommit_$dev.log)"
+        exit 1
+    }
+done
+
+echo "pre-commit: all checks passed ✓"

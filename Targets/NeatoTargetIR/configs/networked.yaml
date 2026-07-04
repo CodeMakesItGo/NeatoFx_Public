@@ -10,14 +10,19 @@
 packages:
   networked_base: !include ../../../_shared/networked_base.yaml
   network_sensors: !include ../../../_shared/network_sensors.yaml
-  firmware_update: !include ../../../_shared/firmware_update.yaml
+  # OTA update checks disabled — gallery LANs are landlocked (no internet),
+  # so the GitHub manifest fetch can never succeed. Re-enable this include
+  # (and the update: block below) if deploying on an internet-connected net.
+  #firmware_update: !include ../../../_shared/firmware_update.yaml
 
 # ==============================================================================
 # DASHBOARD IMPORT - Made for ESPHome
 # ==============================================================================
-dashboard_import:
-  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Targets/NeatoTargetIR/main.yaml@main
-  import_full_config: true
+# dashboard_import requires the api: component, which is removed in No-HA LAN
+# mode (see below). Re-enable together with api: for ESPHome dashboard adoption.
+#dashboard_import:
+#  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Targets/NeatoTargetIR/main.yaml@main
+#  import_full_config: true
 
 # ==============================================================================
 # SUBSTITUTIONS - Configuration Variables
@@ -26,12 +31,32 @@ substitutions:
   # ip_addr default (${ip_base}${id}) is set in _shared/networked_base.yaml.
   # Override here only if this device type needs a different subnet offset.
 
+  # --- Direct Audio-50 trigger (no Home Assistant) ---------------------------
+  # Address of the shared Audio-50 this target plays through. The Audio-50 now
+  # uses DHCP with a router-side reservation, so set this to that reserved IP.
+  # Using the IP (not mDNS) keeps outbound ESP32 calls reliable. Override per
+  # target with -s audio_host <ip> to route a target to a different speaker.
+  audio_host: "192.168.8.191"
+  # NOTE: the MP3 file number played on a hit is now a live web-UI control
+  # ("Hit Sound (MP3 #)", default 1) — see the number: block below.
+
 # ==============================================================================
-# API & REMOTE ACCESS - Home Assistant Integration
+# API & REMOTE ACCESS - Home Assistant (REMOVED — No-HA LAN mode)
 # ==============================================================================
-api:
-  #reboot_timeout: 0s    # Disable auto-reboot if not using a Home Assistant server
-  reboot_timeout: 5min  # Reboot the device if no connection to Home Assistant for 5 minutes
+# No Home Assistant server on this gallery LAN. The target is controlled from its
+# web UI and triggers the Audio-50 via direct HTTP POST, so the HA native API is
+# not needed. _shared/networked_base.yaml provides api: (with a 5-min reboot
+# timer that would otherwise reboot this device every 5 min with no HA client);
+# !remove strips it here so this device runs pure LAN. Logs via serial or the
+# web_server console; OTA still works. To use Home Assistant, delete this line.
+api: !remove
+
+# ==============================================================================
+# HTTP CLIENT - direct device-to-device triggering over the router LAN
+# ==============================================================================
+http_request:
+  useragent: neato-target
+  timeout: 1s            # short so an unreachable Audio-50 can't stall hits
 # Optional: Physical button on GPIO for WiFi reset (uncomment if needed)
 # binary_sensor:
 #   - platform: gpio
@@ -42,7 +67,46 @@ api:
 #     name: "Physical WiFi Reset Button"
 #     on_press:
 #       then:
-#         - button.press: wifi_reset_button  
+#         - button.press: wifi_reset_button
+
+# ==============================================================================
+# HIT SOUND - MP3 file number this target plays, settable live from the web UI
+# ==============================================================================
+# Exposed as a "Hit Sound (MP3 #)" box in the device web UI (and HA). Persists
+# across reboots; defaults to 1 on first boot. The hit script POSTs this value
+# to the Audio-50's Net Play endpoint.
+number:
+  - platform: template
+    name: "Hit Sound (MP3 #)"
+    id: hit_sound_num
+    icon: "mdi:music-note"
+    optimistic: true
+    restore_value: true
+    initial_value: 1
+    min_value: 1
+    max_value: 255
+    step: 1
+    mode: box
+
+# ==============================================================================
+# AUDIO TARGET - read-only web-UI indicator of which speaker this target POSTs to
+# ==============================================================================
+# Shows the ${audio_host} address so you can confirm, from the target's web page,
+# where its hits are being sent. Published once at boot (value is compile-time).
+text_sensor:
+  - platform: template
+    name: "Audio Target"
+    id: audio_target_addr
+    icon: "mdi:speaker"
+    update_interval: never
+
+esphome:
+  on_boot:
+    - priority: -100   # after all components are set up
+      then:
+        - text_sensor.template.publish:
+            id: audio_target_addr
+            state: "${audio_host}"
 
 # ==============================================================================
 # Target Hit Script - ESPHome/Home Assistant integration
@@ -50,21 +114,34 @@ api:
 script:
   - id: esphome_hit_script
     mode: single  # Prevent overlapping hits
-    then:     
-       # Send Home Assistant event
-      - homeassistant.event:
-          event: esphome.target-hit
-          data:  
-            address: ${id}
-            player: !lambda 'return id(ir_command);'
-            points: !lambda 'return std::to_string(id(target_points));'
+    then:
+      # Trigger the shared Audio-50 directly over the router — no Home Assistant.
+      # POSTs the current "Hit Sound (MP3 #)" web-UI value to the Audio-50's
+      # "Net Play" endpoint.
+      - http_request.post:
+          url: !lambda |-
+            return "http://${audio_host}/number/Net%20Play/set?value=" +
+                   to_string((int) id(hit_sound_num).state);
+          capture_response: false
+      # Optional: also notify Home Assistant (only fires if an HA client is
+      # connected; harmless no-op otherwise). Uncomment if you run HA too.
+      #- homeassistant.event:
+      #    event: esphome.target-hit
+      #    data:
+      #      address: ${id}
+      #      player: !lambda 'return id(ir_command);'
+      #      points: !lambda 'return std::to_string(id(target_points));'
 improv_serial:
 
 # ==============================================================================
-# FIRMWARE UPDATES - OTA via HTTP
+# FIRMWARE UPDATES - OTA via HTTP  (DISABLED for landlocked gallery LANs)
 # ==============================================================================
-update:
-  - platform: http_request
-    id: firmware_update_check
-    name: "Firmware Update"
-    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/target-ir/manifest.json
+# The GitHub manifest fetch below requires internet access, which the gallery
+# networks don't have (DNS resolution of raw.githubusercontent.com fails).
+# Re-enable this block AND the firmware_update package include above to restore
+# self-updating on an internet-connected deployment.
+#update:
+#  - platform: http_request
+#    id: firmware_update_check
+#    name: "Firmware Update"
+#    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/target-ir/manifest.json

@@ -1,0 +1,123 @@
+# ==============================================================================
+# NEATO-FX CI — lint, then compile every device x variant on latest ESPHome
+# ==============================================================================
+# - lint: repo-structure rules from DESIGN_RULES.md (tools/lint_repo.py)
+# - build: matrix generated from tools/variants.yaml; each cell compiles with
+#   the LATEST ESPHome release and fails on any warning (tools/scan_warnings.py)
+# - hw-test: hardware-in-the-loop bench (self-hosted Pi runner). Runs on pushes
+#   to main, and on PRs labeled 'hw-test'.
+# ==============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pyyaml
+      - run: python tools/lint_repo.py
+
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      builds: ${{ steps.gen.outputs.builds }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pyyaml
+      - id: gen
+        run: |
+          python - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, yaml
+          m = yaml.safe_load(open("tools/variants.yaml"))["devices"]
+          builds = [{"device": d, "variant": v}
+                    for d, spec in m.items() for v in spec["variants"]]
+          print(f"builds={json.dumps(builds)}")
+          EOF
+
+  build:
+    needs: [lint, matrix]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.matrix.outputs.builds) }}
+    name: build ${{ matrix.device }}:${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Cache PlatformIO + ESPHome build deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ matrix.device }}-${{ hashFiles('**/main.yaml') }}
+          restore-keys: |
+            pio-${{ runner.os }}-${{ matrix.device }}-
+            pio-${{ runner.os }}-
+      - name: Install latest ESPHome
+        run: |
+          pip install pyyaml esphome
+          esphome version
+      - name: CI secrets
+        run: cp _shared/secrets.template.yaml _shared/secrets.yaml
+      - name: Compile ${{ matrix.device }}:${{ matrix.variant }}
+        run: |
+          set -o pipefail
+          python tools/build_variant.py "${{ matrix.device }}" "${{ matrix.variant }}" \
+            --check compile 2>&1 | tee build.log
+      - name: Fail on warnings
+        run: python tools/scan_warnings.py build.log
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-${{ matrix.device }}-${{ matrix.variant }}
+          path: build.log
+          retention-days: 14
+
+  # ----------------------------------------------------------------------------
+  # Hardware-in-the-loop — runs on the bench Raspberry Pi (self-hosted runner).
+  # PRs: add the 'hw-test' label to trigger. Pushes to main: always runs.
+  # The bench harness lives on the Pi (cloned from NeatoFx_Private/testbench).
+  # ----------------------------------------------------------------------------
+  hw-test:
+    needs: build
+    if: |
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'hw-test')
+    runs-on: [self-hosted, neatofx-bench]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run bench suite against this checkout
+        run: |
+          ~/neatofx-testbench/run_bench.sh --repo "$GITHUB_WORKSPACE" \
+            --report "$GITHUB_WORKSPACE/bench-report"
+      - name: Upload bench report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-report
+          path: bench-report/
+          retention-days: 30

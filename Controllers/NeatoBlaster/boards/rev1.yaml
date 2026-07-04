@@ -1,0 +1,273 @@
+# ==============================================================================
+# NEATO BLASTER - HARDWARE DEFINITION (REV 1.X)
+# ==============================================================================
+# This file defines the hardware configuration for Rev 1.x blaster boards.
+# It includes GPIO pin mappings, IR transmitter, trigger/pump sensors,
+# audio output controls, and all blaster-specific hardware features.
+#
+# Hardware Features:
+# - ESP32 microcontroller (Wemos D1 Mini32)
+# - IR transmitter (GPIO5) for target communication
+# - Trigger sensor (GPIO16)
+# - Pump sensor (GPIO23) for blaster pump action
+# - Audio output control pins (GPIO17, GPIO21, GPIO22)
+# - Status LED (GPIO19)
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Rev 1.x Specific Configuration Variables  
+# ==============================================================================
+substitutions:
+  # Project Information (Rev 1.x specific)
+  project_version: "1.0.0"
+  
+  # Audio Configuration
+  max_value: "2"                 # Number of different shot sounds
+
+  # Hardware GPIO Pins (Rev 1.x specific)
+  ir_tx_gpio: GPIO5              # IR transmitter
+  trigger_gpio: GPIO16           # Trigger button
+  pump_gpio: GPIO23              # Pump sensor
+  status_led_gpio: GPIO19        # Status LED
+  audio_pin1_gpio: GPIO22        # Audio output pin 1
+  audio_pin2_gpio: GPIO21        # Audio output pin 2
+  audio_pin3_gpio: GPIO17        # Audio output pin 3
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  # Include common components shared across all revisions
+  common_components: !include common/rev1_common.yaml
+
+# ==============================================================================
+# CORE CONFIGURATION - Rev 1.x Specific Boot Sequence
+# ==============================================================================
+esphome:
+  min_version: 2025.8.2
+  on_boot:
+    - priority: 600
+      then:
+        - logger.log: "=== NEATO Neato Blaster Rev 1.x Starting ==="
+        - delay: 250ms
+        - lambda: |-
+            ESP_LOGI("blaster", "Blaster ${id} initialized");
+            id(blaster_pumped) = false;
+
+# ==============================================================================
+# STATUS LED
+# ==============================================================================
+status_led:
+  pin:
+    number: ${status_led_gpio}
+    inverted: yes
+
+# ==============================================================================
+# IR TRANSMITTER - For communicating with targets
+# ==============================================================================
+remote_transmitter:
+  pin: ${ir_tx_gpio}
+  carrier_duty_percent: 50%
+
+# ==============================================================================
+# AUDIO OUTPUT CONTROL SWITCHES
+# ==============================================================================
+switch:
+  # Audio output pin 1
+  - platform: gpio
+    pin: ${audio_pin1_gpio}
+    id: pin_1
+    internal: true
+    inverted: true
+    restore_mode: ALWAYS_OFF
+  
+  # Audio output pin 2
+  - platform: gpio
+    pin: ${audio_pin2_gpio}
+    id: pin_2
+    internal: true
+    inverted: true
+    restore_mode: ALWAYS_OFF
+  
+  # Audio output pin 3
+  - platform: gpio
+    pin: ${audio_pin3_gpio}
+    id: pin_3
+    internal: true
+    inverted: true
+    restore_mode: ALWAYS_OFF
+  
+  # Pump requirement toggle
+  - platform: template
+    name: "Pump Required"
+    id: pump_required
+    icon: "mdi:pump"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
+# ==============================================================================
+# BINARY SENSORS - Trigger and Pump Detection
+# ==============================================================================
+binary_sensor:
+  # Pump sensor - detects when blaster is pumped
+  - platform: gpio
+    pin:
+      number: ${pump_gpio}
+      mode: INPUT_PULLUP
+      inverted: True
+    name: "Pump Sensor"
+    id: pump_sensor
+    icon: "mdi:pump"
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+    on_press:
+      - lambda: |-
+          id(blaster_pumped) = true;
+          ESP_LOGD("pump", "Blaster pumped - ready to fire");
+  
+  # Trigger sensor - detects when trigger is pulled
+  - platform: gpio
+    pin:
+      number: ${trigger_gpio}
+      mode: INPUT_PULLUP
+      inverted: True
+    name: "Blaster Trigger"
+    id: blaster_trigger
+    icon: "mdi:pistol"
+    filters:
+      - delayed_on: 5ms
+      - delayed_off: 20ms
+    on_press:
+      - if:
+          condition:
+            lambda: |-
+              // Blaster must be active (set by Home Assistant via set_active service)
+              if (!id(game_active)) {
+                ESP_LOGD("trigger", "Blaster not active - ignoring trigger");
+                return false;
+              }
+              // If pump is not required, always allow firing
+              if (!id(pump_required).state) {
+                return true;
+              }
+              // If pump is required, check if blaster has been pumped
+              if (id(blaster_pumped)) {
+                return true;
+              }
+              ESP_LOGD("trigger", "Pump required but blaster not pumped");
+              return false;
+          then:
+            - lambda: |-
+                // Reset pump state after firing
+                id(blaster_pumped) = false;
+            - button.press: trigger_action
+          else:
+            - script.execute: play_empty
+
+# ==============================================================================
+# BUTTON - Trigger Action Handler
+# ==============================================================================
+button:
+  - platform: template
+    id: trigger_action
+    name: "Fire Blaster"
+    icon: "mdi:bullseye-arrow"
+    on_press:
+      # Execute custom script from main yaml
+      - script.execute: blaster_trigger_pressed
+      # Play shot sound
+      - script.execute: play_shot
+      # Transmit IR signal to target
+      - remote_transmitter.transmit_nec:
+          address: 0x0002
+          command: 7${id}
+          repeat: 3
+
+# ==============================================================================
+# SCRIPTS - Audio Feedback
+# ==============================================================================
+script:
+  # Play shot sound - cycles through different shot sounds
+  - id: play_shot
+    mode: single
+    then:
+     - lambda: |-
+          id(shot_cycle) += 1;  
+          if (id(shot_cycle) > ${max_value}) {
+              id(shot_cycle) = 1;  
+          }
+          if(id(shot_cycle) == 1)
+          {
+            // Turn on GPIO pins for 100ms
+            id(pin_1).turn_on();
+            id(pin_2).turn_off();
+            id(pin_3).turn_off();
+            delay(100);  // Wait for 100ms
+            id(pin_1).turn_off();
+            id(pin_2).turn_off();
+            id(pin_3).turn_off();
+          }
+          if(id(shot_cycle) == 2)
+          {
+            // Turn on GPIO pins for 100ms
+            id(pin_1).turn_off();
+            id(pin_2).turn_on();
+            id(pin_3).turn_off();
+            delay(100);  // Wait for 100ms
+            id(pin_1).turn_off();
+            id(pin_2).turn_off();
+            id(pin_3).turn_off();
+          }
+          if(id(shot_cycle) == 3)
+          {
+            // Turn on GPIO pins for 100ms
+            id(pin_1).turn_on();
+            id(pin_2).turn_on();
+            id(pin_3).turn_off();
+            delay(100);  // Wait for 100ms
+            id(pin_1).turn_off();
+            id(pin_2).turn_off();
+            id(pin_3).turn_off();
+          }
+  
+  # Play empty sound - when trigger pulled but blaster not pumped
+  - id: play_empty
+    mode: single
+    then:
+      - lambda: |-
+          // Turn on GPIO pins for 100ms
+            id(pin_1).turn_off();
+            id(pin_2).turn_off();
+            id(pin_3).turn_on();
+            delay(100);  // Wait for 100ms
+            id(pin_1).turn_off();
+            id(pin_2).turn_off();
+            id(pin_3).turn_off();
+  
+  # Play ready sound
+  - id: play_ready
+    mode: single
+    then:
+      - lambda: |-
+          // Turn on GPIO pins for 100ms
+            id(pin_1).turn_on();
+            id(pin_2).turn_off();
+            id(pin_3).turn_on();
+            delay(100);  // Wait for 100ms
+            id(pin_1).turn_off();
+            id(pin_2).turn_off();
+            id(pin_3).turn_off();
+
+# ==============================================================================
+# GLOBALS - State Management
+# ==============================================================================
+globals:
+  - id: shot_cycle
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: blaster_pumped
+    type: bool
+    restore_value: no
+    initial_value: 'false'

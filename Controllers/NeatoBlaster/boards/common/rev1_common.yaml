@@ -1,0 +1,104 @@
+# ==============================================================================
+# NEATO BLASTER - COMMON COMPONENTS
+# ==============================================================================
+# This file contains shared components used by all blaster hardware revisions.
+# It includes common substitutions, sensors, and settings that are consistent
+# across different hardware versions.
+#
+# Included by: rev1.yaml (and future revisions)
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  esphome_base: !include ../../../../_shared/esphome_base.yaml
+
+# ==============================================================================
+# COMMON SUBSTITUTIONS - Shared Configuration Variables
+# ==============================================================================
+substitutions:
+  # Project Information
+  project_name: "CodeMakesItGo.Blaster"
+  device_description: "NEATO Neato Blaster"
+
+# ==============================================================================
+# ESP32 FRAMEWORK - Common Settings
+# ==============================================================================
+esp32:
+  board: wemos_d1_mini32
+  framework:
+    type: arduino
+    version: recommended
+  flash_size: 4MB
+
+# ==============================================================================
+# LOGGING
+# ==============================================================================
+logger:
+  level: WARN  # Change to DEBUG for troubleshooting
+
+# ==============================================================================
+# COMMON SENSORS - System Monitoring
+# ==============================================================================
+sensor:
+  # System uptime monitoring
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+    internal: true
+
+  # WiFi signal strength
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+    internal: true
+
+  - platform: template
+    name: "Player Active"
+    id: player_active
+    icon: "mdi:account-check"
+    accuracy_decimals: 0
+    lambda: 'return (float)id(game_active);'
+    update_interval: 5s
+
+
+# ==============================================================================
+# TEXT SENSORS - Device Information
+# ==============================================================================
+text_sensor:
+  # Blaster ID display
+  - platform: template
+    name: "Blaster ID"
+    id: blaster_id_display
+    icon: "mdi:identifier"
+    lambda: |-
+      return {"${id}"};
+    update_interval: never
+
+# ==============================================================================
+# NUMBERS - Configuration Controls
+# ==============================================================================
+number:
+  # Blaster ID selector (for changing blaster ID via web interface)
+  - platform: template
+    name: "Blaster ID"
+    id: blaster_id_number
+    icon: "mdi:numeric"
+    optimistic: true
+    min_value: 1
+    max_value: 99
+    step: 1
+    initial_value: ${id}
+    mode: box
+    set_action:
+      - lambda: |-
+          ESP_LOGI("blaster", "Blaster ID changed to: %.0f", x);
+          id(blaster_id_display).publish_state(String((int)x).c_str());
+
+# ==============================================================================
+# GLOBALS - Shared State
+# ==============================================================================
+globals:
+  - id: game_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'

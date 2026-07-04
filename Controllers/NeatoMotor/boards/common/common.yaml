@@ -209,6 +209,16 @@ switch:
       - logger.log: "Limit switches: NO mode enabled"
 
 # ==============================================================================
+# BINARY SENSORS - Motor Idle (required by configs/networked.yaml HA event)
+# ==============================================================================
+binary_sensor:
+  - platform: template
+    name: "Motor Idle"
+    id: motor_idle
+    device_class: running
+    lambda: 'return !id(motor_running);'
+
+# ==============================================================================
 # TEXT SENSORS - Motor Status
 # ==============================================================================
 text_sensor:

@@ -1,0 +1,55 @@
+# ==============================================================================
+# NEATO AUDIO WHISPER - NETWORKED CONFIGURATION
+# ==============================================================================
+# Joins home WiFi and exposes the ESPHome / Home Assistant API. This is the
+# mode that provides the play/loop/stop API actions.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  networked_base:  !include ../../../_shared/networked_base.yaml
+  network_sensors: !include ../../../_shared/network_sensors.yaml
+
+# ==============================================================================
+# DASHBOARD IMPORT - Made for ESPHome
+# ==============================================================================
+dashboard_import:
+  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Audio/NeatoAudioWhisper/main.yaml@main
+  import_full_config: true
+
+# ==============================================================================
+# API - Home Assistant / ESPHome actions
+# ==============================================================================
+# Call these from Home Assistant, the ESPHome API, or automations:
+#
+#   service: esphome.whisper_1_play_mp3   data: { file: 5 }   # play once
+#   service: esphome.whisper_1_loop_mp3   data: { file: 5 }   # loop forever
+#   service: esphome.whisper_1_stop
+# ==============================================================================
+api:
+  reboot_timeout: 0s    # Do not auto-reboot when no Home Assistant is connected
+  services:
+    - service: play_mp3
+      variables:
+        file: int
+      then:
+        - script.execute:
+            id: play_track
+            file: !lambda 'return file;'
+            loop: false
+
+    - service: loop_mp3
+      variables:
+        file: int
+      then:
+        - script.execute:
+            id: play_track
+            file: !lambda 'return file;'
+            loop: true
+
+    - service: stop
+      then:
+        - script.execute: stop_track
+
+# Serial-based WiFi provisioning (Improv)
+improv_serial:

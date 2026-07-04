@@ -1,5 +1,5 @@
 # ==============================================================================
-# SMART WINCH CONTROLLER - HARDWARE DEFINITION (REV 3.0 BOARD, WINCH MODE)
+# NEATO WINCH CONTROLLER - HARDWARE DEFINITION (REV 3.0 BOARD, WINCH MODE)
 # ==============================================================================
 # Hardware: Wemos D1 Mini ESP32 + 2× BTN8962TA H-bridge
 #

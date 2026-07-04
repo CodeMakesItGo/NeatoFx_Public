@@ -35,7 +35,8 @@ wifi:
 
   # Connection management
   reboot_timeout: 10min     # Reboot after 10 minutes of WiFi loss
-  power_save_mode: none     # Disable power saving for reliability
+  power_save_mode: light    # BLE (esp32_improv) requires modem sleep — 'none' is
+                            # rejected by ESPHome when esp32_ble is present
   output_power: 20dB        # Maximum WiFi power for best range
 
   # --------------------------------------------------------------------------
@@ -78,7 +79,11 @@ wifi:
 web_server:
   port: 80
   include_internal: false
-  local: false
+  # local: true embeds the web frontend (JS/CSS) into the firmware so the UI
+  # works with NO internet. Must be true on landlocked gallery LANs — with
+  # local: false the page pulls its JS from the ESPHome CDN and renders blank
+  # when the network has no WAN access.
+  local: true
   version: 2
 
 # ==============================================================================

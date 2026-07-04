@@ -1,0 +1,121 @@
+# ==============================================================================
+# HOME ASSISTANT SPEAKER CONFIGURATION  (HA server on the LAN)
+# ==============================================================================
+# Joins a WiFi router where a Home Assistant server IS present (internet
+# optional). Keeps the native ESPHome api: enabled so HA can control the device
+# and receive the esphome.speaker-triggered events fired below. The device also
+# still accepts direct device-to-device "Net Play" POSTs over the LAN.
+#
+# Use this when:      router present, Home Assistant server on the LAN
+# Use networked.yaml instead when: router present but NO HA server (No-HA LAN)
+# Use standalone.yaml instead when: device runs its own AP (no router)
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  networked_base: !include ../../../_shared/networked_base.yaml
+  network_sensors: !include ../../../_shared/network_sensors.yaml
+  # OTA update checks — enable if this HA deployment has internet access.
+  #firmware_update: !include ../../../_shared/firmware_update.yaml
+
+# ==============================================================================
+# DASHBOARD IMPORT - Made for ESPHome
+# ==============================================================================
+# Requires the api: component (kept below), so it's enabled in this HA variant.
+# Lets the ESPHome dashboard adopt this device from its published config.
+dashboard_import:
+  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Audio/NeatoAudio50/main.yaml@main
+  import_full_config: true
+
+# ==============================================================================
+# SUBSTITUTIONS - Configuration Variables
+# ==============================================================================
+substitutions:
+  # ip_base and ip_addr defaults are set in _shared/networked_base.yaml.
+  # Override ip_addr here if a static subnet offset is needed.
+
+# ==============================================================================
+# IP ASSIGNMENT - DHCP (with router-side reservation)
+# ==============================================================================
+# DHCP by default; the router assigns the address (pin it with a DHCP
+# reservation for stable HA/direct-IP addressing). To bake a static IP into the
+# device instead, uncomment the manual_ip block below.
+#wifi:
+#  manual_ip:
+#    static_ip: 192.168.1.52
+#    gateway: 192.168.1.1
+#    subnet: 255.255.255.0
+#    dns1: 192.168.1.1
+#    dns2: 8.8.8.8          # keeps HTTPS OTA firmware updates resolvable
+
+# ==============================================================================
+# API & REMOTE ACCESS - Home Assistant
+# ==============================================================================
+# _shared/networked_base.yaml provides api: (with a 5-min reboot timer if no HA
+# client connects). We KEEP it here — a Home Assistant server is expected on the
+# LAN, so the connection stays up and the reboot timer never fires.
+
+improv_serial:
+
+# ==============================================================================
+# ESPHome Script - Home Assistant events
+# ==============================================================================
+# Fire an event into Home Assistant when a physical input triggers. Enable the
+# matching `script.execute: esphome_script_inN` calls in
+# scripts/trigger_scripts.yaml to use these.
+script:
+  - id: esphome_script_in1
+    mode: single  # Prevent overlapping hits
+    then:
+      # Send Home Assistant event
+      - homeassistant.event:
+          event: esphome.speaker-triggered
+          data:
+            address: ${id}
+            input: '1'
+  - id: esphome_script_in2
+    mode: single  # Prevent overlapping hits
+    then:
+      # Send Home Assistant event
+      - homeassistant.event:
+          event: esphome.speaker-triggered
+          data:
+            address: ${id}
+            input: '2'
+
+# ==============================================================================
+# NETWORK PLAY ENDPOINT - direct device-to-device trigger
+# ==============================================================================
+# Still available alongside Home Assistant: other NEATO-FX devices can play a
+# sound by POSTing over the LAN via web_server REST:
+#
+#   POST http://audio-<id>.local/number/Net%20Play/set?value=<mp3 number>
+#
+# value 1-255 = play that MP3 file; 0 or out-of-range = ignored.
+number:
+  - platform: template
+    name: "Net Play"
+    id: net_play
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    optimistic: true
+    set_action:
+      - if:
+          condition:
+            lambda: 'return ((int)x) >= 1 && ((int)x) <= 255;'
+          then:
+            - logger.log:
+                format: "Net Play: playing MP3 %d"
+                args: ['(int)x']
+            - output.turn_on: amp_wake     # Wake amp first
+            - delay: 50ms                  # Let amp stabilize
+            - output.turn_on: amp_unmute   # Unmute
+            - delay: 100ms
+            - lambda: 'id(dfplayer1).play_mp3((int)x);'
+            - script.execute: playback_timeout
+          else:
+            - logger.log:
+                format: "Net Play: ignoring out-of-range value %d"
+                args: ['(int)x']

@@ -36,6 +36,9 @@
       type: NUM, name: 'Cooldown Timer', label: 'Cooldown',
       min: 0, max: 10000, step: 100, unit: 'ms', section: 'settings',
     },
+    gnd_ramp: {
+      type: SW, name: 'GND Ramp', label: 'GND Ramp', section: 'settings',
+    },
 
     // ── Triggers & Effects card ──
     gpio25_hit_trigger: {
@@ -43,7 +46,7 @@
     },
     target_leds_hit_effect: {
       type: SEL, name: 'Target LEDs Hit Effect', label: 'Hit Effect', section: 'triggers',
-      options: ['Rainbow Effect', 'Color Wipe Effect', 'Scanner Effect', 'Twinkle Effect', 'Solid Color'],
+      options: ['Rainbow Effect', 'Color Wipe Effect', 'Scanner Effect', 'Twinkle Effect', 'Heartbeat Effect', 'Strobe Flash', 'Solid Color'],
     },
     target_leds_solid_color: {
       type: SEL, name: 'Target LEDs Solid Color', label: 'Solid Color', section: 'triggers',
@@ -63,7 +66,7 @@
       min: 0, max: 180, step: 1, unit: '°', section: 'advanced',
     },
     aux_pwr:    { type: SW, name: 'Aux Pwr',    label: 'Aux Power',  section: 'advanced' },
-    gnd_switch: { type: SW, name: 'Gnd Switch', label: 'GND Switch', section: 'advanced' },
+    gnd_switch: { type: LT, name: 'Gnd Switch', label: 'GND Switch', section: 'advanced' },
     relay_1:    { type: SW, name: 'Relay 1',    label: 'Relay',      section: 'advanced' },
   };
 
@@ -505,19 +508,34 @@
       // so a failed load never leaves a blank page. Removing the <style> node
       // matters: our dark background/reset rules would otherwise restyle the
       // default UI into invisibility.
+      //
+      // A fired onload does NOT prove the real script loaded: in AP/standalone
+      // mode (no internet) or behind a captive portal/proxy, the request to
+      // oi.esphome.io can be redirected to this device and return its own HTML
+      // with a 200 — which fires onload but never defines <esp-app>. Tearing
+      // down the custom UI then left a blank page. So verify the custom element
+      // is actually registered before committing to the switch.
       s.onload = function () {
-        disconnect();
-        style.remove();
-        app.remove();
+        if (window.customElements && customElements.get('esp-app')) {
+          disconnect();
+          style.remove();
+          app.remove();
+        } else {
+          failSwitch();
+        }
       };
-      s.onerror = function () {
+      s.onerror = failSwitch;
+
+      function failSwitch() {
         s.remove();
         origBtn.disabled    = false;
         origBtn.textContent = 'Switch to ESPHome UI';
         alert('Could not load the default ESPHome UI.\n\n' +
               'It is served from the internet (oi.esphome.io), which is not ' +
-              'reachable on this network.');
-      };
+              'reachable on this network — e.g. the target\'s own Wi-Fi AP in ' +
+              'standalone mode. Connect the target to a network with internet ' +
+              'access to use the default UI.');
+      }
       document.head.appendChild(s);
     });
     viewSwitch.appendChild(origBtn);

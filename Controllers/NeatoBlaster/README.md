@@ -142,10 +142,10 @@ Check your blaster PCB or documentation:
 3. Choose operating mode:
    ```yaml
    # For networked (with Home Assistant):
-   config_file: configs/networked.yaml
+   config: configs/networked.yaml
 
    # For standalone (WiFi AP only):
-   #config_file: configs/standalone.yaml
+   #config: configs/standalone.yaml
    ```
 
 4. For networked mode, create `configs/secrets.yaml`:
@@ -187,7 +187,7 @@ Check your blaster PCB or documentation:
    - Open: `http://192.168.4.1`
 
 3. **First Fire Test**:
-   - Point blaster toward SmartTarget
+   - Point blaster toward Neato Target IR
    - Pull trigger
    - Verify IR signal received (target should flash)
    - Check audio feedback
@@ -227,7 +227,7 @@ Check your blaster PCB or documentation:
 ```
 Pump Required: OFF
 Audio Output: Relay 1 or GPIO relay
-Target: SmartTarget unit
+Target: Neato Target IR unit
 Sound feedback: External amplifier
 ```
 
@@ -264,7 +264,7 @@ Sound cycling: Different sound per shot
    - Cooldown begins
 
 3. **Target Response**:
-   - SmartTarget receives IR signal
+   - Neato Target IR receives IR signal
    - Target flashes, plays sound, activates relay
    - Game logic processes hit
    - Cooldown prevents rapid re-firing

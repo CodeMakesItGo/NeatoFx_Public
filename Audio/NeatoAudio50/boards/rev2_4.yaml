@@ -41,6 +41,12 @@ esphome:
           id: spot_light_1
       - light.turn_off:
           id: spot_light_2
+      # Sync the loop flag to the ACTUAL switch state at boot. loop_bg_active must
+      # never be a second source of truth: after a firmware change resets flash
+      # preferences it could restore stale (true) while the switch shows OFF,
+      # making the loop run — and endlessly retry a missing file — with the switch
+      # off. The bg_loop_enable switch is authoritative.
+      - lambda: 'id(loop_bg_active) = id(bg_loop_enable).state;'
       - if:
           condition:
             lambda: 'return id(loop_bg_active);'
@@ -797,8 +803,20 @@ number:
     mode: box
     initial_value: 1
     restore_value: true
-    optimistic: true
-    # MP3 file number to loop continuously in the background
+    optimistic: false     # set_action publishes the state (see note)
+    # MP3 file number to loop continuously in the background.
+    # control() fires set_action BEFORE the optimistic publish, so we publish the
+    # new value first (then play_bg_loop reads the fresh state) and restart the
+    # loop immediately if it is active — keeps the UI value and the audio in sync
+    # when this is changed while the loop is playing.
+    set_action:
+      - lambda: 'id(bg_loop_mp3_select).publish_state(x);'   # commit new value first
+      - if:
+          condition:
+            lambda: 'return id(loop_bg_active);'
+          then:
+            - script.execute: play_bg_loop
+            - script.execute: bg_loop_start_effect
 
   - platform: template
     name: "Max MP3 Files"
@@ -931,8 +949,8 @@ select:
 globals:
   - id: loop_bg_active
     type: bool
-    restore_value: yes
-    initial_value: 'true'
+    restore_value: no      # derived from the bg_loop_enable switch (single source
+    initial_value: 'false' # of truth); synced at boot and by the switch triggers
 
   - id: boot_complete
     type: bool

@@ -1,0 +1,79 @@
+# ==============================================================================
+# NEATO AUDIO WHISPER - MP3 CONTROL SCRIPTS (DY-SV8F UART protocol)
+# ==============================================================================
+# The DY-SV8F is controlled with 0xAA-framed UART commands:
+#
+#   Start code : 0xAA (fixed)
+#   Command    : 1 byte
+#   Length     : number of data bytes
+#   Data       : 0..n bytes (high byte first)
+#   Checksum   : low 8 bits of the sum of all preceding bytes
+#
+# Frames used here (from the DY-SV8F manual):
+#   Set volume    : AA 13 01 <vol>            + SM   (vol 0-30)
+#   Set loop mode : AA 18 01 <mode>           + SM   (01 = repeat current,
+#                                                     02 = play once & stop)
+#   Specified song: AA 07 02 <hi> <lo>        + SM   (select + play track N)
+#   Stop          : AA 04 00 AE
+# ==============================================================================
+
+script:
+  # --- Push a volume level (0-30) to the module -----------------------------
+  #   vol : 0 = quiet, 30 = loud (per the DY-SV8F manual)
+  #
+  #   NOTE: callers must pass the value explicitly. A number's set_action runs
+  #   BEFORE the new value lands in id(volume).state, so reading .state here
+  #   would send the previous (stale) level.
+  - id: set_volume
+    parameters:
+      vol: int
+    then:
+      - uart.write:
+          id: mp3_uart
+          data: !lambda |-
+            int v = vol;
+            if (v < 0) v = 0;
+            if (v > 30) v = 30;
+            uint8_t b = (uint8_t) v;
+            uint8_t sm = (0xAA + 0x13 + 0x01 + b) & 0xFF;
+            return {0xAA, 0x13, 0x01, b, sm};
+      - logger.log:
+          format: "MP3: set volume %d"
+          args: ['vol']
+
+  # --- Play a specific track, optionally looping it -------------------------
+  #   file : track number (1-65535)
+  #   loop : true  -> repeat this track forever (single-cycle mode)
+  #          false -> play once and stop
+  - id: play_track
+    parameters:
+      file: int
+      loop: bool
+    then:
+      # 1) Set the loop mode for this playback
+      - uart.write:
+          id: mp3_uart
+          data: !lambda |-
+            uint8_t mode = loop ? 0x01 : 0x02;
+            uint8_t sm = (0xAA + 0x18 + 0x01 + mode) & 0xFF;
+            return {0xAA, 0x18, 0x01, mode, sm};
+      - delay: 30ms
+      # 2) Select + play the requested track
+      - uart.write:
+          id: mp3_uart
+          data: !lambda |-
+            uint8_t hi = (file >> 8) & 0xFF;
+            uint8_t lo = file & 0xFF;
+            uint8_t sm = (0xAA + 0x07 + 0x02 + hi + lo) & 0xFF;
+            return {0xAA, 0x07, 0x02, hi, lo, sm};
+      - logger.log:
+          format: "MP3: play track %d (loop=%d)"
+          args: ['file', 'loop']
+
+  # --- Stop playback --------------------------------------------------------
+  - id: stop_track
+    then:
+      - uart.write:
+          id: mp3_uart
+          data: [0xAA, 0x04, 0x00, 0xAE]
+      - logger.log: "MP3: stop"

@@ -1,5 +1,5 @@
 # ==============================================================================
-# NEATO SMART DISPLAY - SCREENS & UI
+# NEATO DISPLAY - SCREENS & UI
 # ==============================================================================
 # Defines all LVGL pages, widgets, and the template sensors that back them.
 # Template sensors are declared here because they are tightly coupled to the

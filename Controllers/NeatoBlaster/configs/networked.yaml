@@ -1,0 +1,96 @@
+# ==============================================================================
+# NETWORKED BLASTER CONFIGURATION (HOME ASSISTANT)
+# ==============================================================================
+# This configuration sets up a blaster device in networked mode.
+# In networked mode, the blaster connects to Home Assistant for:
+# - Centralized score tracking
+# - Game session management
+# - Multi-player coordination
+# - Prize/ticket dispensing decisions
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  networked_base: !include ../../../_shared/networked_base.yaml
+  network_sensors: !include ../../../_shared/network_sensors.yaml
+
+# ==============================================================================
+# DASHBOARD IMPORT - Made for ESPHome
+# ==============================================================================
+dashboard_import:
+  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Controllers/NeatoBlaster/main.yaml@main
+  import_full_config: true
+
+# Serial provisioning (Made for ESPHome requirement)
+improv_serial:
+
+# ==============================================================================
+# SUBSTITUTIONS - Network Configuration
+# ==============================================================================
+substitutions:
+  # ip_base and ip_addr defaults are set in _shared/networked_base.yaml.
+  # Override ip_addr here if a static subnet offset is needed.
+
+# ==============================================================================
+# HOME ASSISTANT API - For integration and control
+# ==============================================================================
+api:
+  reboot_timeout: 0s    # Disable auto-reboot if not using a Home Assistant server
+  #reboot_timeout: 5min  # Reboot the device if no connection to Home Assistant for 5 minutes
+  homeassistant_services: true
+  services:
+    # Service to enable/disable pump requirement
+    - service: set_pump_required
+      variables:
+        enabled: bool
+      then:
+        - lambda: |-
+            if (enabled) {
+              id(pump_required).turn_on();
+            } else {
+              id(pump_required).turn_off();
+            }
+
+    # Service to reset pump state
+    - service: reset_pump
+      then:
+        - lambda: |-
+            id(blaster_pumped) = false;
+            ESP_LOGI("pump", "Pump state reset");
+
+    # Service to set player active state (enables/disables the blaster)
+    - service: set_active
+      variables:
+        score_value: bool
+      then:
+        - globals.set:
+            id: game_active
+            value: !lambda 'return score_value;'
+
+# ==============================================================================
+# PLAYER ACTIVE - Subscribe to HA helper input_boolean.player_${id}_active
+# ==============================================================================
+binary_sensor:
+  - platform: homeassistant
+    id: player_active_sensor
+    name: "Player Active"
+    entity_id: input_boolean.player_${id}_active
+    on_state:
+      - globals.set:
+          id: game_active
+          value: !lambda 'return x;'
+
+# ==============================================================================
+# HOME ASSISTANT EVENT REPORTING
+# ==============================================================================
+script:
+  # Override the blaster_trigger_pressed script to add Home Assistant event
+  - id: blaster_trigger_pressed
+    mode: single
+    then:
+      # Report blaster fired event to Home Assistant
+      - homeassistant.event:
+          event: esphome.blaster_fired
+          data:
+            blaster_id: "${id}"
+            blaster_name: "${friendly_name}"

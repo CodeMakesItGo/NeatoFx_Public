@@ -1,0 +1,348 @@
+# ==============================================================================
+# NEATO GOLF - HARDWARE DEFINITION (REV 3.X)
+# ==============================================================================
+# This file defines the hardware configuration for Rev 3.x golf boards.
+# It includes GPIO pin mappings, LED strip configurations, IR receiver setup,
+# relay controls, and power management for the latest hardware revision.
+#
+# Hardware Features:
+# - ESP32 microcontroller with optimized pin layout
+# - Primary LED strip (GPIO5) + Secondary LED strip (GPIO22)
+# - IR receiver (GPIO19) for laser tag protocol detection
+# - Relay output (GPIO23) for external device control
+# - Auxiliary power control (GPIO26)
+# - Multiple I/O pins for expansion and servo control
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Rev 3.x Specific Configuration Variables
+# ==============================================================================
+substitutions:
+  # Rev 3.x specific hardware
+  aux_pwr_gpio: GPIO26           # Auxiliary power control
+
+  # Right Side Connector Pins (Rev 3.x specific)
+  io16_gpio: GPIO16      # General I/O
+  io17_gpio: GPIO17      # General I/O
+  io25_gpio: GPIO25      # General I/O
+  io34_gpio: GPIO34      # ADC input (input only)
+
+  # Left Side Connector Pins (Rev 3.x specific)
+  switch_12v: GPIO33     # 12V switch control
+  led2_gpio: GPIO22      # Secondary LED strip
+  servo_gpio: GPIO04     # Servo control
+  strip_2_led_count: "100" # Configurable LED count
+  strip_2_internal: "false" # Visible in UI for Rev3
+
+  # Project Information (Rev 3.x specific)
+  project_version: "3.0.0"
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  # Include common components shared across all revisions
+  common_components: !include common/common.yaml
+
+# ==============================================================================
+# CORE CONFIGURATION - Rev 3.x Specific Boot Sequence
+# ==============================================================================
+esphome:
+  min_version: 2025.8.2
+  on_boot:
+    # Stage 1: Early startup - read settings and turn OFF LEDs (prevent power surge)
+    - priority: 600  # Later priority - after GPIO initialization
+      then:
+        - logger.log: "=== POWER-CONSCIOUS STARTUP (PCB Safe) ==="
+        - delay: 100ms  # Brief delay to let components initialize
+
+        # Read saved settings first (but don't apply them yet)
+        - lambda: |-
+            ESP_LOGI("LED", "📖 Reading saved LED settings for later restoration...");
+            float brightness = id(saved_brightness);
+            float red = id(saved_red);
+            float green = id(saved_green);
+            float blue = id(saved_blue);
+            int effect_index = id(saved_effect_index);
+            ESP_LOGI("LED", "Saved: B=%.2f, RGB=(%.2f,%.2f,%.2f), Effect=%d",
+                     brightness, red, green, blue, effect_index);
+
+        # TURN OFF LEDs completely to prevent startup surge
+        - logger.log: "=== EARLY BOOT: Turning LEDs OFF for safe startup ==="
+        - light.turn_off: led_strip   # Completely OFF (not just 0% brightness)
+        - light.turn_off: led_strip2  # Secondary strip also OFF
+        - delay: 100ms
+        - logger.log: "✅ Both LED strips OFF - startup surge prevented"
+
+        # Visual startup indicator - Stage 1/6 (Basic Initialization)
+        - light.turn_on:
+            id: led_strip
+            brightness: 50%
+            red: 100%
+            green: 0%
+            blue: 0%
+            effect: "None"
+        - logger.log: "🔴 STARTUP STAGE 1/6 - Basic Initialization (LED 1 RED)"
+
+        # Extended delay for power supply stabilization
+        - delay: 2s  # Shorter individual delays with more stages
+
+        # Initialize timer controls first (very low power)
+        - number.set:
+            id: relay_timer_control
+            value: !lambda 'return id(relay_timer);'
+        - number.set:
+            id: target_cooldown_control
+            value: !lambda 'return id(cooldown_timer);'
+        - number.set:
+            id: hit_display_time_control
+            value: !lambda 'return id(hit_display_timer);'
+
+        - logger.log: "Basic systems initialized - power consumption minimal"
+
+        # === STAGE 2/6: Power Preparation ===
+        - light.turn_on:
+            id: led_strip
+            brightness: 50%
+            red: 100%
+            green: 50%
+            blue: 0%
+            effect: "None"
+        - logger.log: "🟠 STARTUP STAGE 2/6 - Power Preparation"
+        - delay: 2s
+        - logger.log: "Power supply conditioning complete"
+
+        # === STAGE 3/6: Auxiliary Power Enable ===
+        - light.turn_on:
+            id: led_strip
+            brightness: 50%
+            red: 100%
+            green: 100%
+            blue: 0%
+            effect: "None"
+        - logger.log: "🟡 STARTUP STAGE 3/6 - Auxiliary Power Enable"
+        - delay: 1s
+
+        # First attempt with extended timing
+        - switch.turn_on: aux_pwr
+        - delay: 1s  # Wait for stabilization
+
+        # Verify with multiple retries
+        - if:
+            condition:
+              switch.is_on: aux_pwr
+            then:
+              - logger.log: "✓ Auxiliary power stable on first attempt"
+            else:
+              - logger.log: "⚠ Power supply struggling - implementing extended recovery..."
+              - delay: 2s  # Wait for power supply recovery
+              - switch.turn_on: aux_pwr
+              - delay: 1s
+              - if:
+                  condition:
+                    switch.is_on: aux_pwr
+                  then:
+                    - logger.log: "✓ Auxiliary power stable after retry"
+                  else:
+                    - logger.log: "❌ CRITICAL: Power supply insufficient!"
+
+        # === STAGE 4/6: Power Verification ===
+        - light.turn_on:
+            id: led_strip
+            brightness: 50%
+            red: 0%
+            green: 100%
+            blue: 0%
+            effect: "None"
+        - logger.log: "🟢 STARTUP STAGE 4/6 - Power Verification"
+        - delay: 2s
+
+        # Only restore LEDs if power is confirmed stable
+        - if:
+            condition:
+              switch.is_on: aux_pwr
+            then:
+              - logger.log: "✓ Power verified stable - proceeding with component initialization"
+
+              # Now restore LED with all saved settings
+              - lambda: |-
+                  ESP_LOGI("LED", "🔆 Restoring LED with saved settings...");
+
+                  // Get saved values from global variables (direct access)
+                  float brightness = id(saved_brightness);
+                  if (brightness <= 0.0) brightness = 0.5;  // Default 50%
+
+                  float red = id(saved_red);
+                  float green = id(saved_green);
+                  float blue = id(saved_blue);
+                  int effect_index = id(saved_effect_index);
+
+                  ESP_LOGI("LED", "Restoring: B=%.2f, RGB=(%.2f,%.2f,%.2f), Effect=%d",
+                           brightness, red, green, blue, effect_index);
+
+                  // Create light call using make_call() for better control
+                  auto call = id(led_strip).make_call();
+                  call.set_state(true);  // Turn ON
+                  call.set_brightness(brightness);
+                  call.set_rgb(red, green, blue);
+
+                  // Set effect by index with proper names
+                  if (effect_index > 0 && effect_index <= 4) {
+                    if (effect_index == 1) call.set_effect("Rainbow Effect");
+                    else if (effect_index == 2) call.set_effect("Color Wipe Effect");
+                    else if (effect_index == 3) call.set_effect("Scanner Effect");
+                    else if (effect_index == 4) call.set_effect("Twinkle Effect");
+                    ESP_LOGI("LED", "Setting effect index %d", effect_index);
+                  } else {
+                    call.set_effect("None");  // Solid color mode
+                    ESP_LOGI("LED", "Setting solid color mode");
+                  }
+                  call.perform();
+                  ESP_LOGI("LED", "✅ LED restoration call completed");
+
+              - delay: 1s  # Brief pause after turning ON
+              - logger.log: "✅ LED TURNED ON with saved settings - startup complete!"
+              # Mark startup as complete to enable auto-save
+              - lambda: 'id(startup_complete) = true;'
+              - logger.log: "⚪ STARTUP SUCCESS - All LEDs bright white confirmation"
+
+            else:
+              - logger.log: "❌ POWER ISSUE: Skipping LED restoration due to auxiliary power failure"
+              - delay: 2s
+              - logger.log: "=== FINAL STARTUP VERIFICATION ==="
+              # Flash red to indicate startup failure
+              - light.turn_on:
+                  id: led_strip
+                  brightness: 100%
+                  red: 100%
+                  green: 0%
+                  blue: 0%
+                  effect: "None"
+              - logger.log: "🔴 STARTUP FAILURE - All LEDs red warning"
+              - delay: 1s
+
+
+
+
+# ==============================================================================
+# BINARY SENSORS - Digital Inputs
+# ==============================================================================
+binary_sensor:
+  # GPIO16 Digital Input
+  - platform: gpio
+    pin:
+      number: ${io16_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "GPIO16 Digital State"
+    device_class: "motion"
+    filters:
+      - delayed_on: 50ms   # Increase debounce
+      - delayed_off: 50ms
+    on_press:
+      - logger.log: "GPIO16 state is HIGH"
+    on_release:
+      - logger.log: "GPIO16 state is LOW"
+
+  # GPIO17 Digital Input
+  - platform: gpio
+    pin:
+      number: ${io17_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "GPIO17 Digital State"
+    device_class: "motion"
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+    on_press:
+      - logger.log: "GPIO17 state is HIGH"
+    on_release:
+      - logger.log: "GPIO17 state is LOW"
+
+  # GPIO25 Digital Input
+  - platform: gpio
+    pin:
+      number: ${io25_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "GPIO25 Digital State"
+    device_class: "motion"
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+    on_press:
+      - logger.log: "GPIO25 state is HIGH"
+    on_release:
+      - logger.log: "GPIO25 state is LOW"
+
+  # GPIO34 Digital Input (input-only pin, no pull-up)
+  - platform: gpio
+    id: gpio34_sensor
+    pin:
+      number: ${io34_gpio}
+      mode: INPUT
+      inverted: true
+    name: "GPIO34 Digital State"
+    device_class: "motion"
+    filters:
+      - delayed_on: 500ms
+      - delayed_off: 50ms
+    on_press:
+      - logger.log: "GPIO34 HIGH for 500ms - triggering hit script"
+      - script.execute: run_hit_script
+
+
+# ==============================================================================
+# SWITCHES - Digital Outputs
+# ==============================================================================
+switch:
+  # Auxiliary power control
+  - platform: gpio
+    pin:
+      number: ${aux_pwr_gpio}
+    name: "Aux Pwr"
+    id: aux_pwr
+
+  # Ground switch (12V control)
+  - platform: gpio
+    pin:
+      number: ${switch_12v}
+    name: "Gnd Switch"
+    id: gnd_switch
+
+
+# ==============================================================================
+# SERVO & PWM CONTROL
+# ==============================================================================
+servo:
+  - id: servo1
+    output: pwm_output
+
+output:
+  - platform: ledc # PWM output for servo control
+    id: pwm_output
+    pin: ${servo_gpio}
+    frequency: 50 Hz
+
+# ==============================================================================
+# USER CONTROLS - Numbers and Selects
+# ==============================================================================
+number:
+  # Servo position control
+  - platform: template
+    name: "Servo Slider"
+    id: servo_slider
+    min_value: -85
+    max_value: 85
+    step: 1
+    initial_value: 0
+    restore_value: true
+    optimistic: true
+    icon: "mdi:arrow-expand-horizontal"
+    set_action:
+      - servo.write:
+          id: servo1
+          level: !lambda 'return (x / 100.0);'
+      - lambda: |-
+          id(servo_slider).publish_state(x);

@@ -92,10 +92,10 @@ Each target features infrared detection, dazzling LED effects, relay outputs for
    ```yaml
    # Choose operating mode:
    # For standalone (default):
-   config_file: !include configs/standalone.yaml
+   config: !include configs/standalone.yaml
 
    # For networked (with Home Assistant):
-   #config_file: !include configs/networked.yaml
+   #config: !include configs/networked.yaml
    ```
 
 3. For networked mode, create `configs/secrets.yaml`:

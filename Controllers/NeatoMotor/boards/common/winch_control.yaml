@@ -1,5 +1,5 @@
 # ==============================================================================
-# SMART WINCH CONTROLLER - WINCH CONTROL LOGIC
+# NEATO WINCH CONTROLLER - WINCH CONTROL LOGIC
 # ==============================================================================
 # Hall-effect quadrature position tracking, auto-homing, soft length limits,
 # two-zone speed control, and soft direction-change ramping.

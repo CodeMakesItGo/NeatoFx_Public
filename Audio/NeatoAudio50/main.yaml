@@ -20,17 +20,18 @@ substitutions:
 # ==============================================================================
 packages:
   # Hardware — select one board revision:
-  #board:          !include boards/rev2_4.yaml    # Rev 2.4 / 2.5 / 2.6 (current production)
-  board:         !include boards/rev2_3.yaml    # Rev 2.3 (mp3_power on GPIO21)
+  board:          !include boards/rev2_4.yaml    # Rev 2.4 / 2.5 / 2.6 (current production)
+  #board:         !include boards/rev2_3.yaml    # Rev 2.3 (mp3_power on GPIO21)
 
   # RFTX connector — select one mode:
-  #rftx:           !include boards/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
-  #rftx:          !include boards/rftx_inputs.yaml    # RFTX as 4 trigger inputs
-  rftx:          !include boards/rftx_none.yaml      # RFTX unused (hides all RF controls from UI)
+  #rftx:           !include boards/common/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
+  #rftx:          !include boards/common/rftx_inputs.yaml    # RFTX as 4 trigger inputs
+  rftx:          !include boards/common/rftx_none.yaml      # RFTX unused (hides all RF controls from UI)
 
-  # Network / standalone mode — swap these lines to switch:
-  config_file:   !include configs/standalone.yaml
-  #config_file:    !include configs/networked.yaml
+  # Network mode — select one:
+  #config:        !include configs/standalone.yaml       # Device's own AP, no router
+  config:         !include configs/networked.yaml        # Router, no HA server (No-HA LAN)
+  #config:        !include configs/home_assistant.yaml   # Router + Home Assistant server
 
   # Optional integrations (uncomment to enable):
   #fpp_file:      !include integrations/speaker_fpp.yaml
@@ -43,4 +44,5 @@ packages:
 # DEBUGGING
 # ==============================================================================
 logger:
-  level: WARN
+  level: DEBUG   # TEMP: troubleshooting DFPlayer "track not found" — shows
+                 # "Playing file X in mp3 folder". Set back to WARN for production.

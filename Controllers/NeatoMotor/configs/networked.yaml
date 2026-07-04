@@ -1,5 +1,5 @@
 # ==============================================================================
-# SMART MOTOR CONTROLLER - NETWORKED CONFIGURATION
+# NEATO MOTOR CONTROLLER - NETWORKED CONFIGURATION
 # ==============================================================================
 # This configuration sets up the motor controller in networked mode with Home
 # Assistant integration. In networked mode, the device communicates with a

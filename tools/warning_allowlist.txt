@@ -1,0 +1,4 @@
+# Regex patterns (one per line) for warning lines CI should tolerate.
+# Keep this list SHORT and justified — every entry weakens the gate.
+# Example (currently unused):
+#   warning: 'nvs' partition size

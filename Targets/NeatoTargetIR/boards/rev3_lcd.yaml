@@ -38,6 +38,7 @@ substitutions:
   # Dummy LED pin — GPIO13 is unconnected on the LCD face.
   # Required so the shared hit script (which drives led_strip) compiles cleanly.
   led_gpio: GPIO13
+  led_ignore_strapping: "false"  # GPIO13 is not a strapping pin
 
   # IR receiver relocated to GPIO32 (routed via face connector)
   ir_gpio: GPIO32
@@ -132,11 +133,19 @@ switch:
     id: aux_pwr
     restore_mode: ALWAYS_ON
 
-  - platform: gpio
-    pin:
-      number: ${switch_12v}
+# ==============================================================================
+# GROUND SWITCH (12V control) — PWM-capable for optional 0→100% ramp on hit
+# ==============================================================================
+# GPIO33 driven by LEDC PWM so the GND switch can ramp 0→100% via the light
+# transition engine. See scripts/hit_script.yaml + common.yaml (GND Ramp).
+light:
+  - platform: monochromatic
     name: "Gnd Switch"
-    id: gnd_switch
+    id: gnd_light
+    output: gnd_output
+    gamma_correct: 0
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
 
 # ==============================================================================
 # SERVO & PWM OUTPUT
@@ -150,6 +159,12 @@ output:
     id: pwm_output
     pin: ${servo_gpio}
     frequency: 50 Hz
+
+  # Ground switch PWM output (drives gnd_light above)
+  - platform: ledc
+    id: gnd_output
+    pin: ${switch_12v}
+    frequency: 1000 Hz
 
 number:
   - platform: template
@@ -210,7 +225,7 @@ font:
 # IMAGES — Optional custom PNG graphics (240x240, stored in flash)
 # ==============================================================================
 # To use custom images:
-#   1. Create a SmartTarget/images/ directory
+#   1. Create a NeatoTargetIR/images/ directory
 #   2. Add 240x240 PNG files named target_idle.png and target_hit.png
 #   3. Uncomment the block below and switch the display lambda to use
 #      it.image(0, 0, id(img_target_idle)) / it.image(0, 0, id(img_target_hit))

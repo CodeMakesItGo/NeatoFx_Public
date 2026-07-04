@@ -1,23 +1,23 @@
 # ==============================================================================
-# NETWORKED SPEAKER CONFIGURATION
+# NETWORKED SPEAKER CONFIGURATION  (No-HA LAN mode)
 # ==============================================================================
-# This configuration sets up a speaker device in networked mode with Home Assistant
-# integration. In networked mode, the speaker communicates with a central controller
-# and can be managed through Home Assistant or other ESPHome-compatible systems.
+# Joins a WiFi router but expects NO Home Assistant server and NO internet
+# (landlocked gallery LAN). Sounds are triggered device-to-device over the LAN
+# via the "Net Play" endpoint below — no broker/HA required.
+#
+# Use this when:      router present, no HA server (internet optional/absent)
+# Use home_assistant.yaml instead when: a Home Assistant server is on the LAN
+# Use standalone.yaml instead when:      device runs its own AP (no router)
 # ==============================================================================
 
 # Shared base packages — common to all NEATO-FX devices
 packages:
   networked_base: !include ../../../_shared/networked_base.yaml
   network_sensors: !include ../../../_shared/network_sensors.yaml
-  firmware_update: !include ../../../_shared/firmware_update.yaml
-
-# ==============================================================================
-# DASHBOARD IMPORT - Made for ESPHome
-# ==============================================================================
-dashboard_import:
-  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Audio/NeatoAudio50/main.yaml@main
-  import_full_config: true
+  # OTA update checks disabled — gallery LANs are landlocked (no internet),
+  # so the GitHub manifest fetch can never succeed. Re-enable this include
+  # (and the update: block below) if deploying on an internet-connected net.
+  #firmware_update: !include ../../../_shared/firmware_update.yaml
 
 # ==============================================================================
 # SUBSTITUTIONS - Configuration Variables
@@ -27,28 +27,32 @@ substitutions:
   # Override ip_addr here if a static subnet offset is needed.
 
 # ==============================================================================
-# API & REMOTE ACCESS - Home Assistant Integration
+# IP ASSIGNMENT - DHCP (with router-side reservation)
 # ==============================================================================
-api:
-  reboot_timeout: 0s    # Disable auto-reboot if not using a Home Assistant server
-  #reboot_timeout: 5min  # Reboot the device if no connection to Home Assistant for 5 minutes
-  # Enable Home Assistant API
-  services:
-    - service: play_sound
-      variables:
-        sound_id: int
-      then:
-        - output.turn_on: amp_wake
-        - delay: 50ms
-        - output.turn_on: amp_unmute
-        - delay: 100ms
-        - lambda: |-
-            if (sound_id >= 1 && sound_id <= 35) {
-              id(dfplayer1)->play_mp3(sound_id);
-            } else {
-              ESP_LOGW("Sound", "Invalid sound ID: %d", sound_id);
-            }
-        - script.execute: playback_timeout
+# Using DHCP: the LandLockedGallery router assigns the address, and a DHCP
+# reservation on the router pins it to a stable IP for direct device-to-device
+# triggering (targets POST straight to that IP, no Home Assistant / mDNS).
+#
+# To go back to a device-baked static IP instead, uncomment the manual_ip block
+# below and set static_ip/gateway to match the deployment subnet.
+#wifi:
+#  manual_ip:
+#    static_ip: 192.168.1.52
+#    gateway: 192.168.1.1
+#    subnet: 255.255.255.0
+#    dns1: 192.168.1.1
+#    dns2: 8.8.8.8          # keeps HTTPS OTA firmware updates resolvable
+
+# ==============================================================================
+# API & REMOTE ACCESS - Home Assistant (REMOVED — No-HA LAN mode)
+# ==============================================================================
+# No Home Assistant server on this gallery LAN. Sounds are triggered over the LAN
+# via the "Net Play" number endpoint (see below) — no HA needed. _shared/
+# networked_base.yaml provides api: (with a 5-min reboot timer that would
+# otherwise reboot this device every 5 min with no HA client); !remove strips it
+# here so this device runs pure LAN. To integrate with Home Assistant, switch
+# main.yaml to configs/home_assistant.yaml instead of this file.
+api: !remove
 
 # Optional: Physical button on GPIO for WiFi reset (uncomment if needed)
 # binary_sensor:
@@ -60,38 +64,57 @@ api:
 #     name: "Physical WiFi Reset Button"
 #     on_press:
 #       then:
-#         - button.press: wifi_reset_button  
-
-# ==============================================================================
-# ESPHome Script - ESPHome/Home Assistant integration
-# ==============================================================================
-script:
-  - id: esphome_script_in1
-    mode: single  # Prevent overlapping hits
-    then:     
-       # Send Home Assistant event
-      - homeassistant.event:
-          event: esphome.speaker-triggered
-          data:  
-            address: ${id}
-            input: '1'
-  - id: esphome_script_in2
-    mode: single  # Prevent overlapping hits
-    then:
-       # Send Home Assistant event
-      - homeassistant.event:
-          event: esphome.speaker-triggered
-          data:
-            address: ${id}
-            input: '2'
+#         - button.press: wifi_reset_button
 
 improv_serial:
 
 # ==============================================================================
-# FIRMWARE UPDATES - OTA via HTTP
+# NETWORK PLAY ENDPOINT - direct device-to-device trigger (no Home Assistant)
 # ==============================================================================
-update:
-  - platform: http_request
-    id: firmware_update_check
-    name: "Firmware Update"
-    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/audio50/manifest.json
+# Lets other NEATO-FX devices (e.g. targets) play a sound by POSTing over the
+# router LAN — no Home Assistant / broker required. Exposed via web_server REST:
+#
+#   POST http://audio-<id>.local/number/Net%20Play/set?value=<mp3 number>
+#
+# value 1-255 = play that MP3 file; 0 or out-of-range = ignored. Mirrors the
+# amp wake/unmute/play/watchdog sequence used by the physical input scripts.
+number:
+  - platform: template
+    name: "Net Play"
+    id: net_play
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    optimistic: true
+    set_action:
+      - if:
+          condition:
+            lambda: 'return ((int)x) >= 1 && ((int)x) <= 255;'
+          then:
+            - logger.log:
+                format: "Net Play: playing MP3 %d"
+                args: ['(int)x']
+            - output.turn_on: amp_wake     # Wake amp first
+            - delay: 50ms                  # Let amp stabilize
+            - output.turn_on: amp_unmute   # Unmute
+            - delay: 100ms
+            - lambda: 'id(dfplayer1).play_mp3((int)x);'
+            - script.execute: playback_timeout
+          else:
+            - logger.log:
+                format: "Net Play: ignoring out-of-range value %d"
+                args: ['(int)x']
+
+# ==============================================================================
+# FIRMWARE UPDATES - OTA via HTTP  (DISABLED for landlocked gallery LANs)
+# ==============================================================================
+# The GitHub manifest fetch below requires internet access, which the gallery
+# networks don't have (DNS resolution of raw.githubusercontent.com fails).
+# Re-enable this block AND the firmware_update package include above to restore
+# self-updating on an internet-connected deployment.
+#update:
+#  - platform: http_request
+#    id: firmware_update_check
+#    name: "Firmware Update"
+#    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/audio50/manifest.json

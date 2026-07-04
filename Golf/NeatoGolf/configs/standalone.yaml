@@ -1,0 +1,11 @@
+# ==============================================================================
+# STANDALONE GOLF CONFIGURATION
+# ==============================================================================
+# This configuration sets up a golf device in standalone mode.
+# In standalone mode, the golf operates independently without requiring
+# a central controller or Home Assistant integration.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  standalone_base: !include ../../../_shared/standalone_base.yaml

@@ -18,3 +18,7 @@ script:
   - id: servo_go_idle
     mode: single
     then: []
+
+  - id: servo_pwm_zero
+    mode: single
+    then: []

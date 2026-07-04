@@ -1,4 +1,4 @@
-# Smart Target — LCD Face Setup
+# Neato Target IR — LCD Face Setup
 
 Hardware: **1.28" Round TFT, 240×240, GC9A01 driver, 7-pin SPI**  
 Board: Rev 3.x target board  

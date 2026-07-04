@@ -43,28 +43,67 @@ script:
           else if (current_effect == "Color Wipe Effect") effect_index = 2;
           else if (current_effect == "Scanner Effect") effect_index = 3;
           else if (current_effect == "Twinkle Effect") effect_index = 4;
+          else if (current_effect == "Heartbeat Effect") effect_index = 5;
           id(saved_effect_index) = effect_index;
-          ESP_LOGI("target_hit", "Saved effect index: %d", effect_index);
+          // Capture pre-hit brightness so effects that override it (e.g. the
+          // full-brightness Strobe Flash) can restore the user's level afterward.
+          id(saved_brightness) = id(led_strip).remote_values.get_brightness();
+          ESP_LOGI("target_hit", "Saved effect index: %d, brightness: %.2f", effect_index, (float)id(saved_brightness));
 
       # Apply hit effect
       - if:
           condition:
-            lambda: 'return id(hit_effect_select).current_option() == "Solid Color";'
+            lambda: 'return id(hit_effect_select).current_option() == "Strobe Flash";'
           then:
+            # Single full-brightness strobe in the selected solid color, then dark.
+            # Stopping the running effect must be its OWN light call first (the
+            # combined set_effect+set_rgb call does not render while an effect is
+            # active — same reason the Solid Color path below uses two calls).
+            # Instant (0s) transitions make it snap on/off like a camera flash.
             - light.turn_on:
                 id: led_strip
                 effect: "None"
+            - lambda: |-
+                std::string c = id(led_strip_color_preset).current_option();
+                float r = 1.0f, g = 1.0f, b = 1.0f;
+                if (c == "Red")         { r = 1.0f; g = 0.0f; b = 0.0f; }
+                else if (c == "Green")  { r = 0.0f; g = 1.0f; b = 0.0f; }
+                else if (c == "Blue")   { r = 0.0f; g = 0.0f; b = 1.0f; }
+                else if (c == "Yellow") { r = 1.0f; g = 1.0f; b = 0.0f; }
+                else if (c == "Purple") { r = 1.0f; g = 0.0f; b = 1.0f; }
+                else if (c == "Cyan")   { r = 0.0f; g = 1.0f; b = 1.0f; }
+                else if (c == "White")  { r = 1.0f; g = 1.0f; b = 1.0f; }
+                else if (c == "Orange") { r = 1.0f; g = 0.5f; b = 0.0f; }
+                else if (c == "Pink")   { r = 1.0f; g = 0.2f; b = 0.5f; }
+                auto call = id(led_strip).turn_on();
+                call.set_transition_length(0);
+                call.set_brightness(1.0f);
+                call.set_rgb(r, g, b);
+                call.perform();
+                ESP_LOGI("target_hit", "Strobe flash: %s", c.c_str());
+            - delay: 150ms
+            - light.turn_off:
+                id: led_strip
+                transition_length: 0s
+          else:
             - if:
                 condition:
-                  lambda: 'return id(led_strip_color_preset) != nullptr;'
+                  lambda: 'return id(hit_effect_select).current_option() == "Solid Color";'
                 then:
-                  - select.set:
-                      id: led_strip_color_preset
-                      option: !lambda 'return id(led_strip_color_preset).current_option();'
-          else:
-            - light.turn_on:
-                id: led_strip
-                effect: !lambda 'return id(hit_effect_select).current_option();'
+                  - light.turn_on:
+                      id: led_strip
+                      effect: "None"
+                  - if:
+                      condition:
+                        lambda: 'return id(led_strip_color_preset) != nullptr;'
+                      then:
+                        - select.set:
+                            id: led_strip_color_preset
+                            option: !lambda 'return id(led_strip_color_preset).current_option();'
+                else:
+                  - light.turn_on:
+                      id: led_strip
+                      effect: !lambda 'return id(hit_effect_select).current_option();'
 
       # Activate outputs with error checking
       - lambda: |-
@@ -72,7 +111,21 @@ script:
             ESP_LOGW("target_hit", "Relay already active!");
           }
       - switch.turn_on: relay_1
-      - switch.turn_on: gnd_switch
+      # GND switch: ramp 0→100% over the relay window when enabled, else instant.
+      # transition_length = relay_timer so it reaches full exactly as the relay
+      # releases below. gnd_light is PWM-backed on Rev 3.x, a no-op on Rev 1.x.
+      - if:
+          condition:
+            lambda: 'return id(gnd_ramp_enabled);'
+          then:
+            - light.turn_on:
+                id: gnd_light
+                brightness: 100%
+                transition_length: !lambda 'return id(relay_timer);'
+          else:
+            - light.turn_on:
+                id: gnd_light
+                brightness: 100%
       # Start configured servo PWM effect (see servo_pwm_script substitution)
       - script.execute: ${servo_pwm_script}
       - script.execute: servo_go_hit
@@ -82,12 +135,13 @@ script:
 
       # Deactivate outputs
       - switch.turn_off: relay_1
-      - switch.turn_off: gnd_switch
-      # Stop servo PWM effect and zero the output
+      # Sharp cutoff (transition 0s) regardless of ramp mode.
+      - light.turn_off:
+          id: gnd_light
+          transition_length: 0s
+      # Stop servo PWM effect and zero the output (no-op on servo-less boards)
       - script.stop: ${servo_pwm_script}
-      - output.set_level:
-          id: pwm_output
-          level: 0.0
+      - script.execute: servo_pwm_zero
 
       # Continue displaying hit effect until total hit_display_time is reached
       - delay: !lambda |-
@@ -110,14 +164,18 @@ script:
             case 2: effect_name = "Color Wipe Effect"; break;
             case 3: effect_name = "Scanner Effect"; break;
             case 4: effect_name = "Twinkle Effect"; break;
+            case 5: effect_name = "Heartbeat Effect"; break;
             default:
               ESP_LOGW("target_hit", "Unknown effect index: %d, using default", id(saved_effect_index));
               break;
           }
+          float brightness = id(saved_brightness);
+          if (brightness <= 0.0f) brightness = 0.5f;  // never restore fully dark
           auto call = id(led_strip).turn_on();
           call.set_effect(effect_name);
+          call.set_brightness(brightness);
           call.perform();
-          ESP_LOGI("target_hit", "Restored effect: %s", effect_name.c_str());
+          ESP_LOGI("target_hit", "Restored effect: %s, brightness: %.2f", effect_name.c_str(), brightness);
 
 
       # Re-enable auto-save and IR

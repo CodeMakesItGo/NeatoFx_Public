@@ -1,0 +1,38 @@
+# ==============================================================================
+# STANDALONE BLASTER CONFIGURATION
+# ==============================================================================
+# This configuration sets up a blaster device in standalone mode.
+# In standalone mode, the blaster operates independently without requiring
+# a central controller or Home Assistant integration.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  standalone_base: !include ../../../_shared/standalone_base.yaml
+
+# ==============================================================================
+# STANDALONE BOOT - Enable blaster immediately (no HA to set player active)
+# ==============================================================================
+esphome:
+  on_boot:
+    priority: 250
+    then:
+      - globals.set:
+          id: game_active
+          value: 'true'
+
+# ==============================================================================
+# BLASTER SCRIPTS - what to do when trigger is pulled
+# ==============================================================================
+script:
+  # Main Trigger Script - do these things when trigger is pulled
+  - id: blaster_trigger_pressed
+    mode: single
+    then:
+      # Custom actions can be added here
+      # Uncomment the next line to add Home Assistant event reporting
+      #- homeassistant.event:
+      #    event: esphome.blaster_fired
+      #    data:
+      #      blaster_id: "${id}"
+      #      blaster_name: "${friendly_name}"

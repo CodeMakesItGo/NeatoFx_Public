@@ -1,5 +1,5 @@
 # ==============================================================================
-# SMART MOTOR - DRIVE PACKAGE: 24V DC MOTOR (PWM RAMP)
+# NEATO MOTOR - DRIVE PACKAGE: 24V DC MOTOR (PWM RAMP)
 # ==============================================================================
 # Direction scripts for a brushed 24V DC motor on the BTN8962TA H-bridge. Each
 # start ramps PWM 0 -> speed over motor_ramp_ms (10 steps), driving one bridge

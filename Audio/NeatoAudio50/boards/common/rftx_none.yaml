@@ -8,7 +8,7 @@
 # but those scripts will silently do nothing (MP3 set to 0 = None by default).
 #
 # To enable: set rftx line in main.yaml to:
-#   rftx: !include boards/rftx_none.yaml
+#   rftx: !include boards/common/rftx_none.yaml
 # ==============================================================================
 
 # ==============================================================================

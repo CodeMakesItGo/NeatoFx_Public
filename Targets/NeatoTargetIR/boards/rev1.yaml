@@ -1,6 +1,6 @@
 
 # ==============================================================================
-# NEATO SMART TARGET - HARDWARE DEFINITION (REV 1.X)
+# NEATO TARGET IR - HARDWARE DEFINITION (REV 1.X)
 # ==============================================================================
 # This file defines the hardware configuration for Rev 1.x target boards.
 # It includes GPIO pin mappings, LED strip configuration, IR receiver setup,
@@ -112,6 +112,31 @@ sensor:
       - below: 0.5
         then:
           - logger.log: "WARNING: Low voltage detected on GPIO35"
+
+# ==============================================================================
+# SWITCHES - Standard board interface
+# ==============================================================================
+# ==============================================================================
+# GROUND SWITCH — no-op stub (Rev 1.x has no 12V ground-switch hardware)
+# ==============================================================================
+# Keeps the standard board interface: scripts/hit_script.yaml drives gnd_light
+# (a monochromatic light) on every revision. Here it sinks to a no-op template
+# output so the ramp/instant light calls are harmless on Rev 1.x.
+output:
+  - platform: template
+    id: gnd_output
+    type: float
+    write_action:
+      - lambda: ''
+
+light:
+  - platform: monochromatic
+    name: "Gnd Switch"
+    id: gnd_light
+    output: gnd_output
+    internal: true
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
 
 # ==============================================================================
 # BINARY SENSORS - Digital Inputs

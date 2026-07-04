@@ -1,5 +1,5 @@
 # ==============================================================================
-# NEATO SMART TARGET - HARDWARE DEFINITION (REV 3.X)
+# NEATO TARGET IR - HARDWARE DEFINITION (REV 3.X)
 # ==============================================================================
 # Hardware: ESP32 Mini D1 + dual WS2812 strips, servo, aux power, relay,
 #           GND switch, IR receiver, external trigger, GPIO expansion.
@@ -173,11 +173,12 @@ esphome:
                   call.set_brightness(brightness);
                   call.set_rgb(red, green, blue);
 
-                  if (effect_index > 0 && effect_index <= 4) {
+                  if (effect_index > 0 && effect_index <= 5) {
                     if (effect_index == 1) call.set_effect("Rainbow Effect");
                     else if (effect_index == 2) call.set_effect("Color Wipe Effect");
                     else if (effect_index == 3) call.set_effect("Scanner Effect");
                     else if (effect_index == 4) call.set_effect("Twinkle Effect");
+                    else if (effect_index == 5) call.set_effect("Heartbeat Effect");
                     ESP_LOGI("LED", "Setting effect index %d", effect_index);
                   } else {
                     call.set_effect("None");
@@ -289,12 +290,24 @@ switch:
     name: "Aux Pwr"
     id: aux_pwr
 
-  # Ground switch (12V control)
-  - platform: gpio
-    pin:
-      number: ${switch_12v}
+# ==============================================================================
+# GROUND SWITCH (12V control) — PWM-capable for optional 0→100% ramp on hit
+# ==============================================================================
+# GPIO33 is driven by LEDC PWM (not a plain GPIO switch) so the GND switch can
+# be ramped 0→100% via the light transition engine. See scripts/hit_script.yaml
+# (gnd_ramp_enabled) and boards/common/common.yaml (GND Ramp switch).
+#   - Ramp OFF (default): light turns on at 100% instantly = legacy hard switch.
+#   - Ramp ON: brightness 0→100% over relay_timer (the GND-active window).
+# gamma_correct: 0 keeps the sweep LINEAR in PWM duty (0→100%), not perceptual.
+# frequency: tune per load (motor soft-start / lamp dimming / solenoid pull-in).
+light:
+  - platform: monochromatic
     name: "Gnd Switch"
-    id: gnd_switch
+    id: gnd_light
+    output: gnd_output
+    gamma_correct: 0
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
 
 # ==============================================================================
 # SERVO & PWM OUTPUT HARDWARE
@@ -308,3 +321,9 @@ output:
     id: pwm_output
     pin: ${servo_gpio}
     frequency: 50 Hz
+
+  # Ground switch PWM output (drives gnd_light above)
+  - platform: ledc
+    id: gnd_output
+    pin: ${switch_12v}
+    frequency: 1000 Hz

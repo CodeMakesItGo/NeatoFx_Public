@@ -1,5 +1,5 @@
 # ==============================================================================
-# SMART MOTOR CONTROLLER - DUAL PULSE / AIR-VALVE CONTROL LOGIC
+# NEATO MOTOR CONTROLLER - DUAL PULSE / AIR-VALVE CONTROL LOGIC
 # ==============================================================================
 # Minimal two-channel one-shot controller for firing two air valves / solenoids
 # from a single motor controller, using the two halves of the BTN8962TA H-bridge:

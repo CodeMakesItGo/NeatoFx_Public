@@ -1,5 +1,5 @@
 # ==============================================================================
-# SMART MOTOR CONTROLLER - HARDWARE DEFINITION (REV 3.0 BOARD, PULSE MODE)
+# NEATO MOTOR CONTROLLER - HARDWARE DEFINITION (REV 3.0 BOARD, PULSE MODE)
 # ==============================================================================
 # Hardware: Wemos D1 Mini ESP32 + 2× BTN8962TA H-bridge
 #

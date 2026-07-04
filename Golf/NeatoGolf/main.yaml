@@ -61,4 +61,4 @@ script:
 logger:
   level: WARN  # Reduced from DEBUG to prevent mobile browser overload
   #level: DEBUG
-  baud_rate: 0  # Disable serial logging to free up resources
+  baud_rate: 115200  # Non-zero required: improv_serial (networked config) uses serial

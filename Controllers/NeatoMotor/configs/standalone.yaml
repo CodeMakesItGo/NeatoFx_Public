@@ -1,5 +1,5 @@
 # ==============================================================================
-# SMART MOTOR CONTROLLER - STANDALONE CONFIGURATION
+# NEATO MOTOR CONTROLLER - STANDALONE CONFIGURATION
 # ==============================================================================
 # This configuration sets up the motor controller in standalone mode.
 # In standalone mode, the device operates independently without requiring

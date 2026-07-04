@@ -1,0 +1,62 @@
+# ==============================================================================
+# NETWORKED GOLF CONFIGURATION
+# ==============================================================================
+# This configuration sets up a golf device in networked mode with Home Assistant
+# integration. In networked mode, the golf communicates with a central controller
+# and can be managed through Home Assistant or other ESPHome-compatible systems.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  networked_base: !include ../../../_shared/networked_base.yaml
+  network_sensors: !include ../../../_shared/network_sensors.yaml
+
+# ==============================================================================
+# DASHBOARD IMPORT - Made for ESPHome
+# ==============================================================================
+dashboard_import:
+  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Golf/NeatoGolf/main.yaml@main
+  import_full_config: true
+
+# Serial provisioning (Made for ESPHome requirement)
+improv_serial:
+
+# ==============================================================================
+# SUBSTITUTIONS - Configuration Variables
+# ==============================================================================
+substitutions:
+  # ip_addr default (${ip_base}${id}) is set in _shared/networked_base.yaml.
+  # Override here only if this device type needs a different subnet offset.
+
+# ==============================================================================
+# API & REMOTE ACCESS - Home Assistant Integration
+# ==============================================================================
+api:
+  reboot_timeout: 0s    # Disable auto-reboot if not using a Home Assistant server
+  #reboot_timeout: 5min  # Reboot the device if no connection to Home Assistant for 5 minutes
+# Optional: Physical button on GPIO for WiFi reset (uncomment if needed)
+# binary_sensor:
+#   - platform: gpio
+#     pin:
+#       number: GPIO0  # Change to your button pin
+#       mode: INPUT_PULLUP
+#       inverted: true
+#     name: "Physical WiFi Reset Button"
+#     on_press:
+#       then:
+#         - button.press: wifi_reset_button
+
+# ==============================================================================
+# Golf Hit Script - ESPHome/Home Assistant integration
+# ==============================================================================
+script:
+  - id: esphome_hit_script
+    mode: single  # Prevent overlapping hits
+    then:
+       # Send Home Assistant event
+      - homeassistant.event:
+          event: esphome.golf-hit
+          data:
+            address: ${id}
+            player: !lambda 'return id(ir_command);'
+            points: ${default_points}

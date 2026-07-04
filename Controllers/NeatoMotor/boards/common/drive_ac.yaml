@@ -1,5 +1,5 @@
 # ==============================================================================
-# SMART MOTOR - DRIVE PACKAGE: 240VAC CONTROLLER (GROUND ONE INPUT)
+# NEATO MOTOR - DRIVE PACKAGE: 240VAC CONTROLLER (GROUND ONE INPUT)
 # ==============================================================================
 # Direction scripts for an external 240VAC motor controller with two logic
 # inputs (M1 / M2). The controller turns when ONE input is pulled to ground and

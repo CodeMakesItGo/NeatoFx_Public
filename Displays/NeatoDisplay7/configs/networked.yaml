@@ -14,7 +14,7 @@ packages:
 # DASHBOARD IMPORT - Made for ESPHome
 # ==============================================================================
 dashboard_import:
-  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Displays/NeatoDisplay4/main.yaml@main
+  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Displays/NeatoDisplay7/main.yaml@main
   import_full_config: true
 
 # ==============================================================================
