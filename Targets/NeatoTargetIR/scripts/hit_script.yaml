@@ -103,6 +103,27 @@ script:
                       id: led_strip
                       effect: !lambda 'return id(hit_effect_select).current_option();'
 
+      # Apply LED Strip 2 hit effect (mirrors the main strip). "Solid Color" and
+      # "Strobe Flash" both resolve to the LED Strip 2 Solid Color preset; every
+      # other option is a native led_strip2 effect. Strip 2 goes dark together
+      # with the main strip at cooldown below (no per-strip save/restore).
+      - if:
+          condition:
+            lambda: |-
+              auto o = id(led_strip2_hit_effect).current_option();
+              return o == "Solid Color" || o == "Strobe Flash";
+          then:
+            - light.turn_on:
+                id: led_strip2
+                effect: "None"
+            - select.set:
+                id: led_strip2_color_preset
+                option: !lambda 'return id(led_strip2_color_preset).current_option();'
+          else:
+            - light.turn_on:
+                id: led_strip2
+                effect: !lambda 'return id(led_strip2_hit_effect).current_option();'
+
       # Activate outputs with error checking
       - lambda: |-
           if (id(relay_1).state) {
@@ -159,6 +180,7 @@ script:
 
       # LEDs off during cooldown; start servo return
       - light.turn_off: led_strip
+      - light.turn_off: led_strip2
       - script.execute: servo_go_idle
 
       # Final cooldown period

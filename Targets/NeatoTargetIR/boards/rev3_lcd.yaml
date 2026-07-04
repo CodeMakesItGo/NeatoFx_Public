@@ -155,15 +155,20 @@ servo:
     output: pwm_output
 
 output:
+  # See boards/rev3.yaml for the full explanation: the servo (50 Hz) and GND ramp
+  # (1000 Hz) LEDC outputs MUST be on different timers (timer = (channel % 8) / 2),
+  # or the shared timer forces one frequency and the servo stops responding.
   - platform: ledc
     id: pwm_output
     pin: ${servo_gpio}
+    channel: 0            # timer 0 — servo, must stay 50 Hz
     frequency: 50 Hz
 
   # Ground switch PWM output (drives gnd_light above)
   - platform: ledc
     id: gnd_output
     pin: ${switch_12v}
+    channel: 2            # timer 1 — separate from the servo timer
     frequency: 1000 Hz
 
 number:

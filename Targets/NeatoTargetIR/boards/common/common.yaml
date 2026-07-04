@@ -34,6 +34,7 @@ substitutions:
   # Project Information
   project_name: "CodeMakesItGo.Target"
   project_version: "1.0.0"
+  hw_version: "Rev 1"          # Hardware revision label (boards/rev3.yaml overrides)
 
 # ==============================================================================
 # ESP32 FRAMEWORK - Common Settings
@@ -421,6 +422,45 @@ select:
           else if (x == "Solid Color") effect_index = 0;
           
           ESP_LOGI("LED", "💾 Saved hit effect: %s (index=%d)", x.c_str(), effect_index);
+
+  # Secondary strip (LED Strip 2) hit effect — applied to led_strip2 on hit.
+  # "Solid Color"/"Strobe Flash" fall back to the LED Strip 2 Solid Color preset;
+  # every other option is a native effect name on led_strip2. See hit_script.yaml.
+  - platform: template
+    name: "LED Strip 2 Hit Effect"
+    id: led_strip2_hit_effect
+    options:
+      - "Rainbow Effect"
+      - "Color Wipe Effect"
+      - "Scanner Effect"
+      - "Twinkle Effect"
+      - "Heartbeat Effect"
+      - "Strobe Flash"
+      - "Solid Color"
+    initial_option: "Color Wipe Effect"
+    restore_value: true
+    optimistic: true
+
+
+# ==============================================================================
+# TEXT SENSORS - Device Information
+# ==============================================================================
+text_sensor:
+  # Firmware / hardware version shown in the custom web UI header. Published once
+  # at boot from the compile-time project_version + hw_version substitutions.
+  - platform: template
+    name: "Firmware Version"
+    id: firmware_version_sensor
+    icon: "mdi:chip"
+    update_interval: never
+
+esphome:
+  on_boot:
+    - priority: -100   # after all components are set up
+      then:
+        - text_sensor.template.publish:
+            id: firmware_version_sensor
+            state: "${project_version} · ${hw_version}"
 
 
 # ==============================================================================

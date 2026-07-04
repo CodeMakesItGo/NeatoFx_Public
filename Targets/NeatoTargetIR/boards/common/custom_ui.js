@@ -1,5 +1,5 @@
 /**
- * NEATO Smart Target — Custom Web Interface
+ * NeatoFx Smart Target — Custom Web Interface
  *
  * Replaces the default ESPHome web UI with a target-specific dashboard.
  * Communicates via ESPHome REST API and Server-Sent Events (/events).
@@ -10,64 +10,74 @@
 
   console.log('[NEATO-UI] script loaded');
 
-  const DEVICE_NAME = document.title || 'NEATO Target';
+  const DEVICE_NAME = document.title || 'NeatoFx Target';
+  const WEBSITE_URL = 'https://neatofx.com';
 
-  // Entity type tags
-  const SW = 'switch', NUM = 'number', SEL = 'select', LT = 'light';
+  // Entity type tags (must equal the ESPHome domain used in REST/SSE paths)
+  const SW = 'switch', NUM = 'number', SEL = 'select', LT = 'light',
+        BTN = 'button', TXT = 'text_sensor', SENS = 'sensor', BIN = 'binary_sensor';
+
+  // Shared option lists (order is display-only; the value set is the string)
+  const HIT_EFFECTS = ['Rainbow Effect', 'Color Wipe Effect', 'Scanner Effect', 'Twinkle Effect', 'Heartbeat Effect', 'Strobe Flash', 'Solid Color'];
+  const COLORS = ['White', 'Red', 'Green', 'Blue', 'Yellow', 'Purple', 'Cyan', 'Orange', 'Pink'];
 
   // ── Entity registry ────────────────────────────────────────────────────────
-  // Keys are the sanitized object_id (derived from entity name, not YAML id:),
-  // used for legacy SSE ids and DOM lookup. `name` is the exact YAML `name:` —
-  // REST URLs use it (object-ID URLs are removed in ESPHome 2026.7) and SSE
-  // name_id matching uses it (legacy `id` format is removed in 2026.8).
-  // ESPHome REST API: /{domain}/{name}/{action}
-  // ESPHome SSE:      {"name_id": "{domain}/[{device}/]{name}", "id": "{domain}-{object_id}", ...}
+  // Keys are internal-only DOM ids. `name` is the exact YAML `name:` — REST URLs
+  // use it (object-ID URLs are removed in ESPHome 2026.7) and SSE name_id
+  // matching uses it. `type` MUST equal the ESPHome domain so the SSE
+  // "{domain}/{name}" and the DOM data-eid ("{type}-{key}") line up.
+  //   ESPHome REST API: /{domain}/{name}/{action}
+  //   ESPHome SSE:      {"name_id": "{domain}/[{device}/]{name}", "state": ..., "value": ...}
   const ENTITIES = {
-    // ── Settings card ──
-    hit_points: {
-      type: NUM, name: 'Hit Points', label: 'Hit Points',
-      min: 10, max: 100, step: 10, unit: 'pts', section: 'settings',
-    },
-    relay_timer: {
-      type: NUM, name: 'Relay Timer', label: 'Relay Timer',
-      min: 100, max: 10000, step: 100, unit: 'ms', section: 'settings',
-    },
-    cooldown_timer: {
-      type: NUM, name: 'Cooldown Timer', label: 'Cooldown',
-      min: 0, max: 10000, step: 100, unit: 'ms', section: 'settings',
-    },
-    gnd_ramp: {
-      type: SW, name: 'GND Ramp', label: 'GND Ramp', section: 'settings',
-    },
+    // ── Base Target Events ──
+    hit_points:     { type: NUM, name: 'Hit Points',    label: 'Hit Points', min: 10, max: 100, step: 10, unit: 'pts', section: 'base' },
+    cooldown_timer: { type: NUM, name: 'Cooldown Timer', label: 'Cooldown',  min: 0, max: 10000, step: 100, unit: 'ms', section: 'base' },
+    relay_timer:    { type: NUM, name: 'Relay Timer',   label: 'Relay Timer', min: 100, max: 10000, step: 100, unit: 'ms', section: 'base' },
+    hit_effect:     { type: SEL, name: 'Target LEDs Hit Effect',  label: 'Hit LED Effect',  options: HIT_EFFECTS, section: 'base' },
+    solid_color:    { type: SEL, name: 'Target LEDs Solid Color', label: 'Solid Hit Color', options: COLORS,      section: 'base' },
+    team_color:     { type: SW,  name: 'Team Color On Hit', label: 'Set Team Color On Hit', section: 'base' },
 
-    // ── Triggers & Effects card ──
-    gpio25_hit_trigger: {
-      type: SW, name: 'GPIO25 Hit Trigger', label: 'GPIO25 Trigger', section: 'triggers',
-    },
-    target_leds_hit_effect: {
-      type: SEL, name: 'Target LEDs Hit Effect', label: 'Hit Effect', section: 'triggers',
-      options: ['Rainbow Effect', 'Color Wipe Effect', 'Scanner Effect', 'Twinkle Effect', 'Heartbeat Effect', 'Strobe Flash', 'Solid Color'],
-    },
-    target_leds_solid_color: {
-      type: SEL, name: 'Target LEDs Solid Color', label: 'Solid Color', section: 'triggers',
-      options: ['White', 'Red', 'Green', 'Blue', 'Yellow', 'Purple', 'Cyan', 'Orange', 'Pink'],
-    },
+    // ── Aux Triggers ──
+    gpio25_trigger: { type: SW, name: 'GPIO25 Hit Trigger', label: 'GPIO25 Trigger', section: 'aux' },
+    gnd_ramp:       { type: SW, name: 'GND Ramp',           label: 'GND Ramp',       section: 'aux' },
 
-    // ── Outputs card ──
-    target_leds: { type: LT, name: 'Target LEDs', label: 'Target LEDs', section: 'outputs' },
+    // ── LED Strip 2 ──
+    led2:            { type: LT,  name: 'LED Strip 2',            label: 'LED Strip 2',     section: 'led2' },
+    led2_hit_effect: { type: SEL, name: 'LED Strip 2 Hit Effect', label: 'Hit LED Effect',  options: HIT_EFFECTS, section: 'led2' },
+    led2_solid_color:{ type: SEL, name: 'LED Strip 2 Solid Color', label: 'Solid Hit Color', options: COLORS,     section: 'led2' },
 
-    // ── Advanced card (hidden by default) ──
-    servo_idle_position: {
-      type: NUM, name: 'Servo Idle Position', label: 'Servo Idle',
-      min: 0, max: 180, step: 1, unit: '°', section: 'advanced',
-    },
-    servo_hit_position: {
-      type: NUM, name: 'Servo Hit Position', label: 'Servo Hit',
-      min: 0, max: 180, step: 1, unit: '°', section: 'advanced',
-    },
-    aux_pwr:    { type: SW, name: 'Aux Pwr',    label: 'Aux Power',  section: 'advanced' },
-    gnd_switch: { type: LT, name: 'Gnd Switch', label: 'GND Switch', section: 'advanced' },
-    relay_1:    { type: SW, name: 'Relay 1',    label: 'Relay',      section: 'advanced' },
+    // ── Audio Trigger ──
+    audio_target: { type: TXT, name: 'Audio Target',        label: 'Audio Device IP', section: 'audio' },
+    mp3_num:      { type: NUM, name: 'Hit Sound (MP3 #)',   label: 'Trigger Remote Sound (MP3 #)', min: 1, max: 255, step: 1, box: true, section: 'audio' },
+    remote_audio: { type: SW,  name: 'Remote Audio Enable', label: 'Remote Audio', section: 'audio' },
+
+    // ── Servo ──
+    servo_idle: { type: NUM, name: 'Servo Idle Position', label: 'Servo Idle', min: 0, max: 180, step: 1, unit: '°', section: 'servo' },
+    servo_hit:  { type: NUM, name: 'Servo Hit Position',  label: 'Servo Hit',  min: 0, max: 180, step: 1, unit: '°', section: 'servo' },
+
+    // ── Reset (collapsible, bottom) ──
+    wifi_reset:    { type: BTN, name: 'WiFi Reset',    label: 'Reset WiFi',     btnText: 'Reset', danger: true,
+                     confirm: 'Clear saved WiFi credentials and reboot into setup (AP) mode?', section: 'reset' },
+    factory_reset: { type: BTN, name: 'Factory Reset', label: 'Factory Reset',  btnText: 'Erase', danger: true,
+                     confirm: 'ERASE all settings and WiFi credentials? The device reboots to defaults.', section: 'reset' },
+
+    // ── Test (collapsible) ──
+    aux_pwr:     { type: SW, name: 'Aux Pwr',    label: 'Aux Power',   section: 'test' },
+    gnd_switch:  { type: LT, name: 'Gnd Switch', label: 'GND Switch',  section: 'test' },
+    relay_1:     { type: SW, name: 'Relay 1',    label: 'Relay',       section: 'test' },
+    target_leds: { type: LT, name: 'Target LEDs', label: 'Target LEDs', section: 'test' },
+
+    // ── Debug (collapsible) — all read-only ──
+    gpio16:       { type: BIN,  name: 'GPIO16 Digital State',       label: 'GPIO16',         section: 'debug' },
+    gpio17:       { type: BIN,  name: 'GPIO17 Digital State',       label: 'GPIO17',         section: 'debug' },
+    gpio25_in:    { type: BIN,  name: 'GPIO25 Hit Trigger Input',   label: 'GPIO25 Trigger', section: 'debug' },
+    trigger_in:   { type: BIN,  name: 'Trigger Input',             label: 'Trigger Input',  section: 'debug' },
+    detected_team:{ type: TXT,  name: 'Detected Team',             label: 'Detected Team',  section: 'debug' },
+    wifi_ssid:    { type: TXT,  name: 'WiFi SSID',                 label: 'WiFi SSID',      section: 'debug' },
+    wifi_ip:      { type: TXT,  name: 'WiFi IP Address',           label: 'IP Address',     section: 'debug' },
+    wifi_mac:     { type: TXT,  name: 'WiFi MAC Address',          label: 'MAC',            section: 'debug' },
+    wifi_signal:  { type: SENS, name: 'WiFi Signal Strength',      label: 'WiFi Signal',    section: 'debug' },
+    uptime:       { type: SENS, name: 'Uptime Sensor',            label: 'Uptime', fmt: 'uptime', section: 'debug' },
   };
 
   // Reverse lookup: entity name → registry key (for SSE name_id matching)
@@ -87,10 +97,11 @@
     lightOff:  (id)    => post(path(LT, id) + '/turn_off'),
     numSet:    (id, v) => post(path(NUM, id) + '/set?value=' + encodeURIComponent(v)),
     selSet:    (id, v) => post(path(SEL, id) + '/set?option=' + encodeURIComponent(v)),
+    btnPress:  (id)    => post(path(BTN, id) + '/press'),
     testHit:   ()      => post('/switch/' + encodeURIComponent('Test Target Hit') + '/turn_on'),
   };
 
-  // ── Value formatter ────────────────────────────────────────────────────────
+  // ── Value formatters ─────────────────────────────────────────────────────────
   function fmt(unit, val) {
     var v = parseFloat(val);
     if (isNaN(v)) return '–';
@@ -98,7 +109,20 @@
       var s = v / 1000;
       return (s === Math.floor(s) ? s.toFixed(0) : s.toFixed(1)) + 's';
     }
-    return v + (unit ? ' ' + unit : '');
+    return v + (unit ? ' ' + unit : '');
+  }
+
+  function fmtUptime(val) {
+    var v = parseInt(val, 10);
+    if (isNaN(v)) return '–';
+    var d = Math.floor(v / 86400), h = Math.floor((v % 86400) / 3600),
+        m = Math.floor((v % 3600) / 60), s = v % 60;
+    var out = [];
+    if (d) out.push(d + 'd');
+    if (h || d) out.push(h + 'h');
+    if (m || h || d) out.push(m + 'm');
+    out.push(s + 's');
+    return out.join(' ');
   }
 
   // ── SSE connection ─────────────────────────────────────────────────────────
@@ -145,7 +169,9 @@
       var parts = String(data.name_id).split('/');
       type = parts[0];
       var name = parts[parts.length - 1];
-      objId = name === 'Hit Count' ? 'hit_count' : NAME_TO_KEY[name];
+      if (name === 'Hit Count')            objId = 'hit_count';
+      else if (name === 'Firmware Version') objId = 'fw_version';
+      else                                  objId = NAME_TO_KEY[name];
       if (!objId) return;
     } else if (data.id) {
       var dashIdx = data.id.indexOf('-');
@@ -156,14 +182,21 @@
       return;
     }
 
+    // Header readouts (not real cards)
     if (objId === 'hit_count') {
-      var el = document.getElementById('hit-count');
-      if (el) el.textContent = data.value != null ? Math.round(data.value) : data.state;
+      var hc = document.getElementById('hit-count');
+      if (hc) hc.textContent = data.value != null ? Math.round(data.value) : data.state;
+      return;
+    }
+    if (objId === 'fw_version') {
+      var fv = document.getElementById('fw-ver');
+      if (fv && data.state) fv.textContent = data.state;
       return;
     }
 
     var card = document.querySelector('[data-eid="' + type + '-' + objId + '"]');
     if (!card) return;
+    var cfg = ENTITIES[objId];
 
     if (type === 'switch' || type === 'light') {
       var on = data.value === true || data.state === 'ON';
@@ -171,16 +204,32 @@
     }
 
     if (type === 'number') {
-      var cfg   = ENTITIES[objId];
-      var range = card.querySelector('input[type=range]');
+      var input = card.querySelector('input');
       var disp  = card.querySelector('.val');
-      if (range && document.activeElement !== range) range.value = data.value;
+      if (input && document.activeElement !== input) input.value = data.value;
       if (disp) disp.textContent = fmt(cfg && cfg.unit, data.value);
     }
 
     if (type === 'select') {
       var sel = card.querySelector('select');
       if (sel && document.activeElement !== sel) sel.value = data.state;
+    }
+
+    if (type === 'text_sensor' || type === 'sensor') {
+      var ro = card.querySelector('.ro-val');
+      if (ro) {
+        if (cfg && cfg.fmt === 'uptime') ro.textContent = fmtUptime(data.value);
+        else if (data.state != null && data.state !== '') ro.textContent = data.state;
+        else if (data.value != null) ro.textContent = data.value;
+        else ro.textContent = '–';
+      }
+    }
+
+    if (type === 'binary_sensor') {
+      var bon = data.value === true || data.state === 'ON';
+      card.classList.toggle('on', bon);
+      var bro = card.querySelector('.ro-val');
+      if (bro) bro.textContent = bon ? 'HIGH' : 'LOW';
     }
   }
 
@@ -197,10 +246,9 @@
   // ── Component builders ─────────────────────────────────────────────────────
 
   function makeToggle(id, cfg) {
-    var eid = cfg.type + '-' + id;
     var div = document.createElement('div');
     div.className   = 'row';
-    div.dataset.eid = eid;
+    div.dataset.eid = cfg.type + '-' + id;
     div.innerHTML   =
       '<span class="lbl">' + cfg.label + '</span>' +
       '<div class="tgl" role="switch" aria-checked="false" tabindex="0">' +
@@ -218,10 +266,9 @@
   }
 
   function makeSlider(id, cfg) {
-    var eid = 'number-' + id;
     var div = document.createElement('div');
     div.className   = 'slider';
-    div.dataset.eid = eid;
+    div.dataset.eid = 'number-' + id;
     div.innerHTML   =
       '<div class="slider-hdr">' +
         '<span class="lbl">' + cfg.label + '</span>' +
@@ -236,11 +283,25 @@
     return div;
   }
 
-  function makeSelect(id, cfg) {
-    var eid = 'select-' + id;
+  // Compact numeric box (for wide ranges like the MP3 #, where a slider is fiddly)
+  function makeNumberBox(id, cfg) {
     var div = document.createElement('div');
     div.className   = 'row';
-    div.dataset.eid = eid;
+    div.dataset.eid = 'number-' + id;
+    div.innerHTML   = '<span class="lbl">' + cfg.label + '</span>';
+    var inp = document.createElement('input');
+    inp.type = 'number';
+    inp.className = 'numbox';
+    inp.min = cfg.min; inp.max = cfg.max; inp.step = cfg.step;
+    inp.addEventListener('change', function () { api.numSet(id, inp.value); });
+    div.appendChild(inp);
+    return div;
+  }
+
+  function makeSelect(id, cfg) {
+    var div = document.createElement('div');
+    div.className   = 'row';
+    div.dataset.eid = 'select-' + id;
     var sel = document.createElement('select');
     cfg.options.forEach(function (opt) { sel.add(new Option(opt, opt)); });
     sel.addEventListener('change', function () { api.selSet(id, sel.value); });
@@ -250,6 +311,54 @@
     div.appendChild(lbl);
     div.appendChild(sel);
     return div;
+  }
+
+  function makeButton(id, cfg) {
+    var div = document.createElement('div');
+    div.className   = 'row';
+    div.dataset.eid = 'button-' + id;
+    div.innerHTML   = '<span class="lbl">' + cfg.label + '</span>';
+    var b = document.createElement('button');
+    b.className   = 'act-btn' + (cfg.danger ? ' danger' : '');
+    b.textContent = cfg.btnText || 'Run';
+    b.addEventListener('click', function () {
+      if (cfg.confirm && !window.confirm(cfg.confirm)) return;
+      api.btnPress(id);
+    });
+    div.appendChild(b);
+    return div;
+  }
+
+  // Read-only value row (sensor / text_sensor / binary_sensor)
+  function makeReadout(id, cfg) {
+    var div = document.createElement('div');
+    div.className   = 'row ro';
+    div.dataset.eid = cfg.type + '-' + id;
+    div.innerHTML   =
+      '<span class="lbl">' + cfg.label + '</span>' +
+      '<span class="ro-val">–</span>';
+    return div;
+  }
+
+  function makeItem(id, cfg) {
+    switch (cfg.type) {
+      case NUM:  return cfg.box ? makeNumberBox(id, cfg) : makeSlider(id, cfg);
+      case SEL:  return makeSelect(id, cfg);
+      case SW:
+      case LT:   return makeToggle(id, cfg);
+      case BTN:  return makeButton(id, cfg);
+      case SENS:
+      case TXT:
+      case BIN:  return makeReadout(id, cfg);
+    }
+    return document.createElement('div');
+  }
+
+  // Items belonging to a section, in registry order, built by type
+  function sectionItems(section) {
+    return Object.keys(ENTITIES)
+      .filter(function (k) { return ENTITIES[k].section === section; })
+      .map(function (k) { return makeItem(k, ENTITIES[k]); });
   }
 
   function makeCard(title, items) {
@@ -262,6 +371,28 @@
       card.appendChild(ttl);
     }
     items.forEach(function (item) { card.appendChild(item); });
+    return card;
+  }
+
+  // Collapsible card (hidden until its header is tapped)
+  function makeCollapsible(title, items) {
+    var card = document.createElement('div');
+    card.className = 'card';
+
+    var btn = document.createElement('div');
+    btn.className = 'adv-btn';
+    btn.innerHTML = '<span class="chev">▾</span> ' + title;
+
+    var body = document.createElement('div');
+    body.className = 'adv-body';
+    body.appendChild(makeCard(null, items));
+
+    btn.addEventListener('click', function () {
+      var open = body.classList.toggle('open');
+      btn.classList.toggle('adv-open', open);
+    });
+    card.appendChild(btn);
+    card.appendChild(body);
     return card;
   }
 
@@ -286,13 +417,17 @@
 
     /* Header */
     '.hdr {',
-    '  display: flex; align-items: center; justify-content: space-between;',
+    '  display: flex; align-items: center; justify-content: space-between; gap: 10px;',
     '  background: #1a1a2e; border: 1px solid #252540; border-radius: 14px;',
     '  padding: 12px 16px;',
     '}',
+    '.hdr-l { min-width: 0; }',
     '.hdr-name { font-size: 1.05rem; font-weight: 700; color: #fff; }',
-    '.hdr-sub  { font-size: 0.7rem; color: #555; margin-top: 2px; }',
-    '.live { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #666; }',
+    '.hdr-sub  { font-size: 0.72rem; color: #666; margin-top: 3px; }',
+    '.hdr-link { color: #e94560; text-decoration: none; }',
+    '.hdr-link:hover { text-decoration: underline; }',
+    '.hdr-ver  { font-size: 0.68rem; color: #4a4a68; margin-top: 3px; letter-spacing: .3px; }',
+    '.live { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #666; flex-shrink: 0; }',
     '#live-dot {',
     '  width: 8px; height: 8px; border-radius: 50%; background: #ef4444;',
     '  flex-shrink: 0; transition: background .3s, box-shadow .3s;',
@@ -326,9 +461,9 @@
     '  letter-spacing: 1.5px; color: #555; padding: 10px 16px 4px;',
     '}',
 
-    /* Toggle row */
+    /* Toggle / row */
     '.row {',
-    '  display: flex; align-items: center; justify-content: space-between;',
+    '  display: flex; align-items: center; justify-content: space-between; gap: 10px;',
     '  padding: 14px 16px; border-top: 1px solid #1e1e38;',
     '}',
     '.card-ttl + .row, .card-ttl + .slider { border-top: none; }',
@@ -351,6 +486,26 @@
     '  border-radius: 8px; padding: 7px 10px; font-size: 0.88rem;',
     '  cursor: pointer; outline: none; max-width: 185px;',
     '}',
+    '.app input.numbox {',
+    '  background: #12122a; color: #e0e0e0; border: 1px solid #2a2a45;',
+    '  border-radius: 8px; padding: 7px 10px; font-size: 0.9rem;',
+    '  width: 84px; text-align: right; outline: none;',
+    '}',
+
+    /* Read-only value rows (sensors) */
+    '.ro-val { font-size: 0.9rem; font-weight: 600; color: #8a8ab0; text-align: right; word-break: break-all; }',
+    '.ro.on .ro-val { color: #4ade80; }',
+
+    /* Action buttons (reset, etc.) */
+    '.act-btn {',
+    '  background: #2a2a45; color: #cfcfe6; border: 1px solid #33334f;',
+    '  border-radius: 8px; padding: 7px 16px; font-size: 0.82rem; font-weight: 600;',
+    '  cursor: pointer; outline: none; -webkit-tap-highlight-color: transparent;',
+    '  transition: background .15s;',
+    '}',
+    '.act-btn:active { background: #33334f; }',
+    '.act-btn.danger { background: #3a1620; color: #ff7089; border-color: #5a2130; }',
+    '.act-btn.danger:active { background: #4a1c29; }',
 
     /* Slider */
     '.slider { padding: 12px 16px 18px; border-top: 1px solid #1e1e38; }',
@@ -371,14 +526,14 @@
     '  border-radius: 50%; border: none;',
     '}',
 
-    /* Advanced collapsible */
+    /* Collapsible cards */
     '.adv-btn {',
     '  display: flex; align-items: center; justify-content: center; gap: 6px;',
-    '  padding: 12px; cursor: pointer; color: #444; font-size: 0.8rem;',
-    '  border-top: 1px solid #1e1e38; user-select: none; transition: color .2s;',
+    '  padding: 12px; cursor: pointer; color: #555; font-size: 0.8rem;',
+    '  user-select: none; transition: color .2s;',
     '  -webkit-tap-highlight-color: transparent;',
     '}',
-    '.adv-btn:hover { color: #777; }',
+    '.adv-btn:hover { color: #888; }',
     '.chev { display: inline-block; transition: transform .25s; line-height: 1; }',
     '.adv-body { display: none; }',
     '.adv-body.open { display: block; }',
@@ -413,13 +568,16 @@
     inner.className = 'app-inner';
     app.appendChild(inner);
 
-    // Header
+    // Header — brand, website link, live version readout, connection indicator
     var hdr = document.createElement('div');
     hdr.className = 'hdr';
     hdr.innerHTML =
-      '<div>' +
+      '<div class="hdr-l">' +
         '<div class="hdr-name">' + DEVICE_NAME + '</div>' +
-        '<div class="hdr-sub">Smart Target</div>' +
+        '<div class="hdr-sub">' +
+          '<a class="hdr-link" href="' + WEBSITE_URL + '" target="_blank" rel="noopener">neatofx.com</a>' +
+        '</div>' +
+        '<div class="hdr-ver">v<span id="fw-ver">–</span></div>' +
       '</div>' +
       '<div class="live">' +
         '<div id="live-dot"></div>' +
@@ -427,7 +585,7 @@
       '</div>';
     inner.appendChild(hdr);
 
-    // Hit counter + Test Hit button
+    // Hit counter + Test Hit button (unchanged)
     var hitRow = document.createElement('div');
     hitRow.className = 'hit-row';
     hitRow.innerHTML =
@@ -442,51 +600,17 @@
     hitRow.appendChild(testBtn);
     inner.appendChild(hitRow);
 
-    // Game Settings
-    inner.appendChild(makeCard('Game Settings',
-      Object.keys(ENTITIES)
-        .filter(function (k) { return ENTITIES[k].section === 'settings'; })
-        .map(function (k) { return makeSlider(k, ENTITIES[k]); })));
+    // Primary cards
+    inner.appendChild(makeCard('Base Target Events', sectionItems('base')));
+    inner.appendChild(makeCard('Aux Triggers',       sectionItems('aux')));
 
-    // Triggers & Effects
-    inner.appendChild(makeCard('Triggers & Effects',
-      Object.keys(ENTITIES)
-        .filter(function (k) { return ENTITIES[k].section === 'triggers'; })
-        .map(function (k) {
-          return ENTITIES[k].type === SEL ? makeSelect(k, ENTITIES[k]) : makeToggle(k, ENTITIES[k]);
-        })));
-
-    // Outputs
-    inner.appendChild(makeCard('Outputs',
-      Object.keys(ENTITIES)
-        .filter(function (k) { return ENTITIES[k].section === 'outputs'; })
-        .map(function (k) { return makeToggle(k, ENTITIES[k]); })));
-
-    // Advanced (collapsible)
-    var advCard = document.createElement('div');
-    advCard.className = 'card';
-
-    var advBtn = document.createElement('div');
-    advBtn.className = 'adv-btn';
-    advBtn.innerHTML = '<span class="chev">▾</span> Advanced';
-
-    var advBody = document.createElement('div');
-    advBody.className = 'adv-body';
-    advBody.appendChild(
-      makeCard(null,
-        Object.keys(ENTITIES)
-          .filter(function (k) { return ENTITIES[k].section === 'advanced'; })
-          .map(function (k) {
-            return ENTITIES[k].type === NUM ? makeSlider(k, ENTITIES[k]) : makeToggle(k, ENTITIES[k]);
-          })));
-
-    advBtn.addEventListener('click', function () {
-      var open = advBody.classList.toggle('open');
-      advBtn.classList.toggle('adv-open', open);
-    });
-    advCard.appendChild(advBtn);
-    advCard.appendChild(advBody);
-    inner.appendChild(advCard);
+    // Collapsible cards
+    inner.appendChild(makeCollapsible('LED Strip 2',   sectionItems('led2')));
+    inner.appendChild(makeCollapsible('Audio Trigger', sectionItems('audio')));
+    inner.appendChild(makeCollapsible('Servo',         sectionItems('servo')));
+    inner.appendChild(makeCollapsible('Test',          sectionItems('test')));
+    inner.appendChild(makeCollapsible('Debug',         sectionItems('debug')));
+    inner.appendChild(makeCollapsible('Reset',         sectionItems('reset')));
 
     // View switcher — loads ESPHome default Lit UI; refresh to return.
     // The default UI (all entities + OTA firmware upload) ships from the ESPHome

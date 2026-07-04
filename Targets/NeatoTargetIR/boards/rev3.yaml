@@ -29,6 +29,7 @@ substitutions:
 
   # Project Information (Rev 3.x specific)
   project_version: "3.0.0"
+  hw_version: "Rev 3"            # Overrides common.yaml default for the version readout
 
 # ==============================================================================
 # PACKAGES
@@ -192,6 +193,12 @@ esphome:
               - lambda: 'id(startup_complete) = true;'
               - logger.log: "⚪ STARTUP SUCCESS - All LEDs bright white confirmation"
 
+              # Home the servo to its saved idle position now that aux power is up.
+              # Doubles as a hardware self-test: if the servo does NOT twitch/move
+              # here, the problem is servo power or the GPIO4 signal wire — not the
+              # web UI or firmware (servo.write is proven to run at this point).
+              - script.execute: servo_go_idle
+
             else:
               - logger.log: "❌ POWER ISSUE: Skipping LED restoration due to auxiliary power failure"
               - delay: 2s
@@ -317,13 +324,22 @@ servo:
     output: pwm_output
 
 output:
+  # IMPORTANT: pwm_output (servo, 50 Hz) and gnd_output (GND ramp, 1000 Hz) MUST
+  # sit on different LEDC timers. ESP32 pairs channels onto timers as
+  # timer = (channel % 8) / 2, and channels on the same timer are forced to share
+  # ONE frequency. With auto-assigned channels (0 and 1) both land on timer 0, so
+  # the 1000 Hz GND output overrode the servo's 50 Hz and the servo stopped
+  # responding entirely. Explicit channels 0 (timer 0) and 2 (timer 1) keep them
+  # independent. Do not change these without checking the pairing.
   - platform: ledc
     id: pwm_output
     pin: ${servo_gpio}
+    channel: 0            # timer 0 — servo, must stay 50 Hz
     frequency: 50 Hz
 
   # Ground switch PWM output (drives gnd_light above)
   - platform: ledc
     id: gnd_output
     pin: ${switch_12v}
+    channel: 2            # timer 1 — separate from the servo timer
     frequency: 1000 Hz

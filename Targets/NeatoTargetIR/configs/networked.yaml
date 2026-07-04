@@ -94,6 +94,20 @@ number:
     mode: box
 
 # ==============================================================================
+# REMOTE AUDIO ENABLE - master switch for the on-hit Audio-50 trigger
+# ==============================================================================
+# When ON (default), a hit POSTs "Hit Sound (MP3 #)" to the Audio-50. Turn OFF
+# from the web UI to silence remote audio without changing anything else — the
+# hit script's POST is gated on this switch (see esphome_hit_script below).
+switch:
+  - platform: template
+    name: "Remote Audio Enable"
+    id: remote_audio_switch
+    icon: "mdi:speaker-wireless"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
+# ==============================================================================
 # AUDIO TARGET - read-only web-UI indicator of which speaker this target POSTs to
 # ==============================================================================
 # Shows the ${audio_host} address so you can confirm, from the target's web page,
@@ -122,12 +136,17 @@ script:
     then:
       # Trigger the shared Audio-50 directly over the router — no Home Assistant.
       # POSTs the current "Hit Sound (MP3 #)" web-UI value to the Audio-50's
-      # "Net Play" endpoint.
-      - http_request.post:
-          url: !lambda |-
-            return "http://${audio_host}/number/Net%20Play/set?value=" +
-                   to_string((int) id(hit_sound_num).state);
-          capture_response: false
+      # "Net Play" endpoint. Gated on the Remote Audio Enable switch so the UI
+      # can silence remote audio without disabling anything else.
+      - if:
+          condition:
+            switch.is_on: remote_audio_switch
+          then:
+            - http_request.post:
+                url: !lambda |-
+                  return "http://${audio_host}/number/Net%20Play/set?value=" +
+                         to_string((int) id(hit_sound_num).state);
+                capture_response: false
       # Optional: also notify Home Assistant (only fires if an HA client is
       # connected; harmless no-op otherwise). Uncomment if you run HA too.
       #- homeassistant.event:

@@ -53,6 +53,11 @@ number:
       - globals.set:
           id: g_servo_hit_pos
           value: !lambda 'return (int)x;'
+      # Move to the new hit position immediately so it can be calibrated live
+      # (mirrors the idle control). The idle control moves it back.
+      - servo.write:
+          id: servo1
+          level: !lambda 'return (x - 90.0f) / 90.0f;'
 
 script:
   - id: servo_go_hit
@@ -71,6 +76,10 @@ script:
 
   # Zero the servo PWM output (called by hit_script after effects stop).
   # servo_stubs.yaml provides the no-op twin for boards without a servo.
+  # NOTE: this drives the servo signal to 0% duty (no pulse). It exists to clean
+  # up after a servo-pin PWM *effect* (sawzall/flicker). With no effect active
+  # (servo_pwm_script = servo_pwm_none, the default) it is pointless and can leave
+  # the servo limp/desynced from the servo component's tracked position.
   - id: servo_pwm_zero
     mode: single
     then:
