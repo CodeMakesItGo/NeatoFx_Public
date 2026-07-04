@@ -65,13 +65,16 @@ packages:
 script:
   # Main Hit Script - do these things when target is hit
   - id: run_hit_script
-    mode: parallel  
+    mode: parallel
     then:
       - script.execute: target_hit_script
       # Uncomment the next line when FPP package is enabled above
       #- script.execute: fpp_start_playlist
-      # Uncomment the next line when you want the target to send an ESPHome event to Home Assistant server
-      - script.execute: esphome_hit_script
+      # NOTE: esphome_hit_script (the audio / HA trigger) is intentionally NOT
+      # launched here. In networked mode it makes a *blocking* http_request.post
+      # to the Audio-50, which freezes the single-threaded main loop and stalls
+      # the LED hit effect. It is now fired from INSIDE target_hit_script, AFTER
+      # the visual effect has rendered — see scripts/hit_script.yaml.
 
 # ==============================================================================
 # DEBUGGING

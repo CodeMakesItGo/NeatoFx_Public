@@ -489,13 +489,17 @@
     inner.appendChild(advCard);
 
     // View switcher — loads ESPHome default Lit UI; refresh to return.
-    // The default UI ships from the ESPHome CDN (js_url is disabled in YAML),
-    // so it only works when the phone's network has internet access.
+    // The default UI (all entities + OTA firmware upload) ships from the ESPHome
+    // CDN (js_url is disabled in YAML), so it only works when the PHONE viewing
+    // this page has internet. In networked mode the phone stays on its normal
+    // Wi-Fi (internet OK); in standalone mode the phone joins the target's own AP
+    // (no internet) and this button cannot reach the CDN — hence the label.
     var viewSwitch = document.createElement('div');
     viewSwitch.className = 'view-switch';
     var origBtn = document.createElement('button');
     origBtn.className   = 'orig-btn';
-    origBtn.textContent = 'Switch to ESPHome UI';
+    var BTN_LABEL = 'Switch to ESPHome UI (needs internet)';
+    origBtn.textContent = BTN_LABEL;
     origBtn.addEventListener('click', function () {
       if (origBtn.disabled) return;
       origBtn.disabled    = true;
@@ -503,6 +507,14 @@
 
       var s = document.createElement('script');
       s.src = 'https://oi.esphome.io/v2/www.js';
+
+      // Guard so onload / onerror / timeout can only settle this once.
+      var settled = false;
+
+      // With no internet the request may neither load nor error — it just hangs
+      // (or a captive portal stalls). Time out so the button never sticks on
+      // "Loading…" forever.
+      var timer = setTimeout(failSwitch, 8000);
 
       // Only tear down the custom UI once the default UI has actually loaded,
       // so a failed load never leaves a blank page. Removing the <style> node
@@ -516,7 +528,10 @@
       // down the custom UI then left a blank page. So verify the custom element
       // is actually registered before committing to the switch.
       s.onload = function () {
+        if (settled) return;
         if (window.customElements && customElements.get('esp-app')) {
+          settled = true;
+          clearTimeout(timer);
           disconnect();
           style.remove();
           app.remove();
@@ -527,14 +542,24 @@
       s.onerror = failSwitch;
 
       function failSwitch() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         s.remove();
         origBtn.disabled    = false;
-        origBtn.textContent = 'Switch to ESPHome UI';
+        origBtn.textContent = BTN_LABEL;
         alert('Could not load the default ESPHome UI.\n\n' +
-              'It is served from the internet (oi.esphome.io), which is not ' +
-              'reachable on this network — e.g. the target\'s own Wi-Fi AP in ' +
-              'standalone mode. Connect the target to a network with internet ' +
-              'access to use the default UI.');
+              'It is served from the internet (oi.esphome.io). You are joined to ' +
+              'the target\'s Wi-Fi AP, which has no internet, so the request must ' +
+              'go over cellular instead — but your phone routed it to the AP and ' +
+              'it failed.\n\n' +
+              'Fixes:\n' +
+              '• iPhone: turn on Settings › Cellular › Wi-Fi Assist, ' +
+              'then tap again.\n' +
+              '• Or put the target on a Wi-Fi network that has internet and ' +
+              'view this page from a phone on that same network.\n\n' +
+              'The default UI has all entities plus firmware upload. The custom UI ' +
+              'here works with no internet at all.');
       }
       document.head.appendChild(s);
     });

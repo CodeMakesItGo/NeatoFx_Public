@@ -33,8 +33,6 @@ script:
           id(hit_count)++;
           ESP_LOGI("target_hit", "Hit detected - Player: %d, Points: %d, Total hits: %d", id(ir_command), id(target_points), id(hit_count));
 
-      - delay: 100ms
-
       # Save current effect index
       - lambda: |-
           std::string current_effect = id(led_strip).get_effect_name();
@@ -129,6 +127,17 @@ script:
       # Start configured servo PWM effect (see servo_pwm_script substitution)
       - script.execute: ${servo_pwm_script}
       - script.execute: servo_go_hit
+
+      # Trigger linked audio / HA event AFTER the visual hit effect is on screen.
+      # In networked mode esphome_hit_script does a *blocking* http_request.post to
+      # the Audio-50; ESPHome's http_request is synchronous and freezes the main
+      # loop for the whole round-trip. The delay yields one frame so the LED flash,
+      # relay and servo have actually rendered/actuated before that block lands —
+      # the freeze then happens harmlessly during the relay-hold window below,
+      # instead of delaying the effect. In standalone mode esphome_hit_script is a
+      # no-op stub, so this costs nothing there.
+      - delay: 20ms
+      - script.execute: esphome_hit_script
 
       # Hold relay for configured time while hit effect displays
       - delay: !lambda 'return id(relay_timer);'
