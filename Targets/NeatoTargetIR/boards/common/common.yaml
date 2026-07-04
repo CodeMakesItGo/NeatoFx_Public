@@ -423,6 +423,40 @@ select:
           
           ESP_LOGI("LED", "💾 Saved hit effect: %s (index=%d)", x.c_str(), effect_index);
 
+  # Idle (resting) effect for the target LEDs — what the strip shows when NOT in
+  # a hit. Applied to led_strip immediately on change; the strip's on_state
+  # auto-save persists it (saved_effect_index), so it also survives reboots and
+  # is what the hit script restores to afterward. "Solid Color" stops the effect
+  # and applies the current Target LEDs Solid Color preset.
+  - platform: template
+    name: "Target LEDs Idle Effect"
+    id: idle_effect_select
+    options:
+      - "Rainbow Effect"
+      - "Color Wipe Effect"
+      - "Scanner Effect"
+      - "Twinkle Effect"
+      - "Heartbeat Effect"
+      - "Solid Color"
+    initial_option: "Scanner Effect"
+    restore_value: true
+    optimistic: true
+    set_action:
+      - if:
+          condition:
+            lambda: 'return x == "Solid Color";'
+          then:
+            - light.turn_on:
+                id: led_strip
+                effect: "None"
+            - select.set:
+                id: led_strip_color_preset
+                option: !lambda 'return id(led_strip_color_preset).current_option();'
+          else:
+            - light.turn_on:
+                id: led_strip
+                effect: !lambda 'return x;'
+
   # Secondary strip (LED Strip 2) hit effect — applied to led_strip2 on hit.
   # "Solid Color"/"Strobe Flash" fall back to the LED Strip 2 Solid Color preset;
   # every other option is a native effect name on led_strip2. See hit_script.yaml.

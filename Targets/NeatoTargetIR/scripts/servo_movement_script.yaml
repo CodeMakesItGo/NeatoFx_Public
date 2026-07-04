@@ -59,6 +59,19 @@ number:
           id: servo1
           level: !lambda 'return (x - 90.0f) / 90.0f;'
 
+# Manual servo test — swing to the hit position, then back to idle. Exposed as a
+# button in the web UI Test card. Only present when the real servo package is
+# active (servo_stubs.yaml has no button), so it never shows on servo-less boards.
+button:
+  - platform: template
+    name: "Test Servo Hit"
+    id: test_servo_hit_button
+    icon: "mdi:cog-play"
+    on_press:
+      - script.execute: servo_go_hit
+      - delay: 1s
+      - script.execute: servo_go_idle
+
 script:
   - id: servo_go_hit
     mode: restart

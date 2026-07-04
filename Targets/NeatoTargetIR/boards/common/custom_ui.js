@@ -19,6 +19,8 @@
 
   // Shared option lists (order is display-only; the value set is the string)
   const HIT_EFFECTS = ['Rainbow Effect', 'Color Wipe Effect', 'Scanner Effect', 'Twinkle Effect', 'Heartbeat Effect', 'Strobe Flash', 'Solid Color'];
+  // Idle (resting) effects — same set minus the transient Strobe Flash
+  const IDLE_EFFECTS = ['Rainbow Effect', 'Color Wipe Effect', 'Scanner Effect', 'Twinkle Effect', 'Heartbeat Effect', 'Solid Color'];
   const COLORS = ['White', 'Red', 'Green', 'Blue', 'Yellow', 'Purple', 'Cyan', 'Orange', 'Pink'];
 
   // ── Entity registry ────────────────────────────────────────────────────────
@@ -33,8 +35,9 @@
     hit_points:     { type: NUM, name: 'Hit Points',    label: 'Hit Points', min: 10, max: 100, step: 10, unit: 'pts', section: 'base' },
     cooldown_timer: { type: NUM, name: 'Cooldown Timer', label: 'Cooldown',  min: 0, max: 10000, step: 100, unit: 'ms', section: 'base' },
     relay_timer:    { type: NUM, name: 'Relay Timer',   label: 'Relay Timer', min: 100, max: 10000, step: 100, unit: 'ms', section: 'base' },
+    idle_effect:    { type: SEL, name: 'Target LEDs Idle Effect', label: 'Idle LED Effect',  options: IDLE_EFFECTS, section: 'base' },
     hit_effect:     { type: SEL, name: 'Target LEDs Hit Effect',  label: 'Hit LED Effect',  options: HIT_EFFECTS, section: 'base' },
-    solid_color:    { type: SEL, name: 'Target LEDs Solid Color', label: 'Solid Hit Color', options: COLORS,      section: 'base' },
+    solid_color:    { type: SEL, name: 'Target LEDs Solid Color', label: 'Solid Color',      options: COLORS,      section: 'base' },
     team_color:     { type: SW,  name: 'Team Color On Hit', label: 'Set Team Color On Hit', section: 'base' },
 
     // ── Aux Triggers ──
@@ -66,6 +69,7 @@
     gnd_switch:  { type: LT, name: 'Gnd Switch', label: 'GND Switch',  section: 'test' },
     relay_1:     { type: SW, name: 'Relay 1',    label: 'Relay',       section: 'test' },
     target_leds: { type: LT, name: 'Target LEDs', label: 'Target LEDs', section: 'test' },
+    test_servo_hit: { type: BTN, name: 'Test Servo Hit', label: 'Test Servo Hit', btnText: 'Swing', section: 'test' },
 
     // ── Debug (collapsible) — all read-only ──
     gpio16:       { type: BIN,  name: 'GPIO16 Digital State',       label: 'GPIO16',         section: 'debug' },
