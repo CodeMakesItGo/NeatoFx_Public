@@ -37,8 +37,9 @@ packages:
   #drive: !include boards/common/drive_ac.yaml   # 240VAC controller: ground one input, open the other
 
   # ---- NETWORK — select ONE ----
-  config: !include configs/networked.yaml        # Home Assistant API + web UI + OTA
-  #config: !include configs/standalone.yaml       # AP-only: local web UI + OTA, no Home Assistant
+  config: !include configs/networked.yaml          # Router, no HA server (No-HA LAN): web UI only
+  #config: !include configs/home_assistant.yaml     # Router + Home Assistant server: API + events + OTA
+  #config: !include configs/standalone.yaml         # AP-only: local web UI, no router, no Home Assistant
 
   # ---- OPTIONAL ADD-ONS ----
   #can:   !include boards/common/can.yaml         # CAN inter-controller bus (game-gates the joysticks)

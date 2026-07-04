@@ -1,23 +1,23 @@
 # ==============================================================================
-# NEATO MOTOR CONTROLLER - NETWORKED CONFIGURATION
+# NEATO MOTOR CONTROLLER - NETWORKED CONFIGURATION  (No-HA LAN mode)
 # ==============================================================================
-# This configuration sets up the motor controller in networked mode with Home
-# Assistant integration. In networked mode, the device communicates with a
-# central controller and can be managed through Home Assistant.
+# Joins a WiFi router but expects NO Home Assistant server and NO internet
+# (landlocked gallery LAN). The motor is driven locally (joystick / CAN) and via
+# its web UI — no HA broker required.
+#
+# Use this when:      router present, no HA server (internet optional/absent)
+# Use home_assistant.yaml instead when: a Home Assistant server is on the LAN
+# Use standalone.yaml instead when:      device runs its own AP (no router)
 # ==============================================================================
 
 # Shared base packages — common to all NEATO-FX devices
 packages:
   networked_base: !include ../../../_shared/networked_base.yaml
   network_sensors: !include ../../../_shared/network_sensors.yaml
-  firmware_update: !include ../../../_shared/firmware_update.yaml
-
-# ==============================================================================
-# DASHBOARD IMPORT - Made for ESPHome
-# ==============================================================================
-dashboard_import:
-  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Controllers/NeatoMotor/main.yaml@main
-  import_full_config: true
+  # OTA update checks disabled — gallery LANs are landlocked (no internet),
+  # so the GitHub manifest fetch can never succeed. Re-enable this include
+  # (and the update: block below) if deploying on an internet-connected net.
+  #firmware_update: !include ../../../_shared/firmware_update.yaml
 
 # ==============================================================================
 # SUBSTITUTIONS - Configuration Variables
@@ -27,34 +27,27 @@ substitutions:
   # Override here only if this device type needs a different subnet offset.
 
 # ==============================================================================
-# API & REMOTE ACCESS - Home Assistant Integration
+# API & REMOTE ACCESS - Home Assistant (REMOVED — No-HA LAN mode)
 # ==============================================================================
-api:
-  reboot_timeout: 5min
-
-# ==============================================================================
-# MOTOR IDLE EVENT - Home Assistant Integration
-# ==============================================================================
-binary_sensor:
-  - platform: template
-    id: motor_idle_event
-    internal: true
-    lambda: 'return id(motor_idle).state;'
-    on_press:
-      # Motor transitioned to idle — notify Home Assistant
-      - homeassistant.event:
-          event: esphome.motor-idle
-          data:
-            address: ${id}
+# No Home Assistant server on this gallery LAN. _shared/networked_base.yaml
+# provides api: (with a 5-min reboot timer that would otherwise reboot this
+# device every 5 min with no HA client); !remove strips it here so this device
+# runs pure LAN. To integrate with Home Assistant, switch main.yaml to
+# configs/home_assistant.yaml instead of this file.
+api: !remove
 
 # Serial-based WiFi provisioning (requires logger baud_rate != 0)
 improv_serial:
 
 # ==============================================================================
-# FIRMWARE UPDATES - OTA via HTTP
+# FIRMWARE UPDATES - OTA via HTTP  (DISABLED for landlocked gallery LANs)
 # ==============================================================================
-update:
-  - platform: http_request
-    id: firmware_update_check
-    name: "Firmware Update"
-    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/motor/manifest.json
+# The GitHub manifest fetch below requires internet access, which the gallery
+# networks don't have (DNS resolution of raw.githubusercontent.com fails).
+# Re-enable this block AND the firmware_update package include above to restore
+# self-updating on an internet-connected deployment.
+#update:
+#  - platform: http_request
+#    id: firmware_update_check
+#    name: "Firmware Update"
+#    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/motor/manifest.json
