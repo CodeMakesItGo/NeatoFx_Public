@@ -22,8 +22,9 @@ dashboard_import:
 # ==============================================================================
 # Call these from Home Assistant, the ESPHome API, or automations:
 #
-#   service: esphome.whisper_1_play_mp3   data: { file: 5 }   # play once
-#   service: esphome.whisper_1_loop_mp3   data: { file: 5 }   # loop forever
+#   service: esphome.whisper_1_play_mp3           data: { file: 5 }              # play once
+#   service: esphome.whisper_1_play_mp3_delayed   data: { file: 5, delay_sec: 3.0 }  # play once after 3s
+#   service: esphome.whisper_1_loop_mp3           data: { file: 5 }              # loop forever
 #   service: esphome.whisper_1_stop
 # ==============================================================================
 api:
@@ -38,17 +39,27 @@ api:
             file: !lambda 'return file;'
             loop: false
 
+    - service: play_mp3_delayed
+      variables:
+        file: int
+        delay_sec: float    # seconds to wait before playback begins
+      then:
+        - script.execute:
+            id: play_track_delayed
+            file: !lambda 'return file;'
+            delay_ms: !lambda 'return (int) (delay_sec * 1000.0f);'
+
     - service: loop_mp3
       variables:
         file: int
       then:
         - script.execute:
-            id: play_track
+            id: play_loop
             file: !lambda 'return file;'
-            loop: true
 
     - service: stop
       then:
+        - script.stop: play_track_delayed   # cancel a pending delayed play
         - script.execute: stop_track
 
 # Serial-based WiFi provisioning (Improv)

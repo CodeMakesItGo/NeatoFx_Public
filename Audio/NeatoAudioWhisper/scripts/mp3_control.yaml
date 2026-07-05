@@ -17,6 +17,27 @@
 #   Stop          : AA 04 00 AE
 # ==============================================================================
 
+# ------------------------------------------------------------------------------
+# LOOP STATE (for interrupt-then-resume)
+# ------------------------------------------------------------------------------
+# When a track is looping and a one-shot play interrupts it, we want the loop to
+# resume once the one-shot finishes. The DY-SV8F itself has no memory of this, so
+# we track it here and restart the loop when the BUSY pin reports idle.
+#
+# restore_value: false on purpose — we do NOT want a loop to auto-resume across a
+# reboot, and it avoids reserving flash-preference slots (keeps the volume /
+# test-number restore_value state stable).
+# ------------------------------------------------------------------------------
+globals:
+  - id: loop_active
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: loop_track
+    type: int
+    restore_value: false
+    initial_value: '0'
+
 script:
   # --- Push a volume level (0-30) to the module -----------------------------
   #   vol : 0 = quiet, 30 = loud (per the DY-SV8F manual)
@@ -70,10 +91,84 @@ script:
           format: "MP3: play track %d (loop=%d)"
           args: ['file', 'loop']
 
+  # --- Start looping a track (and remember it for interrupt-resume) ---------
+  #   Use this for all "loop forever" requests instead of calling play_track
+  #   with loop:true directly, so a later one-shot play can resume this loop.
+  - id: play_loop
+    parameters:
+      file: int
+    then:
+      - lambda: |-
+          id(loop_active) = true;
+          id(loop_track)  = file;
+      - script.execute:
+          id: play_track
+          file: !lambda 'return file;'
+          loop: true
+
+  # --- Play a specific track after a configurable delay ---------------------
+  #   file     : track number (1-65535)
+  #   delay_ms : how long to wait before starting playback, in milliseconds
+  #
+  #   mode: restart -> a new delayed request cancels any pending one, so the
+  #   most recent call always wins instead of stacking overlapping timers.
+  - id: play_track_delayed
+    mode: restart
+    parameters:
+      file: int
+      delay_ms: int
+    then:
+      - logger.log:
+          format: "MP3: delayed play track %d in %d ms"
+          args: ['file', 'delay_ms']
+      - delay: !lambda 'return delay_ms;'
+      - script.execute:
+          id: play_track
+          file: !lambda 'return file;'
+          loop: false
+
   # --- Stop playback --------------------------------------------------------
   - id: stop_track
     then:
+      - lambda: 'id(loop_active) = false;'   # a real stop cancels any loop-resume
       - uart.write:
           id: mp3_uart
           data: [0xAA, 0x04, 0x00, 0xAE]
       - logger.log: "MP3: stop"
+
+  # --- Query commands (replies parsed by the RX interval in rev1.yaml) ------
+  #   Query play status  : AA 01 00 AB  -> AA 01 01 <status> SM
+  #   Query # of songs   : AA 0C 00 B6  -> AA 0C 02 <hi> <lo> SM
+  #   Query current song : AA 0D 00 B7  -> AA 0D 02 <hi> <lo> SM
+  - id: query_play_status
+    then:
+      - uart.write:
+          id: mp3_uart
+          data: [0xAA, 0x01, 0x00, 0xAB]
+  - id: query_song_count
+    then:
+      - uart.write:
+          id: mp3_uart
+          data: [0xAA, 0x0C, 0x00, 0xB6]
+  - id: query_current_song
+    then:
+      - uart.write:
+          id: mp3_uart
+          data: [0xAA, 0x0D, 0x00, 0xB7]
+
+  # --- Called when the module reports playback has gone idle (BUSY pin) ------
+  #   If a loop was interrupted by a one-shot play, this restarts the loop once
+  #   the one-shot finishes. Does nothing if we weren't looping.
+  - id: on_playback_idle
+    then:
+      - if:
+          condition:
+            lambda: 'return id(loop_active);'
+          then:
+            - logger.log:
+                format: "MP3: playback idle - resuming loop of track %d"
+                args: ['id(loop_track)']
+            - script.execute:
+                id: play_track
+                file: !lambda 'return id(loop_track);'
+                loop: true

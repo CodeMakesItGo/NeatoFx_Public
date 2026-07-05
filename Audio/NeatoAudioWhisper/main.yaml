@@ -26,8 +26,8 @@ packages:
   board:        !include boards/rev1.yaml
 
   # Network / standalone mode — swap these lines to switch:
-  #config:       !include configs/networked.yaml
-  config:       !include configs/standalone.yaml
+  config:       !include configs/networked.yaml
+  #config:       !include configs/standalone.yaml
 
   # Scripts (DY-SV8F UART command frames)
   mp3_scripts:  !include scripts/mp3_control.yaml

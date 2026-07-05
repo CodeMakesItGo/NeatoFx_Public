@@ -9,6 +9,7 @@
 # DY-SV8F wiring (module must be in UART Mode: DIP CON1=OFF CON2=OFF CON3=ON):
 #   ESP32 GPIO21 (TX) ---> module RXD/IO1 (pin 4)
 #   ESP32 GPIO22 (RX) <--- module TXD/IO0 (pin 3)
+#   ESP32 GPIO17      <--- module BUSY          (playback status)
 #   ESP32 GND        ----> module 5V- / GND
 #   5V               ----> module 5V+
 # ==============================================================================
@@ -46,6 +47,7 @@ esphome:
       - script.execute:               # Push saved volume to the module
           id: set_volume
           vol: !lambda 'return (int) id(volume).state;'
+      - script.execute: query_song_count   # populate "MP3 Song Count" once at boot
       - logger.log: "Boot complete - MP3 module initialized"
 
 # ==============================================================================
@@ -65,6 +67,112 @@ sensor:
     id: uptime_sensor
     name: "Uptime Sensor"
     update_interval: 60s
+
+  # --- DY-SV8F query readouts (published by the RX parser interval) ---------
+  # "Song Count" is the key diagnostic: if it exceeds the number of tracks you
+  # copied, the module is counting macOS ._ shadow files / hidden entries.
+  - platform: template
+    name: "MP3 Song Count"
+    id: mp3_song_count
+    accuracy_decimals: 0
+  - platform: template
+    name: "MP3 Current Song"
+    id: mp3_current_song
+    accuracy_decimals: 0
+
+text_sensor:
+  - platform: template
+    name: "MP3 Play Status"
+    id: mp3_play_status
+
+# ==============================================================================
+# BINARY SENSORS
+# ==============================================================================
+binary_sensor:
+  # --- DY-SV8F BUSY / playback status (GPIO17) ------------------------------
+  # Reports whether the module is currently playing. When playback goes idle we
+  # fire on_playback_idle, which resumes a loop that a one-shot play interrupted.
+  #
+  # POLARITY: must read TRUE while audio is playing. Per the DY-SV8F manual the
+  # BUSY pin is active-low (0V = playing, 3.3V = idle), so inverted: true. If the
+  # loop never resumes (or resumes immediately/at boot), flip `inverted`.
+  - platform: gpio
+    id: mp3_playing
+    name: "MP3 Playing"
+    pin:
+      number: GPIO17
+      mode:
+        input: true
+      inverted: true
+    filters:
+      - delayed_off: 120ms   # mask brief BUSY dips at loop repeat boundaries
+    on_release:
+      - script.execute: on_playback_idle
+
+  # --- External trigger input (GPIO16) --------------------------------------
+  # Grounding GPIO16 fires the delayed play, using the "Test MP3 Number" and
+  # "Test Delay (s)" controls (same behavior as the play_mp3_delayed API).
+  # Internal pull-up so the pin idles high; inverted so grounded == pressed.
+  - platform: gpio
+    id: mp3_trigger
+    name: "MP3 Trigger"
+    pin:
+      number: GPIO16
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    filters:
+      - delayed_on: 20ms     # debounce the contact to ground
+    on_press:
+      - script.execute:
+          id: play_track_delayed
+          file: !lambda 'return (int) id(test_mp3_number).state;'
+          delay_ms: !lambda 'return (int) (id(test_delay_sec).state * 1000.0f);'
+
+# ==============================================================================
+# UART RX PARSER + AUTO-REFRESH - DY-SV8F query replies
+# ==============================================================================
+# The module answers queries with 0xAA-framed replies: AA <cmd> <len> <data..> SM
+# We drain the UART, validate the checksum, and publish the values we care about.
+interval:
+  # Parse whatever the module has sent back
+  - interval: 100ms
+    then:
+      - lambda: |-
+          static std::vector<uint8_t> buf;
+          uint8_t b;
+          while (id(mp3_uart).available() && id(mp3_uart).read_byte(&b)) {
+            buf.push_back(b);
+            if (buf.size() > 64) buf.erase(buf.begin());   // runaway guard
+          }
+          while (buf.size() >= 4) {
+            if (buf[0] != 0xAA) { buf.erase(buf.begin()); continue; }
+            uint8_t len = buf[2];
+            size_t flen = (size_t) len + 4;                // AA cmd len data SM
+            if (flen > 32) { buf.erase(buf.begin()); continue; }
+            if (buf.size() < flen) break;                  // wait for the rest
+            uint8_t sm = 0;
+            for (size_t i = 0; i + 1 < flen; i++) sm += buf[i];
+            if (sm != buf[flen - 1]) { buf.erase(buf.begin()); continue; }
+            uint8_t cmd = buf[1];
+            if (cmd == 0x01 && len == 1) {
+              const char *s = buf[3] == 0x01 ? "playing"
+                            : buf[3] == 0x02 ? "paused" : "stopped";
+              id(mp3_play_status).publish_state(s);
+            } else if (cmd == 0x0C && len == 2) {
+              id(mp3_song_count).publish_state((buf[3] << 8) | buf[4]);
+            } else if (cmd == 0x0D && len == 2) {
+              id(mp3_current_song).publish_state((buf[3] << 8) | buf[4]);
+            }
+            buf.erase(buf.begin(), buf.begin() + flen);
+          }
+
+  # Keep play status + current-song live in the UI
+  - interval: 2s
+    then:
+      - script.execute: query_play_status
+      - script.execute: query_current_song
 
 # ==============================================================================
 # USER CONTROLS - Volume + test track selector
@@ -96,6 +204,18 @@ number:
     optimistic: true
     # File to play with the "Test Play MP3" / "Test Loop MP3" buttons
 
+  - platform: template
+    name: "Test Delay (s)"
+    id: test_delay_sec
+    min_value: 0
+    max_value: 60
+    step: 0.5
+    mode: box
+    initial_value: 3
+    restore_value: false   # test-only convenience; not persisted so it does not
+    optimistic: true       # shift flash-preference slots (would reset Volume)
+    # Delay used by the "Test Delayed Play MP3" button
+
 # ==============================================================================
 # BUTTONS
 # ==============================================================================
@@ -113,16 +233,25 @@ button:
           loop: false
 
   - platform: template
+    name: "Test Delayed Play MP3"
+    id: test_delayed_play_mp3
+    on_press:
+      - script.execute:
+          id: play_track_delayed
+          file: !lambda 'return (int) id(test_mp3_number).state;'
+          delay_ms: !lambda 'return (int) (id(test_delay_sec).state * 1000.0f);'
+
+  - platform: template
     name: "Test Loop MP3"
     id: test_loop_mp3
     on_press:
       - script.execute:
-          id: play_track
+          id: play_loop
           file: !lambda 'return (int) id(test_mp3_number).state;'
-          loop: true
 
   - platform: template
     name: "Stop"
     id: test_stop
     on_press:
+      - script.stop: play_track_delayed   # cancel a pending delayed play
       - script.execute: stop_track
