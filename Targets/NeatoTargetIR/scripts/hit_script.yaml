@@ -13,6 +13,27 @@ substitutions:
   servo_pwm_script: "servo_pwm_none"   # no-op default
 
 script:
+  # GND-switch pulse — runs concurrently with the hit so the GND output can hold
+  # for its own duration, independent of the relay. Fired from target_hit_script
+  # via `script.execute: gnd_pulse`. Effective on-time = gnd_timer, or relay_timer
+  # when gnd_timer == 0 ("follow relay", the default). mode: restart re-arms the
+  # pulse cleanly if a new hit lands while one is still running. There is
+  # intentionally no "off" control — to disable GND, disconnect its load.
+  - id: gnd_pulse
+    mode: restart
+    then:
+      - light.turn_on:
+          id: gnd_light
+          brightness: 100%
+          # Ramp over the GND window when enabled, else snap on instantly.
+          transition_length: !lambda |-
+            if (!id(gnd_ramp_enabled)) return 0;
+            int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);
+      - delay: !lambda 'int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);'
+      - light.turn_off:
+          id: gnd_light
+          transition_length: 0s
+
   # Main Target Hit Script - Standalone version
   - id: target_hit_script
     mode: single  # Prevent overlapping hits
@@ -130,21 +151,11 @@ script:
             ESP_LOGW("target_hit", "Relay already active!");
           }
       - switch.turn_on: relay_1
-      # GND switch: ramp 0→100% over the relay window when enabled, else instant.
-      # transition_length = relay_timer so it reaches full exactly as the relay
-      # releases below. gnd_light is PWM-backed on Rev 3.x, a no-op on Rev 1.x.
-      - if:
-          condition:
-            lambda: 'return id(gnd_ramp_enabled);'
-          then:
-            - light.turn_on:
-                id: gnd_light
-                brightness: 100%
-                transition_length: !lambda 'return id(relay_timer);'
-          else:
-            - light.turn_on:
-                id: gnd_light
-                brightness: 100%
+      # GND switch runs on its own timer via gnd_pulse, so its on-duration can
+      # differ from the relay window — e.g. relay drives a lantern's AC while GND
+      # drives a vibration for a different time. gnd_timer == 0 follows relay_timer.
+      # gnd_light is PWM-backed on Rev 3.x, a no-op on Rev 1.x.
+      - script.execute: gnd_pulse
       # Start configured servo PWM effect (see servo_pwm_script substitution)
       - script.execute: ${servo_pwm_script}
       - script.execute: servo_go_hit
@@ -165,10 +176,9 @@ script:
 
       # Deactivate outputs
       - switch.turn_off: relay_1
-      # Sharp cutoff (transition 0s) regardless of ramp mode.
-      - light.turn_off:
-          id: gnd_light
-          transition_length: 0s
+      # GND switch is owned by gnd_pulse (its own timer) and is deliberately NOT
+      # turned off here — that lets the GND window run longer or shorter than the
+      # relay. In follow mode (gnd_timer == 0) gnd_pulse releases at ~relay_timer.
       # Stop servo PWM effect and zero the output (no-op on servo-less boards)
       - script.stop: ${servo_pwm_script}
       - script.execute: servo_pwm_zero

@@ -351,10 +351,29 @@ number:
     unit_of_measurement: "ms"
     set_action:
       - lambda: |-
-          int value = static_cast<int>(x); 
+          int value = static_cast<int>(x);
           id(relay_timer) = value;
           ESP_LOGI("config", "Relay timer set to: %d ms", value);
-          
+
+  # GND switch on-duration. 0 = follow the relay timer (default); otherwise
+  # 100–3000 ms, independent of the relay (e.g. vibration vs. lantern AC).
+  - platform: template
+    name: "GND Timer"
+    id: gnd_timer_control
+    min_value: 0
+    max_value: 3000
+    step: 100
+    restore_value: true
+    optimistic: true
+    initial_value: 0
+    icon: "mdi:timer-cog-outline"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          id(gnd_timer) = value;
+          ESP_LOGI("config", "GND timer set to: %d ms (0 = follow relay)", value);
+
   # Points awarded per hit
   - platform: template
     name: "Hit Points"
@@ -386,9 +405,51 @@ number:
     unit_of_measurement: "ms"
     set_action:
       - lambda: |-
-          int value = static_cast<int>(x); 
+          int value = static_cast<int>(x);
           id(cooldown_timer) = value;
           ESP_LOGI("config", "Cooldown timer set to: %d ms", value);
+
+  # LED brightness — primary strip (Target LEDs). Deliberately NOT restore_value:
+  # the slider reads/writes the light's own brightness, which already persists
+  # via the led_strip on_state auto-save (saved_brightness). Keeping it
+  # stateless avoids adding a flash preference and shifting the restore indices
+  # of the timers above on already-deployed targets.
+  - platform: template
+    name: "Target LEDs Brightness"
+    id: led_strip_brightness_control
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: slider
+    icon: "mdi:brightness-6"
+    unit_of_measurement: "%"
+    update_interval: 2s
+    lambda: |-
+      if (id(hit_processing)) return {};   // hold value during hit effects
+      return id(led_strip).remote_values.get_brightness() * 100.0f;
+    set_action:
+      - light.control:
+          id: led_strip
+          brightness: !lambda "return x / 100.0f;"
+
+  # LED brightness — secondary strip (LED Strip 2). Same stateless pattern.
+  - platform: template
+    name: "LED Strip 2 Brightness"
+    id: led_strip2_brightness_control
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: slider
+    icon: "mdi:brightness-6"
+    unit_of_measurement: "%"
+    update_interval: 2s
+    lambda: |-
+      if (id(hit_processing)) return {};
+      return id(led_strip2).remote_values.get_brightness() * 100.0f;
+    set_action:
+      - light.control:
+          id: led_strip2
+          brightness: !lambda "return x / 100.0f;"
 
 # ==============================================================================
 # HIT EFFECT OPTIONS
@@ -542,6 +603,12 @@ globals:
     type: int
     restore_value: true
     initial_value: ${default_relay_time}
+
+  # GND switch activation duration (milliseconds). 0 = follow relay_timer.
+  - id: gnd_timer
+    type: int
+    restore_value: true
+    initial_value: '0'
     
   # Points awarded per hit
   - id: target_points

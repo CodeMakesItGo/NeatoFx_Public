@@ -35,9 +35,11 @@
     hit_points:     { type: NUM, name: 'Hit Points',    label: 'Hit Points', min: 10, max: 100, step: 10, unit: 'pts', section: 'base' },
     cooldown_timer: { type: NUM, name: 'Cooldown Timer', label: 'Cooldown',  min: 0, max: 10000, step: 100, unit: 'ms', section: 'base' },
     relay_timer:    { type: NUM, name: 'Relay Timer',   label: 'Relay Timer', min: 100, max: 10000, step: 100, unit: 'ms', section: 'base' },
+    gnd_timer:      { type: NUM, name: 'GND Timer',     label: 'GND Timer (0 = follow relay)', min: 0, max: 3000, step: 100, unit: 'ms', section: 'base' },
     idle_effect:    { type: SEL, name: 'Target LEDs Idle Effect', label: 'Idle LED Effect',  options: IDLE_EFFECTS, section: 'base' },
     hit_effect:     { type: SEL, name: 'Target LEDs Hit Effect',  label: 'Hit LED Effect',  options: HIT_EFFECTS, section: 'base' },
     solid_color:    { type: SEL, name: 'Target LEDs Solid Color', label: 'Solid Color',      options: COLORS,      section: 'base' },
+    led_brightness: { type: NUM, name: 'Target LEDs Brightness', label: 'LED Brightness', min: 0, max: 100, step: 1, unit: '%', section: 'base' },
     team_color:     { type: SW,  name: 'Team Color On Hit', label: 'Set Team Color On Hit', section: 'base' },
 
     // ── Aux Triggers ──
@@ -46,6 +48,7 @@
 
     // ── LED Strip 2 ──
     led2:            { type: LT,  name: 'LED Strip 2',            label: 'LED Strip 2',     section: 'led2' },
+    led2_brightness: { type: NUM, name: 'LED Strip 2 Brightness', label: 'LED Brightness', min: 0, max: 100, step: 1, unit: '%', section: 'led2' },
     led2_hit_effect: { type: SEL, name: 'LED Strip 2 Hit Effect', label: 'Hit LED Effect',  options: HIT_EFFECTS, section: 'led2' },
     led2_solid_color:{ type: SEL, name: 'LED Strip 2 Solid Color', label: 'Solid Hit Color', options: COLORS,     section: 'led2' },
 
