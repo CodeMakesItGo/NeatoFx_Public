@@ -198,7 +198,7 @@ binary_sensor:
       - logger.log: "Input 1: forward"
       - if:
           condition:
-            lambda: 'return game_active();'
+            lambda: 'return id(board_active);'
           then:
             - script.execute: motor_forward_start
     on_release:
@@ -222,7 +222,7 @@ binary_sensor:
       - logger.log: "Input 2: reverse"
       - if:
           condition:
-            lambda: 'return game_active();'
+            lambda: 'return id(board_active);'
           then:
             - script.execute: motor_reverse_start
     on_release:

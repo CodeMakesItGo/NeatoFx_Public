@@ -31,11 +31,20 @@ packages:
 
 substitutions:
   project_name: "CodeMakesItGo.ManualMotor"
+  project_version: "3.0.0"
 
 # ==============================================================================
 # GLOBAL VARIABLES
 # ==============================================================================
 globals:
+  # true = local inputs are armed (the "game gate"). Defaults ON so the manual
+  # build runs standalone; a CAN/game package may drive it externally (mirrors
+  # board_active in common.yaml).
+  - id: board_active
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
   # true = H-bridge energised
   - id: motor_running
     type: bool
@@ -236,14 +245,14 @@ cover:
     open_action:
       - if:
           condition:
-            lambda: 'return game_active();'
+            lambda: 'return id(board_active);'
           then:
             - script.execute: motor_forward_start
 
     close_action:
       - if:
           condition:
-            lambda: 'return game_active();'
+            lambda: 'return id(board_active);'
           then:
             - script.execute: motor_reverse_start
 
@@ -321,7 +330,7 @@ interval:
       # would keep the gantry moving.  Brake as soon as the gate closes (STOP
       # received, or display heartbeat lost for >3 s).
       - lambda: |-
-          if (!game_active() && id(motor_running)) {
+          if (!id(board_active) && id(motor_running)) {
             ESP_LOGI("manual", "Game ended while motor running — stopping");
             id(motor_stop_script).execute();
           }

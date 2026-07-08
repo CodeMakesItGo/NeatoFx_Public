@@ -2,3 +2,7 @@
 # Keep this list SHORT and justified — every entry weakens the gate.
 # Example (currently unused):
 #   warning: 'nvs' partition size
+
+# Strapping-pin warnings: board layouts are fixed hardware (e.g. GPIO5 LED
+# strip on Target rev3, GPIO0 on Audio50); ESPHome flags these on every build.
+^WARNING GPIO\d+ is a strapping PIN

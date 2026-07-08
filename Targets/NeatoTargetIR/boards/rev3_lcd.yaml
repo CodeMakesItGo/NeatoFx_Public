@@ -172,9 +172,12 @@ output:
     frequency: 1000 Hz
 
 number:
+  # NOTE: id must NOT be servo_slider — that id belongs to the "Servo Idle
+  # Position" control in scripts/servo_movement_script.yaml, which is included
+  # alongside this board (redefinition breaks the build).
   - platform: template
-    name: "Servo Slider"
-    id: servo_slider
+    name: "Servo Test Slider"
+    id: servo_test_slider
     min_value: -85
     max_value: 85
     step: 1
@@ -186,7 +189,7 @@ number:
       - servo.write:
           id: servo1
           level: !lambda 'return (x / 100.0);'
-      - lambda: 'id(servo_slider).publish_state(x);'
+      - lambda: 'id(servo_test_slider).publish_state(x);'
 
 # ==============================================================================
 # LCD HIT EFFECT SELECTOR

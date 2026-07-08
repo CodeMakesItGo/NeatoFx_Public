@@ -19,7 +19,10 @@ MARKERS = (
     re.compile(r"^WARNING\b"),                # esphome config/CLI warnings
     re.compile(r"\bwarning:\s", re.I),        # gcc/clang/ld
     re.compile(r"^\s*Warning!", re.I),        # platformio
-    re.compile(r"DeprecationWarning|deprecated", re.I),
+    # Python deprecation warnings only. A bare 'deprecated' match is too loose:
+    # ESP-IDF ships source files under driver/deprecated/, and every
+    # 'Compiling .pioenvs/.../deprecated/x.c.o' progress line would false-flag.
+    re.compile(r"DeprecationWarning"),
 )
 
 
