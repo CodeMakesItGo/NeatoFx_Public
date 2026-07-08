@@ -18,7 +18,7 @@ devices:
     path: Targets/NeatoTargetIR/main.yaml
     label: "Neato Target IR"
     variants:
-      default: {}   # rev3 + networked + ir_nec + servo
+      default: {}   # rev3 + networked + ir_laser_tag + servo
       rev1_standalone:
         board: boards/rev1.yaml
         config: configs/standalone.yaml
@@ -31,6 +31,9 @@ devices:
         servo_pwm_effects: scripts/servo_pwm_effects.yaml
       custom_ir:
         ir_receiver: protocols/ir_custom.yaml
+      ha_nec:                  # Home Assistant LAN mode + classic NEC protocol
+        config: configs/home_assistant.yaml
+        ir_receiver: protocols/ir_nec.yaml
 
   motor:
     path: Controllers/NeatoMotor/main.yaml
@@ -53,6 +56,8 @@ devices:
         board: boards/rev3_manual.yaml
         drive: null
         config: configs/standalone.yaml
+      ha:                      # Home Assistant LAN mode
+        config: configs/home_assistant.yaml
 
   blaster:
     path: Controllers/NeatoBlaster/main.yaml
@@ -76,7 +81,7 @@ devices:
     path: Audio/NeatoAudio50/main.yaml
     label: "Neato Audio 50"
     variants:
-      default: {}   # rev2_3 + rftx_none + standalone
+      default: {}   # rev2_4 + rftx_none + networked
       rev24_outputs_networked_fpp:
         board: boards/rev2_4.yaml
         rftx: boards/common/rftx_outputs.yaml
@@ -84,6 +89,11 @@ devices:
         fpp_file: integrations/speaker_fpp.yaml
       rftx_inputs:
         rftx: boards/common/rftx_inputs.yaml
+      rev23_standalone:        # legacy board, own-AP mode
+        board: boards/rev2_3.yaml
+        config: configs/standalone.yaml
+      ha:                      # Home Assistant LAN mode
+        config: configs/home_assistant.yaml
 
   display:
     path: Displays/NeatoDisplay4/main.yaml

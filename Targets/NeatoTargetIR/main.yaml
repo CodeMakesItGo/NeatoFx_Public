@@ -33,9 +33,9 @@ packages:
   #board: !include boards/rev3_lcd.yaml # Rev 3.x + GC9A01 round LCD face (IR moves to GPIO32; see docs/LCD_Face_Setup.md)
 
   # Network mode — select one:
-  #config_file: !include configs/standalone.yaml       # Device's own AP, no router
-  config_file: !include configs/networked.yaml         # Router, no HA server (No-HA LAN)
-  #config_file: !include configs/home_assistant.yaml   # Router + Home Assistant server
+  #config: !include configs/standalone.yaml       # Device's own AP, no router
+  config: !include configs/networked.yaml         # Router, no HA server (No-HA LAN)
+  #config: !include configs/home_assistant.yaml   # Router + Home Assistant server
 
   # IR receiver configuration
   #ir_receiver: !include protocols/ir_nec.yaml
