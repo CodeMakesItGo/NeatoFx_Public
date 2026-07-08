@@ -62,7 +62,9 @@ globals:
   - id: fpp_ip_addr
     type: std::string
     restore_value: true
-    initial_value: ${fpp_ip_addr}  # Change this to your FPP Server IP
+    # initial_value is emitted as a raw C++ expression — must stay a quoted
+    # string literal or the IP digits become an invalid numeric token.
+    initial_value: '"${fpp_ip_addr}"'  # Change this to your FPP Server IP
 
 
 # ==============================================================================

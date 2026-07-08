@@ -97,6 +97,10 @@ esphome:
 remote_transmitter:
   pin: ${ir_tx_gpio}
   carrier_duty_percent: 50%
+  # Explicit (matches the ESPHome 2026 default; unset emits a CI-failing
+  # warning). Pump-action fire rate is human-limited, so async TX can't
+  # overlap NEC frames in practice.
+  non_blocking: true
 
 # ==============================================================================
 # MP3 PLAYER OUTPUT CONTROL SWITCHES

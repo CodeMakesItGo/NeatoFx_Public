@@ -6,3 +6,11 @@
 # Strapping-pin warnings: board layouts are fixed hardware (e.g. GPIO5 LED
 # strip on Target rev3, GPIO0 on Audio50); ESPHome flags these on every build.
 ^WARNING GPIO\d+ is a strapping PIN
+
+# Display boards use GPIO19/20 by design (no USB-Serial-JTAG on these units);
+# fixed hardware, flagged on every NeatoDisplay build.
+^WARNING GPIO\d+ is used by the USB-Serial-JTAG interface
+
+# TODO(displays): migrate NeatoTargetIR rev3_lcd from ili9xxx to mipi_spi,
+# then remove this entry. Tolerated for now — component still works.
+^WARNING The 'ili9xxx' component is deprecated
