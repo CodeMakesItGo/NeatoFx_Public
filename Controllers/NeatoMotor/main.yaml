@@ -6,7 +6,7 @@
 #
 # Standard board = hold-to-run joystick control on the BTN8962TA H-bridge, with
 # a swappable drive so the same firmware runs a 24V DC motor OR a 240VAC
-# controller. Winch / pulse / manual are self-contained alternate boards.
+# controller. Winch is a self-contained alternate board.
 #
 # Usage:
 #   esphome -s id <id> run     Controllers/NeatoMotor/main.yaml
@@ -29,10 +29,8 @@ packages:
   # ---- BOARD / BEHAVIOR — select exactly ONE ----
   board: !include boards/rev3.yaml             # Standard: hold-to-run joystick (pick a DRIVE below)
   #board: !include boards/rev3_winch.yaml      # Winch: hall-encoder, auto-homing, soft limits
-  #board: !include boards/rev3_pulse.yaml      # Pulse: momentary pulse drive
-  #board: !include boards/rev3_manual.yaml     # Manual: self-contained, never CAN-gated
 
-  # ---- DRIVE — standard board only; select ONE (leave commented for winch/pulse/manual) ----
+  # ---- DRIVE — standard board only; select ONE (leave commented for winch) ----
   drive: !include boards/common/drive_dc.yaml    # 24V DC motor via PWM ramp (default)
   #drive: !include boards/common/drive_ac.yaml   # 240VAC controller: ground one input, open the other
 

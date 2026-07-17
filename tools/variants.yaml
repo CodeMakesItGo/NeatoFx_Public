@@ -51,13 +51,7 @@ devices:
       winch:
         board: boards/rev3_winch.yaml
         drive: null
-      pulse:
-        board: boards/rev3_pulse.yaml
-        drive: null
-      manual_standalone:
-        board: boards/rev3_manual.yaml
-        drive: null
-        config: configs/standalone.yaml
+        can: null          # self-contained board; can.yaml assumes the standard board's IDs
       lan_no_ha:                # No-HA LAN mode (router present, no HA server)
         config: configs/networked.yaml
 

@@ -11,7 +11,6 @@ packages:
   # ---- BOARD / BEHAVIOR — select exactly ONE ----
   board: !include boards/rev3.yaml            # standard
   #board: !include boards/rev3_winch.yaml     # winch
-  #board: !include boards/rev3_pulse.yaml     # pulse
 
   # ---- DRIVE — select ONE (standard board only) ----
   drive: !include boards/common/drive_dc.yaml
@@ -35,7 +34,7 @@ Anything that would otherwise be a separate main becomes either a **board varian
 ├── main.yaml                     # single entry point
 ├── boards/
 │   ├── rev3.yaml                 # hardware def; includes common/common.yaml
-│   ├── rev3_<variant>.yaml       # self-contained hardware variants (lcd, winch, pulse, manual)
+│   ├── rev3_<variant>.yaml       # self-contained hardware variants (lcd, winch)
 │   └── common/
 │       ├── common.yaml           # shared logic; drive-AGNOSTIC where drives are swappable
 │       ├── rev<N>_common.yaml    # ONLY when revisions can't share one common (e.g. Blaster rev1/rev3)
