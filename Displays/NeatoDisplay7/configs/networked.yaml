@@ -52,7 +52,7 @@ api:
                   id: game_over_score
                   text:
                     format: "%d"
-                    args: [ 'score_value' ]
+                    args: [ '(int)score_value' ]
 
     # Called by Home Assistant (via pump gun start button) to start the game
     - service: start_game
