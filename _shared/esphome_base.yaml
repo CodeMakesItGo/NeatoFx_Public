@@ -12,12 +12,20 @@ esphome:
   name: ${name}
   friendly_name: ${friendly_name}
   name_add_mac_suffix: false
-  platformio_options:
-    board_build.flash_mode: dio
   project:
     name: ${project_name}
     version: ${project_version}
   min_version: 2025.8.2
+
+# DIO flash mode is required by our hardware (flash chips don't support QIO).
+# platformio_options.board_build.flash_mode used to set this, but ESPHome's
+# ESP32 Arduino builds now run on the native ESP-IDF toolchain too, which
+# ignores that PlatformIO-level option (CI: "...is ignored when building with
+# the native ESP-IDF toolchain"). esp32.flash_mode is the toolchain-agnostic
+# replacement — works under both Arduino and ESP-IDF frameworks. This merges
+# with each board's own `esp32:` block (board/variant/framework/flash_size).
+esp32:
+  flash_mode: dio
 
 # ==============================================================================
 # OTA - Over The Air Updates
