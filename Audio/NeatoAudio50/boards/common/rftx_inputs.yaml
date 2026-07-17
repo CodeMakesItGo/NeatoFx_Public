@@ -357,7 +357,7 @@ script:
       - output.turn_on: amp_unmute
       - delay: 100ms
       - lambda: |-
-          std::string output_choice = id(aux1_output_select).state;
+          std::string output_choice = id(aux1_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
           else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
@@ -379,7 +379,7 @@ script:
       - output.turn_on: amp_unmute
       - delay: 100ms
       - lambda: |-
-          std::string output_choice = id(aux2_output_select).state;
+          std::string output_choice = id(aux2_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
           else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
@@ -401,7 +401,7 @@ script:
       - output.turn_on: amp_unmute
       - delay: 100ms
       - lambda: |-
-          std::string output_choice = id(aux3_output_select).state;
+          std::string output_choice = id(aux3_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
           else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
@@ -423,7 +423,7 @@ script:
       - output.turn_on: amp_unmute
       - delay: 100ms
       - lambda: |-
-          std::string output_choice = id(aux4_output_select).state;
+          std::string output_choice = id(aux4_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
           else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }

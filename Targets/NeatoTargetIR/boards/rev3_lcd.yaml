@@ -278,15 +278,15 @@ display:
       bool idle_dirty = (!id(hit_processing) &&
                          (id(hit_count) != last_hit_count ||
                           last_hit_processing              ||
-                          id(lcd_hit_effect_select).state != last_effect));
+                          id(lcd_hit_effect_select).current_option() != last_effect));
       if (!id(hit_processing) && !idle_dirty) return;
       last_hit_count      = id(hit_count);
       last_hit_processing = id(hit_processing);
-      last_effect         = id(lcd_hit_effect_select).state;
+      last_effect         = id(lcd_hit_effect_select).current_option();
 
       if (id(hit_processing)) {
         // ── HIT SCREEN ───────────────────────────────────────────────────────
-        auto effect = id(lcd_hit_effect_select).state;
+        auto effect = id(lcd_hit_effect_select).current_option();
 
         if (effect == "Expanding Rings") {
           it.fill(BLACK);
