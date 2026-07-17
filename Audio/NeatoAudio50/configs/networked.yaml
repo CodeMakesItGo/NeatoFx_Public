@@ -20,6 +20,15 @@ packages:
   #firmware_update: !include ../../../_shared/firmware_update.yaml
 
 # ==============================================================================
+# DASHBOARD IMPORT - Made for ESPHome
+# ==============================================================================
+# dashboard_import requires the api: component, which is removed in No-HA LAN
+# mode (see below). Re-enable together with api: for ESPHome dashboard adoption.
+#dashboard_import:
+#  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Audio/NeatoAudio50/main.yaml@main
+#  import_full_config: true
+
+# ==============================================================================
 # SUBSTITUTIONS - Configuration Variables
 # ==============================================================================
 substitutions:

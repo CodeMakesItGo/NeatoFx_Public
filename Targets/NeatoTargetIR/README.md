@@ -132,8 +132,8 @@ Targets/NeatoTargetIR/
 
 3. **Choose Operating Mode** — default is networked (Home Assistant):
    ```yaml
-     #config_file: !include configs/standalone.yaml
-     config_file:  !include configs/networked.yaml
+     #config: !include configs/standalone.yaml
+     config:  !include configs/networked.yaml
    ```
 
 4. **Select IR Protocol** — default is laser tag:

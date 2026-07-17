@@ -2,3 +2,17 @@
 # Keep this list SHORT and justified — every entry weakens the gate.
 # Example (currently unused):
 #   warning: 'nvs' partition size
+
+# Strapping-pin warnings: board layouts are fixed hardware (e.g. GPIO5 LED
+# strip on Target rev3, GPIO0 on Audio50); ESPHome flags these on every build.
+^WARNING GPIO\d+ is a strapping PIN
+
+# Display boards use GPIO19/20 by design (no USB-Serial-JTAG on these units);
+# fixed hardware, flagged on every NeatoDisplay build.
+^WARNING GPIO\d+ is used by the USB-Serial-JTAG interface
+
+# TODO(displays): migrate NeatoTargetIR rev3_lcd from ili9xxx to mipi_spi and
+# NeatoDisplay7 from rpi_dpi_rgb to mipi_rgb, then remove these entries.
+# Tolerated for now — both components still work.
+^WARNING The 'ili9xxx' component is deprecated
+^WARNING The 'rpi_dpi_rgb' component is deprecated

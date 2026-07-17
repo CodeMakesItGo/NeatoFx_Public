@@ -62,7 +62,9 @@ globals:
   - id: fpp_ip_addr
     type: std::string
     restore_value: true
-    initial_value: ${fpp_ip_addr}  # Change this to your FPP Server IP
+    # initial_value is emitted as a raw C++ expression — must stay a quoted
+    # string literal or the IP digits become an invalid numeric token.
+    initial_value: '"${fpp_ip_addr}"'  # Change this to your FPP Server IP
 
 
 # ==============================================================================
@@ -77,34 +79,15 @@ script:
           condition:
             wifi.connected:
           then:
-            - lambda: |-
-                std::string fpp_ip = id(fpp_ip_addr);
-                std::string playlist = "${fpp_playlist_name}";
-                
-                ESP_LOGI("FPP", "📡 Fire-and-forget request to: http://%s/api/command/Start%%20Playlist/%s", 
-                         fpp_ip.c_str(), playlist.c_str());
-                
-                // Update status immediately without waiting
-                id(fpp_status).publish_state("FPP Command Sent");
-            # Use a short delay then make the HTTP call
-            - delay: 100ms
-            - lambda: |-
-                std::string fpp_ip = id(fpp_ip_addr);
-                std::string playlist = "${fpp_playlist_name}";
-                
-                WiFiClient client;
-                if (client.connect(fpp_ip.c_str(), 80)) {
-                  String request = "GET /api/command/Start%20Playlist/" + String(playlist.c_str()) + " HTTP/1.1\r\n";
-                  request += "Host: " + String(fpp_ip.c_str()) + "\r\n";
-                  request += "User-Agent: esphome/speaker\r\n";
-                  request += "Connection: close\r\n\r\n";
-                  
-                  client.print(request);
-                  client.stop();
-                  ESP_LOGI("FPP", "✅ FPP command sent successfully (non-blocking)");
-                } else {
-                  ESP_LOGE("FPP", "❌ Failed to connect to FPP server");
-                }
+            # NOTE: raw WiFiClient sockets stopped compiling on ESPHome 2026's
+            # espidf-based builds. Use the http_request component declared above
+            # instead — its 3s global timeout keeps the call from stalling the loop.
+            - http_request.get:
+                url: !lambda |-
+                  return "http://" + id(fpp_ip_addr) +
+                         "/api/command/Start%20Playlist/" +
+                         std::string("${fpp_playlist_name}");
+                capture_response: false
           else:
             - logger.log: "❌ WiFi not connected!"
             - lambda: |-
