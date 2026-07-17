@@ -16,6 +16,10 @@ Checks (per device):
   7. Every package option in every main.yaml is enabled by at least one
      variant in tools/variants.yaml.
   8. No secrets.yaml tracked in git.
+  9. If configs/home_assistant.yaml exists for a device, main.yaml's ACTIVE
+     (uncommented) 'config:' package must point to it — units ship
+     pre-flashed from main.yaml, and Made for ESPHome requires HA support
+     enabled out of the box (see DESIGN_RULES.md #7).
 
 Exit 0 = clean, 1 = violations (listed on stdout).
 """
@@ -128,6 +132,50 @@ def check_networked(dev: Path, rel: str):
             f"'{m.group(1)}', expected '.../{rel}/main.yaml'")
 
 
+def active_package(text: str, key: str):
+    """Return the !include target of the ACTIVE (uncommented) package line
+    for `key` in a main.yaml packages: block, or None if not found/active."""
+    in_pkg = False
+    active = None
+    for line in text.splitlines():
+        if line.rstrip() == "packages:":
+            in_pkg = True
+            continue
+        if in_pkg and line and not line.startswith((" ", "\t", "#")):
+            break
+        if not in_pkg:
+            continue
+        m = re.match(rf"^\s+{re.escape(key)}:\s*!include\s+(\S+)", line)
+        if m:
+            active = m.group(1)
+    return active
+
+
+def check_made_for_esphome_default(dev: Path, rel: str):
+    """A device that has configs/home_assistant.yaml is Made-for-ESPHome
+    enrolled: units are pre-flashed straight from main.yaml, so main.yaml's
+    active 'config:' package MUST default to home_assistant.yaml. Shipping
+    networked.yaml (No-HA LAN) or standalone.yaml (AP-only) as the default
+    means customers can't add the device to Home Assistant out of the box —
+    this is exactly the regression an ESPHome reviewer caught on the
+    NeatoTargetIR submission (main.yaml AND the docs config.yaml had both
+    drifted to networked.yaml)."""
+    if not (dev / "configs/home_assistant.yaml").exists():
+        return  # not enrolled yet — out of scope for this check
+    main = dev / "main.yaml"
+    if not main.exists():
+        return  # already reported by check_layout
+    active = active_package(main.read_text(), "config")
+    if active is None:
+        err(f"{rel}/main.yaml: no active 'config:' package line found "
+            f"(device has configs/home_assistant.yaml — Made for ESPHome "
+            f"requires an active default)")
+    elif not active.endswith("configs/home_assistant.yaml"):
+        err(f"{rel}/main.yaml: active config is '{active}', but device has "
+            f"configs/home_assistant.yaml — it must be the default so units "
+            f"ship with Home Assistant support enabled (Made for ESPHome)")
+
+
 def check_variant_coverage():
     with open(REPO / "tools/variants.yaml") as f:
         matrix = yaml.safe_load(f)["devices"]
@@ -198,6 +246,7 @@ def main():
         check_includes(dev, rel)
         check_main(dev, rel)
         check_networked(dev, rel)
+        check_made_for_esphome_default(dev, rel)
     check_variant_coverage()
     check_secrets()
 

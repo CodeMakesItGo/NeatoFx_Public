@@ -100,6 +100,7 @@ substitutions:
 ## 7. "Made for ESPHome" / boot / logging conventions
 
 - `configs/networked.yaml` includes `improv_serial:` + `dashboard_import:` (MFE compliance). The `dashboard_import.package_import_url` must point at THIS device's `main.yaml` (copy-paste from a sibling device has caused wrong-URL bugs — always verify).
+- If a device has `configs/home_assistant.yaml`, `main.yaml`'s **active** (uncommented) `config:` package must point to it. Units are pre-flashed straight from `main.yaml`, and Made for ESPHome requires HA support (the native `api:`, plus `esphome.<device>-hit`-style events) to work the moment a customer powers the unit on — `networked.yaml` (No-HA LAN) and `standalone.yaml` (AP-only) stay available as commented alternatives for installs that intentionally don't want a Home Assistant server, but they must never be the shipped default once `home_assistant.yaml` exists. (This is the bug ESPHome's review caught on the NeatoTargetIR submission — `main.yaml` and the docs `config.yaml` had both drifted to `networked.yaml`.)
 - The `firmware_update` package + `update:` block are included where a published manifest exists at `firmware/<product>/manifest.json`. When a new product's firmware is published, add both.
 - `logger.baud_rate` must be non-zero when improv_serial is used (never `baud_rate: 0` in a device that can run the networked config).
 - `logger.level: WARN` for production (`INFO`/`DEBUG` for troubleshooting).
@@ -122,7 +123,7 @@ substitutions:
 
 Rules 1–9 are enforced automatically — don't rely on memory:
 
-- **Pre-commit hook** (`tools/hooks/pre-commit`, installed via `tools/install-hooks.sh`): runs `esphome config` on every device whose files changed, plus the repo lint script (`tools/lint_repo.py`) that checks naming, layout, include depths, and dashboard-import URLs.
+- **Pre-commit hook** (`tools/hooks/pre-commit`, installed via `tools/install-hooks.sh`): runs `esphome config` on every device whose files changed, plus the repo lint script (`tools/lint_repo.py`) that checks naming, layout, include depths, dashboard-import URLs, and — for any device that has `configs/home_assistant.yaml` — that `main.yaml`'s active `config:` package is `home_assistant.yaml`.
 - **GitHub Actions** (`.github/workflows/ci.yaml`): on every PR and push to `main`, compiles **every device × variant combination** (from `tools/variants.yaml`) with the **latest ESPHome release** and fails on any warning. CI uses `tools/ci_secrets.yaml` as a dummy `secrets.yaml`.
 - **Hardware-in-the-loop**: PRs labeled `hw-test` (or pushes to `main`) additionally run the physical test bench via the self-hosted runner (see `testbench/` in the private repo).
 
