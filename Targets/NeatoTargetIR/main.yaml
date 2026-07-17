@@ -34,8 +34,8 @@ packages:
 
   # Network mode — select one:
   #config: !include configs/standalone.yaml       # Device's own AP, no router
-  config: !include configs/networked.yaml         # Router, no HA server (No-HA LAN)
-  #config: !include configs/home_assistant.yaml   # Router + Home Assistant server
+  #config: !include configs/networked.yaml        # Router, no HA server (No-HA LAN)
+  config: !include configs/home_assistant.yaml    # Router + Home Assistant server
 
   # IR receiver configuration
   #ir_receiver: !include protocols/ir_nec.yaml
