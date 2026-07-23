@@ -20,6 +20,12 @@ Checks (per device):
      (uncommented) 'config:' package must point to it — units ship
      pre-flashed from main.yaml, and Made for ESPHome requires HA support
      enabled out of the box (see DESIGN_RULES.md #7).
+ 10. Made-for-ESPHome devices (those with configs/home_assistant.yaml) must
+     expose OTA firmware updates: the firmware_update shared package and an
+     uncommented update: platform: http_request block, whose manifest source
+     URL resolves to a manifest file that exists in this repo. An ESPHome
+     reviewer blocked the Target IR (block commented out) and Audio 50
+     (block missing) submissions on exactly this.
 
 Exit 0 = clean, 1 = violations (listed on stdout).
 """
@@ -176,6 +182,45 @@ def check_made_for_esphome_default(dev: Path, rel: str):
             f"ship with Home Assistant support enabled (Made for ESPHome)")
 
 
+MANIFEST_URL = re.compile(
+    r"^\s+source:\s*https://raw\.githubusercontent\.com/"
+    r"CodeMakesItGo/NeatoFx_Public/main/(\S+)", re.M)
+
+
+def check_firmware_update(dev: Path, rel: str):
+    """Made-for-ESPHome devices must ship a working OTA update entity:
+    firmware_update package included, an active update: http_request block,
+    and a manifest that actually exists at the URL the block points to.
+    ESPHome's reviewer blocked Target IR (commented out) and Audio 50
+    (missing) on exactly this — see DESIGN_RULES.md #7."""
+    cfg = dev / "configs/home_assistant.yaml"
+    if not cfg.exists():
+        return  # not enrolled — out of scope
+    lines = cfg.read_text().splitlines()
+    active = [l for l in lines if not l.lstrip().startswith("#")]
+    text = "\n".join(active)
+
+    if not re.search(r"^\s+firmware_update:\s*!include\s+\S*firmware_update\.yaml",
+                     text, re.M):
+        err(f"{rel}/configs/home_assistant.yaml: firmware_update package "
+            f"include missing or commented out (MFE requires OTA updates)")
+
+    if not re.search(r"^update:", text, re.M) or \
+            not re.search(r"^\s+-\s*platform:\s*http_request", text, re.M):
+        err(f"{rel}/configs/home_assistant.yaml: no active "
+            f"'update: platform: http_request' block (MFE requires the "
+            f"firmware update entity)")
+        return
+
+    m = MANIFEST_URL.search(text)
+    if not m:
+        err(f"{rel}/configs/home_assistant.yaml: update source is not a "
+            f"raw.githubusercontent.com URL into this repo's main branch")
+    elif not (REPO / m.group(1)).exists():
+        err(f"{rel}/configs/home_assistant.yaml: update source points at "
+            f"'{m.group(1)}' which does not exist in the repo")
+
+
 def check_variant_coverage():
     with open(REPO / "tools/variants.yaml") as f:
         matrix = yaml.safe_load(f)["devices"]
@@ -247,6 +292,7 @@ def main():
         check_main(dev, rel)
         check_networked(dev, rel)
         check_made_for_esphome_default(dev, rel)
+        check_firmware_update(dev, rel)
     check_variant_coverage()
     check_secrets()
 

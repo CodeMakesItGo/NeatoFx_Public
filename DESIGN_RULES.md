@@ -122,7 +122,7 @@ substitutions:
 
 Rules 1–9 are enforced automatically — don't rely on memory:
 
-- **Pre-commit hook** (`tools/hooks/pre-commit`, installed via `tools/install-hooks.sh`): runs `esphome config` on every device whose files changed, plus the repo lint script (`tools/lint_repo.py`) that checks naming, layout, include depths, dashboard-import URLs, and — for any device that has `configs/home_assistant.yaml` — that `main.yaml`'s active `config:` package is `home_assistant.yaml`.
+- **Pre-commit hook** (`tools/hooks/pre-commit`, installed via `tools/install-hooks.sh`): runs `esphome config` on every device whose files changed, plus the repo lint script (`tools/lint_repo.py`) that checks naming, layout, include depths, dashboard-import URLs, and — for any device that has `configs/home_assistant.yaml` — that `main.yaml`'s active `config:` package is `home_assistant.yaml`, and that the OTA firmware-update entity is active (`firmware_update` package + uncommented `update: http_request` block whose manifest file exists in `firmware/`).
 - **GitHub Actions** (`.github/workflows/ci.yaml`): on every PR and push to `main`, compiles **every device × variant combination** (from `tools/variants.yaml`) with the **latest ESPHome release** and fails on any warning. CI uses `tools/ci_secrets.yaml` as a dummy `secrets.yaml`.
 - **Hardware-in-the-loop**: PRs labeled `hw-test` (or pushes to `main`) additionally run the physical test bench via the self-hosted runner (see `testbench/` in the private repo).
 
