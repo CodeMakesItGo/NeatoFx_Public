@@ -37,19 +37,22 @@ sensor:
 # IMAGES - Screen Backgrounds
 # ==============================================================================
 image:
-  - file: "images/GAME_START_${color}_BTN.png"
+  - platform: file
+    file: "images/GAME_START_${color}_BTN.png"
     id: boot_logo
     type: RGB565
     resize: 480x480
     transparency: alpha_channel
 
-  - file: "images/GAME_SHOTS_${color}.png"
+  - platform: file
+    file: "images/GAME_SHOTS_${color}.png"
     id: shots_background
     type: RGB565
     resize: 480x480
     transparency: alpha_channel
 
-  - file: "images/GAME_OVER.png"
+  - platform: file
+    file: "images/GAME_OVER.png"
     id: game_over_background
     type: RGB565
     resize: 480x480
