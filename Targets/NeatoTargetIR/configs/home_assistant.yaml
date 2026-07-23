@@ -15,8 +15,7 @@
 packages:
   networked_base: !include ../../../_shared/networked_base.yaml
   network_sensors: !include ../../../_shared/network_sensors.yaml
-  # OTA update checks — enable if this HA deployment has internet access.
-  #firmware_update: !include ../../../_shared/firmware_update.yaml
+  firmware_update: !include ../../../_shared/firmware_update.yaml
 
 # ==============================================================================
 # DASHBOARD IMPORT - Made for ESPHome
@@ -131,12 +130,10 @@ script:
 improv_serial:
 
 # ==============================================================================
-# FIRMWARE UPDATES - OTA via HTTP  (enable if this HA deployment has internet)
+# FIRMWARE UPDATES - OTA via HTTP
 # ==============================================================================
-# Requires internet access to fetch the GitHub manifest. Re-enable this block AND
-# the firmware_update package include above to restore self-updating.
-#update:
-#  - platform: http_request
-#    id: firmware_update_check
-#    name: "Firmware Update"
-#    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/target-ir/manifest.json
+update:
+  - platform: http_request
+    id: firmware_update_check
+    name: "Firmware Update"
+    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/target-ir/manifest.json
