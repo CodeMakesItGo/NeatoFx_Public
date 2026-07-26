@@ -145,7 +145,7 @@ select:
     optimistic: true
     restore_value: true
     initial_option: "None"
-    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+    options: ["None", "Relay 1", "Relay 2", "PWR 1", "PWR 2"]
 
   - platform: template
     name: "RF B Output"
@@ -153,7 +153,7 @@ select:
     optimistic: true
     restore_value: true
     initial_option: "None"
-    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+    options: ["None", "Relay 1", "Relay 2", "PWR 1", "PWR 2"]
 
   - platform: template
     name: "RF C Output"
@@ -161,7 +161,7 @@ select:
     optimistic: true
     restore_value: true
     initial_option: "None"
-    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+    options: ["None", "Relay 1", "Relay 2", "PWR 1", "PWR 2"]
 
   - platform: template
     name: "RF D Output"
@@ -169,4 +169,4 @@ select:
     optimistic: true
     restore_value: true
     initial_option: "None"
-    options: ["None", "Relay 1", "Relay 2", "FET 1", "FET 2"]
+    options: ["None", "Relay 1", "Relay 2", "PWR 1", "PWR 2"]

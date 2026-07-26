@@ -916,8 +916,8 @@ select:
       - "None"
       - "Relay 1"
       - "Relay 2"
-      - "FET 1"
-      - "FET 2"
+      - "PWR 1"
+      - "PWR 2"
 
   - platform: template
     name: "Input 2 Output"
@@ -929,22 +929,22 @@ select:
       - "None"
       - "Relay 1"
       - "Relay 2"
-      - "FET 1"
-      - "FET 2"
+      - "PWR 1"
+      - "PWR 2"
 
   - platform: template
-    name: "BG Loop FET Output"
+    name: "BG Loop PWR Output"
     id: bg_loop_fet_select
     optimistic: true
     restore_value: true
-    initial_option: "FET 1"
+    initial_option: "PWR 1"
     options:
       - "None"
-      - "FET 1"
-      - "FET 2"
+      - "PWR 1"
+      - "PWR 2"
 
   - platform: template
-    name: "BG Loop FET Effect"
+    name: "BG Loop PWR Effect"
     id: bg_loop_effect_select
     optimistic: true
     restore_value: true

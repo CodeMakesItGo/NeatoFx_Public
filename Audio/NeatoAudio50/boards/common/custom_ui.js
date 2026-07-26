@@ -18,9 +18,9 @@
         BTN = 'button', TXT = 'text_sensor', SENS = 'sensor', BIN = 'binary_sensor';
 
   // Shared option lists (order is display-only; the value set is the string)
-  const OUTPUTS     = ['None', 'Relay 1', 'Relay 2', 'FET 1', 'FET 2'];
-  const FET_OUTPUTS = ['None', 'FET 1', 'FET 2'];
-  const FET_EFFECTS = ['Fade', 'Strobe', 'Lightning'];
+  const OUTPUTS     = ['None', 'Relay 1', 'Relay 2', 'PWR 1', 'PWR 2'];
+  const PWR_OUTPUTS = ['None', 'PWR 1', 'PWR 2'];
+  const PWR_EFFECTS = ['Fade', 'Strobe', 'Lightning'];
 
   // ── Entity registry ────────────────────────────────────────────────────────
   // Keys are internal-only DOM ids. `name` is the exact YAML `name:` — REST URLs
@@ -42,8 +42,8 @@
     // ── Background Loop ──
     bg_enable: { type: SW,  name: 'Background Loop Enable', label: 'Loop Enable', section: 'bg' },
     bg_mp3:    { type: NUM, name: 'Background Loop MP3',    label: 'Loop MP3 #', min: 1, max: 255, step: 1, box: true, section: 'bg' },
-    bg_fet:    { type: SEL, name: 'BG Loop FET Output',     label: 'FET Output', options: FET_OUTPUTS, section: 'bg' },
-    bg_effect: { type: SEL, name: 'BG Loop FET Effect',     label: 'FET Effect', options: FET_EFFECTS, section: 'bg' },
+    bg_fet:    { type: SEL, name: 'BG Loop PWR Output',     label: 'PWR Output', options: PWR_OUTPUTS, section: 'bg' },
+    bg_effect: { type: SEL, name: 'BG Loop PWR Effect',     label: 'PWR Effect', options: PWR_EFFECTS, section: 'bg' },
 
     // ── Input 1 (collapsible) ──
     in1_mp3:   { type: NUM, name: 'Input 1 MP3',          label: 'MP3 #', min: 0, max: 255, step: 1, box: true,
