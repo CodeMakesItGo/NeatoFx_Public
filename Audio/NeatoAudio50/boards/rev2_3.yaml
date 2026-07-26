@@ -8,6 +8,7 @@ substitutions:
   friendly_name: "NEATO Speaker ${id}"
   project_name: "CodeMakesItGo.Speaker"
   project_version: "1.0.0"
+  hw_version: "Rev 2.3"
 
 # ==============================================================================
 # CORE ESPHOME CONFIGURATION - Common Settings
@@ -21,8 +22,13 @@ esphome:
     version: ${project_version}
 
   on_boot:
-    priority: 300  # Match working .speaker_base.yaml timing
-    then:
+    - priority: -100   # after all components are set up
+      then:
+        - text_sensor.template.publish:
+            id: firmware_version_sensor
+            state: "${project_version} · ${hw_version}"
+    - priority: 300  # Match working .speaker_base.yaml timing
+      then:
       - output.turn_on: mp3_power
       - output.turn_off: amp_unmute  # Keep muted
       - output.turn_off: amp_wake    # Keep asleep
@@ -68,6 +74,18 @@ ota:
 # ==============================================================================
 # COMMON SENSORS - System Monitoring
 # ==============================================================================
+# ==============================================================================
+# TEXT SENSORS - Device Information
+# ==============================================================================
+text_sensor:
+  # Firmware / hardware version shown in the custom web UI header. Published once
+  # at boot from the compile-time project_version + hw_version substitutions.
+  - platform: template
+    name: "Firmware Version"
+    id: firmware_version_sensor
+    icon: "mdi:chip"
+    update_interval: never
+
 sensor:
   - platform: uptime
     id: uptime_sensor
@@ -166,9 +184,11 @@ switch:
 # COMMON BUTTONS - User Controls
 # ==============================================================================
 button:
+  # Fixed name (no ${friendly_name}) so the custom web UI can address it by a
+  # known REST path: /button/Restart%20Device/press
   - platform: restart
     id: restart_button
-    name: "Restart ${friendly_name}"
+    name: "Restart Device"
 
   - platform: template
     id: test_play_random_mp3
