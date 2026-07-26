@@ -100,7 +100,7 @@ switch:
   - platform: template
     name: "Background Loop Enable"
     id: bg_loop_enable
-    restore_mode: RESTORE_DEFAULT_ON
+    restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
     on_turn_on:
       - lambda: 'id(loop_bg_active) = true;'
