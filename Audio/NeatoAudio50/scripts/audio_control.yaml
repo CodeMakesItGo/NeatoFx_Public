@@ -56,11 +56,11 @@ script:
       - lambda: |-
           std::string fet = id(bg_loop_fet_select).current_option();
           std::string effect = id(bg_loop_effect_select).current_option();
-          if (fet == "FET 1") {
+          if (fet == "PWR 1") {
             auto call = id(spot_light_1).turn_on();
             call.set_effect(effect.c_str());
             call.perform();
-          } else if (fet == "FET 2") {
+          } else if (fet == "PWR 2") {
             auto call = id(spot_light_2).turn_on();
             call.set_effect(effect.c_str());
             call.perform();
@@ -127,11 +127,11 @@ script:
             id(relay_1).turn_on();
           } else if (output_choice == "Relay 2") {
             id(relay_2).turn_on();
-          } else if (output_choice == "FET 1") {
+          } else if (output_choice == "PWR 1") {
             auto call = id(spot_light_1).turn_on();
             call.set_brightness(id(spot1_trigger_brightness).state / 100.0f);
             call.perform();
-          } else if (output_choice == "FET 2") {
+          } else if (output_choice == "PWR 2") {
             auto call = id(spot_light_2).turn_on();
             call.set_brightness(id(spot2_trigger_brightness).state / 100.0f);
             call.perform();
@@ -185,11 +185,11 @@ script:
             id(relay_1).turn_on();
           } else if (output_choice == "Relay 2") {
             id(relay_2).turn_on();
-          } else if (output_choice == "FET 1") {
+          } else if (output_choice == "PWR 1") {
             auto call = id(spot_light_1).turn_on();
             call.set_brightness(id(spot1_trigger_brightness).state / 100.0f);
             call.perform();
-          } else if (output_choice == "FET 2") {
+          } else if (output_choice == "PWR 2") {
             auto call = id(spot_light_2).turn_on();
             call.set_brightness(id(spot2_trigger_brightness).state / 100.0f);
             call.perform();
@@ -231,8 +231,8 @@ script:
           std::string output_choice = id(rf_a_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
-          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
-          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "PWR 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "PWR 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
           int mp3_setting = (int)id(rf_a_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("rf_a", "No MP3 assigned"); }
           else if (id(rf_a_random_enable).state) {
@@ -253,8 +253,8 @@ script:
           std::string output_choice = id(rf_b_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
-          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
-          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "PWR 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "PWR 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
           int mp3_setting = (int)id(rf_b_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("rf_b", "No MP3 assigned"); }
           else if (id(rf_b_random_enable).state) {
@@ -275,8 +275,8 @@ script:
           std::string output_choice = id(rf_c_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
-          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
-          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "PWR 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "PWR 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
           int mp3_setting = (int)id(rf_c_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("rf_c", "No MP3 assigned"); }
           else if (id(rf_c_random_enable).state) {
@@ -297,8 +297,8 @@ script:
           std::string output_choice = id(rf_d_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
           else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
-          else if (output_choice == "FET 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
-          else if (output_choice == "FET 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "PWR 1") { auto call = id(spot_light_1).turn_on(); call.set_brightness(id(spot1_trigger_brightness).state / 100.0f); call.perform(); }
+          else if (output_choice == "PWR 2") { auto call = id(spot_light_2).turn_on(); call.set_brightness(id(spot2_trigger_brightness).state / 100.0f); call.perform(); }
           int mp3_setting = (int)id(rf_d_mp3_select).state;
           if (mp3_setting == 0) { ESP_LOGW("rf_d", "No MP3 assigned"); }
           else if (id(rf_d_random_enable).state) {
@@ -318,10 +318,10 @@ script:
             id(relay_1).turn_off();
           } else if (output_choice == "Relay 2") {
             id(relay_2).turn_off();
-          } else if (output_choice == "FET 1") {
+          } else if (output_choice == "PWR 1") {
             auto call = id(spot_light_1).turn_off();
             call.perform();
-          } else if (output_choice == "FET 2") {
+          } else if (output_choice == "PWR 2") {
             auto call = id(spot_light_2).turn_off();
             call.perform();
           }
@@ -336,10 +336,10 @@ script:
             id(relay_1).turn_off();
           } else if (output_choice == "Relay 2") {
             id(relay_2).turn_off();
-          } else if (output_choice == "FET 1") {
+          } else if (output_choice == "PWR 1") {
             auto call = id(spot_light_1).turn_off();
             call.perform();
-          } else if (output_choice == "FET 2") {
+          } else if (output_choice == "PWR 2") {
             auto call = id(spot_light_2).turn_off();
             call.perform();
           }

@@ -41,6 +41,19 @@ packages:
   audio_scripts:   !include scripts/audio_control.yaml
 
 # ==============================================================================
+# WEB INTERFACE - Custom NeatoFx dashboard (boards/common/custom_ui.js)
+# ==============================================================================
+# js_include embeds the custom UI into the firmware so it works with no
+# internet (AP/standalone mode included). js_url "" stops the page from also
+# pulling the default ESPHome UI from the CDN; local: false skips embedding the
+# default UI assets (the custom UI has a switch-to-default button that loads
+# them from the CDN when internet is available).
+web_server:
+  local: false
+  js_url: ""
+  js_include: "boards/common/custom_ui.js"
+
+# ==============================================================================
 # DEBUGGING
 # ==============================================================================
 logger:

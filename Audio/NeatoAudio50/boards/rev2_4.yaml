@@ -12,6 +12,7 @@ substitutions:
   friendly_name: "NEATO Speaker ${id}"
   project_name: "CodeMakesItGo.Speaker"
   project_version: "1.0.0"
+  hw_version: "Rev 2.4"
 
 # ==============================================================================
 # ESPHOME BOOT SEQUENCE
@@ -58,6 +59,11 @@ esphome:
       #    file: 2
       #- logger.log: "Playing boot MP3 #2"
       #- script.execute: playback_timeout
+    - priority: -100   # after all components are set up
+      then:
+        - text_sensor.template.publish:
+            id: firmware_version_sensor
+            state: "${project_version} · ${hw_version}"
 
 # ==============================================================================
 # ESP32 FRAMEWORK - Common Settings
@@ -75,6 +81,18 @@ sensor:
     id: uptime_sensor
     name: "Uptime Sensor"
     update_interval: 60s
+
+# ==============================================================================
+# TEXT SENSORS - Device Information
+# ==============================================================================
+text_sensor:
+  # Firmware / hardware version shown in the custom web UI header. Published once
+  # at boot from the compile-time project_version + hw_version substitutions.
+  - platform: template
+    name: "Firmware Version"
+    id: firmware_version_sensor
+    icon: "mdi:chip"
+    update_interval: never
 
 status_led:
   pin:
@@ -172,9 +190,11 @@ switch:
 # COMMON BUTTONS - User Controls
 # ==============================================================================
 button:
+  # Fixed name (no ${friendly_name}) so the custom web UI can address it by a
+  # known REST path: /button/Restart%20Device/press
   - platform: restart
     id: restart_button
-    name: "Restart ${friendly_name}"
+    name: "Restart Device"
 
   - platform: template
     id: test_play_random_mp3
@@ -905,8 +925,8 @@ select:
       - "None"
       - "Relay 1"
       - "Relay 2"
-      - "FET 1"
-      - "FET 2"
+      - "PWR 1"
+      - "PWR 2"
 
   - platform: template
     name: "Input 2 Output"
@@ -918,22 +938,22 @@ select:
       - "None"
       - "Relay 1"
       - "Relay 2"
-      - "FET 1"
-      - "FET 2"
+      - "PWR 1"
+      - "PWR 2"
 
   - platform: template
-    name: "BG Loop FET Output"
+    name: "BG Loop PWR Output"
     id: bg_loop_fet_select
     optimistic: true
     restore_value: true
-    initial_option: "FET 1"
+    initial_option: "PWR 1"
     options:
       - "None"
-      - "FET 1"
-      - "FET 2"
+      - "PWR 1"
+      - "PWR 2"
 
   - platform: template
-    name: "BG Loop FET Effect"
+    name: "BG Loop PWR Effect"
     id: bg_loop_effect_select
     optimistic: true
     restore_value: true

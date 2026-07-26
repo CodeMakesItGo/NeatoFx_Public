@@ -13,11 +13,13 @@ packages:
 # ==============================================================================
 # BUTTONS - Clear WiFi credentials
 # ==============================================================================
+# Named "Factory Reset" to match the networked configs (_shared/
+# network_sensors.yaml) so the custom web UI's Reset card works in every mode.
 button:
   - platform: factory_reset
-    name: "Clear WiFi & Restart"
+    name: "Factory Reset"
     id: factory_reset_button
-    icon: "mdi:wifi-off"
+    icon: "mdi:restart-alert"
 
 # ==============================================================================
 # ESPHome Script - ESPHome/Home Assistant integration
