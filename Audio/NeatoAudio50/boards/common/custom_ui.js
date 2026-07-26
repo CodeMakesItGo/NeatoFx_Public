@@ -71,7 +71,7 @@
     spot2_bright: { type: NUM, name: 'SpotLight 2 Trigger Brightness', label: 'SpotLight 2 Brightness',
                     min: 0, max: 100, step: 5, unit: '%', section: 'out' },
 
-    // ── RF Transmitter (collapsible, only in rftx_outputs builds — auto-shown) ──
+    // ── RF Receiver (collapsible, only in rftx_outputs builds — auto-shown) ──
     rf_power: { type: SW,  name: 'RF TX Power',    label: 'RF TX Power', auto: true, section: 'rf' },
     rf_tx_a:  { type: SW,  name: 'RF TX A',        label: 'RF TX A (pulse)', auto: true, section: 'rf' },
     rf_a_mp3: { type: NUM, name: 'RF A MP3',       label: 'RF A MP3 #', min: 0, max: 255, step: 1, box: true, auto: true, section: 'rf' },
@@ -665,7 +665,7 @@
     inner.appendChild(makeCollapsible('Input 1',     sectionItems('in1')));
     inner.appendChild(makeCollapsible('Input 2',     sectionItems('in2')));
     inner.appendChild(makeCollapsible('Outputs',     sectionItems('out')));
-    var rfCard = makeCollapsible('RF Transmitter', sectionItems('rf'));
+    var rfCard = makeCollapsible('RF Receiver', sectionItems('rf'));
     rfCard.classList.add('auto-hide');   // shown when an RF entity reports state
     autoCards.rf = rfCard;
     inner.appendChild(rfCard);
