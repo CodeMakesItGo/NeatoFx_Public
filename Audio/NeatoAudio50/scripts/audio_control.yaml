@@ -96,6 +96,14 @@ script:
       - output.turn_on: amp_unmute  # Unmute
       - delay: 100ms
       - logger.log: "Amp should be awake and unmuted"
+      # Re-send saved volume before every play: the DFPlayer powers up (and
+      # resets) at its default volume 30 (max). If it missed the boot-time
+      # set_volume — SD mount can outlast the boot delay — it would otherwise
+      # blast full volume while the UI shows the saved value.
+      - dfplayer.set_volume:
+          id: dfplayer1
+          volume: !lambda 'return (int)id(dfplayer_volume).state;'
+      - delay: 100ms
       - lambda: |-
           id(button_counter) += 1;
           int max_files = (int)id(max_mp3_files).state;
@@ -118,6 +126,12 @@ script:
       - output.turn_on: amp_unmute  # Unmute
       - delay: 100ms
       - logger.log: "Amp should be awake and unmuted"
+      # Re-send saved volume before every play (DFPlayer defaults to max after
+      # power-up/reset; see note in play_random_mp3)
+      - dfplayer.set_volume:
+          id: dfplayer1
+          volume: !lambda 'return (int)id(dfplayer_volume).state;'
+      - delay: 100ms
 
       - lambda: |-
           // Control selected output
@@ -177,6 +191,12 @@ script:
       - output.turn_on: amp_unmute  # Unmute
       - delay: 100ms
       - logger.log: "Amp should be awake and unmuted"
+      # Re-send saved volume before every play (DFPlayer defaults to max after
+      # power-up/reset; see note in play_random_mp3)
+      - dfplayer.set_volume:
+          id: dfplayer1
+          volume: !lambda 'return (int)id(dfplayer_volume).state;'
+      - delay: 100ms
 
       - lambda: |-
           // Control selected output
@@ -227,6 +247,12 @@ script:
       - delay: 50ms
       - output.turn_on: amp_unmute
       - delay: 100ms
+      # Re-send saved volume before every play (DFPlayer defaults to max after
+      # power-up/reset; see note in play_random_mp3)
+      - dfplayer.set_volume:
+          id: dfplayer1
+          volume: !lambda 'return (int)id(dfplayer_volume).state;'
+      - delay: 100ms
       - lambda: |-
           std::string output_choice = id(rf_a_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
@@ -248,6 +274,12 @@ script:
       - output.turn_on: amp_wake
       - delay: 50ms
       - output.turn_on: amp_unmute
+      - delay: 100ms
+      # Re-send saved volume before every play (DFPlayer defaults to max after
+      # power-up/reset; see note in play_random_mp3)
+      - dfplayer.set_volume:
+          id: dfplayer1
+          volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - delay: 100ms
       - lambda: |-
           std::string output_choice = id(rf_b_output_select).current_option();
@@ -271,6 +303,12 @@ script:
       - delay: 50ms
       - output.turn_on: amp_unmute
       - delay: 100ms
+      # Re-send saved volume before every play (DFPlayer defaults to max after
+      # power-up/reset; see note in play_random_mp3)
+      - dfplayer.set_volume:
+          id: dfplayer1
+          volume: !lambda 'return (int)id(dfplayer_volume).state;'
+      - delay: 100ms
       - lambda: |-
           std::string output_choice = id(rf_c_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
@@ -292,6 +330,12 @@ script:
       - output.turn_on: amp_wake
       - delay: 50ms
       - output.turn_on: amp_unmute
+      - delay: 100ms
+      # Re-send saved volume before every play (DFPlayer defaults to max after
+      # power-up/reset; see note in play_random_mp3)
+      - dfplayer.set_volume:
+          id: dfplayer1
+          volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - delay: 100ms
       - lambda: |-
           std::string output_choice = id(rf_d_output_select).current_option();

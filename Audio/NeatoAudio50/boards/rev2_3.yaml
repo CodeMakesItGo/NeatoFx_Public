@@ -33,7 +33,10 @@ esphome:
       - output.turn_off: amp_unmute  # Keep muted
       - output.turn_off: amp_wake    # Keep asleep
       - output.turn_on: hb_led
-      - delay: 1000ms  # Wait for DFPlayer to be ready
+      # DFPlayer needs 1.5-3s+ after power-on to boot and mount the SD card
+      # (longer with big/slow cards). A volume command sent too early is
+      # silently dropped and the player stays at its default volume 30 (max).
+      - delay: 3000ms  # Wait for DFPlayer to be ready
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
@@ -194,15 +197,9 @@ button:
     id: test_play_random_mp3
     name: "Test Play Next MP3"
     on_press:
-      - lambda: |-
-          int max_files = (int)id(max_mp3_files).state;
-          id(button_counter) += 1;
-          if (id(button_counter) > max_files) id(button_counter) = 1;
-          ESP_LOGD("test", "Playing sequential MP3: %d", id(button_counter));
-          id(dfplayer1).play_mp3(id(button_counter));
-      - output.turn_on: amp_wake    # Wake amp
-      - delay: 50ms                 # Let amp stabilize
-      - output.turn_on: amp_unmute  # Unmute
+      # Same path as real triggers: wakes amp, re-sends saved volume, plays,
+      # and starts the playback watchdog
+      - script.execute: play_random_mp3
 
   - platform: template
     id: test_input_1
