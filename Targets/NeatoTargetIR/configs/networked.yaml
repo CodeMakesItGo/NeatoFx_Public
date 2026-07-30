@@ -36,11 +36,13 @@ substitutions:
   # Override here only if this device type needs a different subnet offset.
 
   # --- Direct Audio-50 trigger (no Home Assistant) ---------------------------
-  # Address of the shared Audio-50 this target plays through. The Audio-50 now
-  # uses DHCP with a router-side reservation, so set this to that reserved IP.
-  # Using the IP (not mDNS) keeps outbound ESP32 calls reliable. Override per
-  # target with -s audio_host <ip> to route a target to a different speaker.
-  audio_host: "192.168.8.191"
+  # DEFAULT address of the shared Audio-50 this target plays through — it only
+  # seeds the "Audio Device IP" text box on first boot (see the text: block
+  # below); after that the web-UI value is authoritative and survives reboots.
+  # The Audio-50 uses DHCP with a router-side reservation, so set this to that
+  # reserved IP. Using the IP (not mDNS) keeps outbound ESP32 calls reliable.
+  # Override the default per target with -s audio_host <ip>.
+  audio_host: "192.168.8.3"
   # NOTE: the MP3 file number played on a hit is now a live web-UI control
   # ("Hit Sound (MP3 #)", default 1) — see the number: block below.
 
@@ -78,8 +80,19 @@ http_request:
 # HIT SOUND - MP3 file number this target plays, settable live from the web UI
 # ==============================================================================
 # Exposed as a "Hit Sound (MP3 #)" box in the device web UI (and HA). Persists
-# across reboots; defaults to 1 on first boot. The hit script POSTs this value
-# to the Audio-50's Net Play endpoint.
+# across reboots; defaults to 1 on first boot.
+#
+#   1-255  This target picks the file. In the Input modes it overrides whatever
+#          the Audio-50 has assigned to that input, so several targets can share
+#          one speaker and one lighting routine, each with its own sound.
+#   0      Hand the choice back to the Audio-50: the input runs exactly as it is
+#          configured locally — its own "Input N MP3", including Sequential mode
+#          if that input has it enabled. Use this when the speaker already has a
+#          routine for the input and the target should just fire it.
+#
+# 0 only makes sense in the "Input 1"/"Input 2" modes. In "MP3 Only" mode there
+# is no input routine to fall back on, so 0 means "play nothing" and the hit
+# script skips the POST entirely (see esphome_hit_script below).
 number:
   - platform: template
     name: "Hit Sound (MP3 #)"
@@ -88,7 +101,7 @@ number:
     optimistic: true
     restore_value: true
     initial_value: 1
-    min_value: 1
+    min_value: 0        # 0 = defer to the Audio-50's own Input N MP3 setting
     max_value: 255
     step: 1
     mode: box
@@ -108,24 +121,54 @@ switch:
     restore_mode: RESTORE_DEFAULT_ON
 
 # ==============================================================================
-# AUDIO TARGET - read-only web-UI indicator of which speaker this target POSTs to
+# REMOTE AUDIO MODE - what a hit asks the Audio-50 to do
 # ==============================================================================
-# Shows the ${audio_host} address so you can confirm, from the target's web page,
-# where its hits are being sent. Published once at boot (value is compile-time).
-text_sensor:
+# "MP3 Only" (default) POSTs the Net Play endpoint: sound only, no lights.
+#
+# "Input 1" / "Input 2" POST the Net Trigger endpoint instead, which runs the
+# Audio-50's full run_inputN_script — so everything wired to that input fires
+# too: its Output selection (Relay 1/2 or PWR 1/2 spotlight), the spotlight
+# trigger brightness, the output timer, and the background-loop pause.
+#
+# In these modes "Hit Sound (MP3 #)" decides who picks the file: 1-255 overrides
+# the Audio-50's own setting for that input (per-target sounds, shared lighting),
+# 0 defers to it entirely (the input's routine runs untouched).
+#
+# Requires an Audio-50 running firmware with the Net Trigger endpoint.
+select:
   - platform: template
-    name: "Audio Target"
-    id: audio_target_addr
-    icon: "mdi:speaker"
-    update_interval: never
+    name: "Remote Audio Mode"
+    id: remote_audio_mode
+    icon: "mdi:playlist-play"
+    optimistic: true
+    restore_value: true
+    initial_option: "MP3 Only"
+    options:
+      - "MP3 Only"
+      - "Input 1"
+      - "Input 2"
 
-esphome:
-  on_boot:
-    - priority: -100   # after all components are set up
-      then:
-        - text_sensor.template.publish:
-            id: audio_target_addr
-            state: "${audio_host}"
+# ==============================================================================
+# AUDIO DEVICE IP - which speaker this target POSTs to, editable from the web UI
+# ==============================================================================
+# Editable text box, persisted across reboots. On first boot (and after a Factory
+# Reset) it seeds from the compile-time ${audio_host} substitution; from then on
+# the stored value wins, so a speaker can be re-pointed in the field without
+# recompiling. The hit script reads it at POST time — the new address takes
+# effect on the very next hit, no reboot required. Leave it blank to fall back to
+# ${audio_host}. Accepts an IP or a hostname; IPs are more reliable on the
+# gallery LAN (no mDNS dependency).
+text:
+  - platform: template
+    name: "Audio Device IP"
+    id: audio_host_ip
+    icon: "mdi:speaker"
+    mode: text
+    optimistic: true
+    restore_value: true
+    initial_value: "${audio_host}"
+    min_length: 0
+    max_length: 32
 
 # ==============================================================================
 # Target Hit Script - ESPHome/Home Assistant integration
@@ -135,17 +178,35 @@ script:
     mode: single  # Prevent overlapping hits
     then:
       # Trigger the shared Audio-50 directly over the router — no Home Assistant.
-      # POSTs the current "Hit Sound (MP3 #)" web-UI value to the Audio-50's
-      # "Net Play" endpoint. Gated on the Remote Audio Enable switch so the UI
-      # can silence remote audio without disabling anything else.
+      # Gated on the Remote Audio Enable switch so the UI can silence remote
+      # audio without disabling anything else. "Audio Device IP" picks the
+      # speaker and "Remote Audio Mode" picks the endpoint: Net Play for sound
+      # only, or Net Trigger to also fire that input's lights/relay/timer on the
+      # Audio-50 (see the select above). Either way the file played is this
+      # target's "Hit Sound (MP3 #)".
       - if:
           condition:
-            switch.is_on: remote_audio_switch
+            and:
+              - switch.is_on: remote_audio_switch
+              # "MP3 Only" + 0 has nothing to play — Net Play rejects 0 — so skip
+              # the request rather than spend a hit waiting on it. 0 IS meaningful
+              # in the Input modes: there it means "let the Audio-50 choose".
+              - lambda: |-
+                  return id(remote_audio_mode).current_option() != "MP3 Only" ||
+                         (int) id(hit_sound_num).state >= 1;
           then:
             - http_request.post:
                 url: !lambda |-
-                  return "http://${audio_host}/number/Net%20Play/set?value=" +
-                         to_string((int) id(hit_sound_num).state);
+                  std::string host = id(audio_host_ip).state;
+                  if (host.empty()) host = "${audio_host}";   // blank box → compile-time default
+                  int mp3 = (int) id(hit_sound_num).state;
+                  std::string mode = id(remote_audio_mode).current_option();
+                  if (mode == "Input 1") {
+                    return "http://" + host + "/number/Net%20Trigger/set?value=" + to_string(1000 + mp3);
+                  } else if (mode == "Input 2") {
+                    return "http://" + host + "/number/Net%20Trigger/set?value=" + to_string(2000 + mp3);
+                  }
+                  return "http://" + host + "/number/Net%20Play/set?value=" + to_string(mp3);
                 capture_response: false
       # Optional: also notify Home Assistant (only fires if an HA client is
       # connected; harmless no-op otherwise). Uncomment if you run HA too.

@@ -116,6 +116,8 @@ script:
 
   - id: play_input1_mp3
     mode: queued
+    parameters:
+      mp3_override: int   # 0 = use "Input 1 MP3"; 1-255 = caller-supplied file
     then:
       - logger.log: "Input 1 MP3 script started"
        # NOW turn on amp after play command is sent
@@ -154,9 +156,15 @@ script:
           // Play MP3
           int mp3_setting = (int)id(input1_mp3_select).state;
           bool random_enabled = id(input1_random_enable).state;
-          ESP_LOGI("input1", "MP3 setting: %d, Random: %s", mp3_setting, random_enabled ? "YES" : "NO");
+          ESP_LOGI("input1", "MP3 setting: %d, Random: %s, Override: %d", mp3_setting, random_enabled ? "YES" : "NO", mp3_override);
 
-          if (mp3_setting == 0) {
+          if (mp3_override >= 1 && mp3_override <= 255) {
+            // Caller (Net Trigger) supplied the file — wins over the local
+            // "Input 1 MP3" setting and over sequential mode. Everything else
+            // above (output routing, brightness, timer) still applies.
+            ESP_LOGI("input1", "Playing caller-supplied MP3: %d", mp3_override);
+            id(dfplayer1).play_mp3(mp3_override);
+          } else if (mp3_setting == 0) {
             // None - do nothing
             ESP_LOGW("input1", "No MP3 assigned (set to 0)");
           } else if (random_enabled) {
@@ -181,6 +189,8 @@ script:
 
   - id: play_input2_mp3
     mode: queued
+    parameters:
+      mp3_override: int   # 0 = use "Input 2 MP3"; 1-255 = caller-supplied file
     then:
       - logger.log: "Input 2 MP3 script started"
        # NOW turn on amp after play command is sent
@@ -217,7 +227,13 @@ script:
 
           // Play MP3
           int mp3_setting = (int)id(input2_mp3_select).state;
-          if (mp3_setting == 0) {
+          if (mp3_override >= 1 && mp3_override <= 255) {
+            // Caller (Net Trigger) supplied the file — wins over the local
+            // "Input 2 MP3" setting and over sequential mode. Everything else
+            // above (output routing, brightness, timer) still applies.
+            ESP_LOGD("input2", "Playing caller-supplied MP3: %d", mp3_override);
+            id(dfplayer1).play_mp3(mp3_override);
+          } else if (mp3_setting == 0) {
             // None - do nothing
             ESP_LOGD("input2", "No MP3 assigned");
           } else if (id(input2_random_enable).state) {

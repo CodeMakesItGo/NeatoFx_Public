@@ -207,23 +207,33 @@ remote_receiver:
                 id(detected_team).publish_state(team);
                 
                 // Set team ID based on detection
+                // Hand the team color to target_hit_script via globals rather
+                // than writing it to the strip here — see the same note in
+                // ir_laser_tag.yaml. A direct set_rgb() is invisible while an
+                // effect is running, yet still gets auto-saved to flash, which
+                // made the team color show up only after a reboot.
                 int team_id = 0;  // Default unknown
                 if (team == "Red") {
                   team_id = 3;
-                  id(led_strip).make_call().set_rgb(1.0, 0.0, 0.0).perform();
+                  id(team_r) = 1.0f; id(team_g) = 0.0f; id(team_b) = 0.0f;
                 }
                 else if (team == "Green") {
                   team_id = 2;
-                  id(led_strip).make_call().set_rgb(0.0, 1.0, 0.0).perform();
+                  id(team_r) = 0.0f; id(team_g) = 1.0f; id(team_b) = 0.0f;
                 }
                 else if (team == "Blue") {
                   team_id = 1;
-                  id(led_strip).make_call().set_rgb(0.0, 0.0, 1.0).perform();
+                  id(team_r) = 0.0f; id(team_g) = 0.0f; id(team_b) = 1.0f;
                 }
                 else if (team == "White") {
                   team_id = 4;
-                  id(led_strip).make_call().set_rgb(1.0, 1.0, 1.0).perform();
+                  id(team_r) = 1.0f; id(team_g) = 1.0f; id(team_b) = 1.0f;
                 }
+                // This protocol exposes no team-color switches, so it uses the
+                // global defaults from common.yaml: flash on, capture off —
+                // matching its previous behavior.
+                id(team_detected) = (team_id != 0);
+                if (id(team_detected)) id(team_name) = team;
                 
                 id(ir_command) = team_id;
             - if:

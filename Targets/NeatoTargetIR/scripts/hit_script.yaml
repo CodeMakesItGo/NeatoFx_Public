@@ -94,6 +94,13 @@ script:
                 else if (c == "White")  { r = 1.0f; g = 1.0f; b = 1.0f; }
                 else if (c == "Orange") { r = 1.0f; g = 0.5f; b = 0.0f; }
                 else if (c == "Pink")   { r = 1.0f; g = 0.2f; b = 0.5f; }
+                // A detected team color takes over the flash color. The preset
+                // itself is untouched and is put back at the end of the hit.
+                if (id(team_detected) && id(team_color_enabled)) {
+                  r = id(team_r); g = id(team_g); b = id(team_b);
+                  id(team_color_applied) = true;
+                  c = "team color";
+                }
                 auto call = id(led_strip).turn_on();
                 call.set_transition_length(0);
                 call.set_brightness(1.0f);
@@ -114,8 +121,18 @@ script:
                       effect: "None"
                   - if:
                       condition:
-                        lambda: 'return id(led_strip_color_preset) != nullptr;'
+                        lambda: 'return id(team_detected) && id(team_color_enabled);'
                       then:
+                        # Hold the detected team color for the hit window. The
+                        # user's preset is restored when the hit ends, so the
+                        # resting/saved color never changes.
+                        - lambda: |-
+                            auto call = id(led_strip).turn_on();
+                            call.set_rgb(id(team_r), id(team_g), id(team_b));
+                            call.perform();
+                            id(team_color_applied) = true;
+                            ESP_LOGI("target_hit", "Solid Color hit in team color");
+                      else:
                         - select.set:
                             id: led_strip_color_preset
                             option: !lambda 'return id(led_strip_color_preset).current_option();'
@@ -218,11 +235,49 @@ script:
           call.perform();
           ESP_LOGI("target_hit", "Restored effect: %s, brightness: %.2f", effect_name.c_str(), brightness);
 
+      # If the flash used a team color, put the user's "Target LEDs Solid Color"
+      # preset back. Re-selecting the preset re-runs its set_action, which
+      # re-applies the RGB — no second copy of the color table needed. Skipped
+      # when Capture Mode is about to adopt the team color below (restoring the
+      # old color first would only be overwritten a moment later).
+      #
+      # This runs while hit_processing is still true, so the strip's on_state
+      # auto-save is skipped for the team color and only ever records the preset;
+      # that is what keeps a plain team hit from changing the resting/boot color.
+      - if:
+          condition:
+            lambda: 'return id(team_color_applied) && !(id(team_detected) && id(capture_mode_enabled));'
+          then:
+            - select.set:
+                id: led_strip_color_preset
+                option: !lambda 'return id(led_strip_color_preset).current_option();'
+      - lambda: 'id(team_color_applied) = false;'
 
       # Re-enable auto-save and IR
       - globals.set:
           id: hit_processing
           value: 'false'
+
+      # CAPTURE MODE - adopt the team's color as the new resting color.
+      # Runs AFTER hit_processing is cleared, deliberately: the strip's auto-save
+      # is live again, so the captured color is persisted and survives a reboot
+      # (that is the whole point — the round is scored by what color each target
+      # is holding at the end).
+      - if:
+          condition:
+            lambda: 'return id(team_detected) && id(capture_mode_enabled);'
+          then:
+            - select.set:
+                id: led_strip_color_preset
+                option: !lambda 'return id(team_name);'
+            - logger.log:
+                format: "Capture mode: target taken by %s"
+                args: ['id(team_name).c_str()']
+
+      # Consume the team flag so a later non-IR trigger (GPIO25, Test Hit) cannot
+      # reuse a stale team from a previous hit.
+      - lambda: 'id(team_detected) = false;'
+
       - globals.set:
           id: ir_enabled
           value: 'true'

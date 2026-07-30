@@ -119,6 +119,50 @@ number:
                 format: "Net Play: ignoring out-of-range value %d"
                 args: ['(int)x']
 
+  # ============================================================================
+  # NETWORK TRIGGER ENDPOINT - fire a full input chain remotely
+  # ============================================================================
+  # "Net Play" above is sound only — it calls the DFPlayer directly and so skips
+  # everything the physical inputs do. This endpoint instead runs the real
+  # run_inputN_script, so a remote caller gets the input's complete behavior:
+  # spotlight/relay routing (Input N Output), trigger brightness, output timer,
+  # and the background-loop pause.
+  #
+  #   POST http://audio-<id>.local/number/Net%20Trigger/set?value=<code>
+  #
+  # The value packs the input number and the MP3 file into one atomic POST:
+  #
+  #   code = input * 1000 + mp3        input: 1 or 2      mp3: 0-255
+  #
+  #   1005 → Input 1 effects, play MP3 5      2001 → Input 2 effects, play MP3 1
+  #   1000 → Input 1 effects, play whatever "Input 1 MP3" is set to locally
+  #
+  # Anything else is ignored and logged.
+  - platform: template
+    name: "Net Trigger"
+    id: net_trigger
+    min_value: 0
+    max_value: 2255
+    step: 1
+    mode: box
+    optimistic: true
+    set_action:
+      - lambda: |-
+          int code = (int) x;
+          int input = code / 1000;
+          int mp3   = code % 1000;
+          if (mp3 > 255) {
+            ESP_LOGW("net_trigger", "Ignoring code %d (MP3 %d out of range)", code, mp3);
+          } else if (input == 1) {
+            ESP_LOGI("net_trigger", "Input 1 chain, MP3 %s", mp3 ? to_string(mp3).c_str() : "(local setting)");
+            id(run_input1_script)->execute(mp3);
+          } else if (input == 2) {
+            ESP_LOGI("net_trigger", "Input 2 chain, MP3 %s", mp3 ? to_string(mp3).c_str() : "(local setting)");
+            id(run_input2_script)->execute(mp3);
+          } else {
+            ESP_LOGW("net_trigger", "Ignoring code %d (input %d is not 1 or 2)", code, input);
+          }
+
 # ==============================================================================
 # FIRMWARE UPDATES - OTA via HTTP
 # ==============================================================================

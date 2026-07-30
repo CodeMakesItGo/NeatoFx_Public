@@ -11,11 +11,21 @@
 # run_rf_c_script    - RF remote button C
 # run_rf_d_script    - RF remote button D
 # mp3_finished_script - Runs after every MP3 finishes playing
+#
+# The two input scripts take an mp3_override parameter so a remote caller (a
+# target POSTing the "Net Trigger" endpoint) can fire the whole input chain —
+# spotlight/relay routing, trigger brightness, output timer, bg-loop pause —
+# while choosing the sound itself:
+#     0     = play the input's own "Input N MP3" setting (physical triggers)
+#     1-255 = play that MP3 instead, everything else unchanged
+# Physical triggers and the Test buttons always pass 0.
 # ==============================================================================
 
 script:
   - id: run_input1_script
     mode: parallel
+    parameters:
+      mp3_override: int
     then:
       - if:
           condition:
@@ -23,7 +33,9 @@ script:
           then:
             - light.turn_off: spot_light_1
             - light.turn_off: spot_light_2
-      - script.execute: play_input1_mp3
+      - script.execute:
+          id: play_input1_mp3
+          mp3_override: !lambda 'return mp3_override;'
       # Uncomment to send an ESPHome event to Home Assistant:
       #- script.execute: esphome_script_in1
       # Uncomment when FPP package is enabled:
@@ -31,6 +43,8 @@ script:
 
   - id: run_input2_script
     mode: parallel
+    parameters:
+      mp3_override: int
     then:
       - if:
           condition:
@@ -38,7 +52,9 @@ script:
           then:
             - light.turn_off: spot_light_1
             - light.turn_off: spot_light_2
-      - script.execute: play_input2_mp3
+      - script.execute:
+          id: play_input2_mp3
+          mp3_override: !lambda 'return mp3_override;'
       # Uncomment to send an ESPHome event to Home Assistant:
       #- script.execute: esphome_script_in2
       # Uncomment for linear actuator support:

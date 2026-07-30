@@ -15,6 +15,9 @@ select:
       - "Pink"
     initial_option: "White"
     optimistic: true
+    # Persisted so a Capture Mode result survives a power cycle — the round is
+    # scored by the color each target is holding, which must outlive a reboot.
+    restore_value: true
     set_action:
       - if:
           condition:

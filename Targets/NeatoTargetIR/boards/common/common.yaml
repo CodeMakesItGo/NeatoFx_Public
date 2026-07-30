@@ -568,6 +568,69 @@ globals:
     restore_value: no
     initial_value: '0'
 
+  # --- Detected team (laser-tag protocols) -----------------------------------
+  # Set by the IR protocol package when it decodes a known team; consumed by
+  # target_hit_script. Defined here rather than in the protocol package so
+  # hit_script.yaml compiles under any protocol — ir_nec / ir_raw simply never
+  # set them and team_detected stays false.
+  #
+  # The protocol deliberately does NOT write the color to the strip. Doing that
+  # is what caused the original bug: an active effect owns every pixel, so the
+  # color was invisible, yet the strip's on_state auto-save still wrote it to
+  # flash — so the team color only ever appeared after a reboot.
+  - id: team_detected
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Name of the detected team ("Red"/"Green"/"Blue"/"White"). Matches an option
+  # of the "Target LEDs Solid Color" select, which is how Capture Mode adopts it.
+  - id: team_name
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: team_r
+    type: float
+    restore_value: no
+    initial_value: '1.0'
+
+  - id: team_g
+    type: float
+    restore_value: no
+    initial_value: '1.0'
+
+  - id: team_b
+    type: float
+    restore_value: no
+    initial_value: '1.0'
+
+  # True while a hit flash is actually showing a team color, so the restore step
+  # at the end of the hit knows to put the user's preset color back.
+  - id: team_color_applied
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # --- Team color modes (driven by switches in the laser-tag protocol) --------
+  # Two independent behaviors:
+  #   team_color_enabled   flash the hit in the detected team's color; the
+  #                        resting/preset color is restored afterward
+  #   capture_mode_enabled the target ADOPTS the team's color as its new resting
+  #                        color and keeps it (capture-the-flag scoring: count
+  #                        how many targets ended the round in each color)
+  # Defaults match the previous behavior for protocols that expose no switches
+  # (ir_custom): flash on, capture off.
+  - id: team_color_enabled
+    type: bool
+    restore_value: yes
+    initial_value: 'true'
+
+  - id: capture_mode_enabled
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
   # GPIO25 hit trigger enable/disable (persisted across reboots)
   - id: gpio25_hit_enabled
     type: bool

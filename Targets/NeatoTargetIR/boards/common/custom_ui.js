@@ -14,8 +14,10 @@
   const WEBSITE_URL = 'https://neatofx.com';
 
   // Entity type tags (must equal the ESPHome domain used in REST/SSE paths)
+  // TXT is the read-only text_sensor domain; TXTIN is the editable text domain.
   const SW = 'switch', NUM = 'number', SEL = 'select', LT = 'light',
-        BTN = 'button', TXT = 'text_sensor', SENS = 'sensor', BIN = 'binary_sensor';
+        BTN = 'button', TXT = 'text_sensor', SENS = 'sensor', BIN = 'binary_sensor',
+        TXTIN = 'text';
 
   // Shared option lists (order is display-only; the value set is the string)
   const HIT_EFFECTS = ['Rainbow Effect', 'Color Wipe Effect', 'Scanner Effect', 'Twinkle Effect', 'Heartbeat Effect', 'Strobe Flash', 'Solid Color'];
@@ -40,7 +42,16 @@
     hit_effect:     { type: SEL, name: 'Target LEDs Hit Effect',  label: 'Hit LED Effect',  options: HIT_EFFECTS, section: 'base' },
     solid_color:    { type: SEL, name: 'Target LEDs Solid Color', label: 'Solid Color',      options: COLORS,      section: 'base' },
     led_brightness: { type: NUM, name: 'Target LEDs Brightness', label: 'LED Brightness', min: 0, max: 100, step: 1, unit: '%', section: 'base' },
-    team_color:     { type: SW,  name: 'Team Color On Hit', label: 'Set Team Color On Hit', section: 'base' },
+
+    // ── Team Color (laser-tag protocols only; hidden on builds without them) ──
+    // Two independent modes, deliberately worded to say what each one keeps:
+    // the flash is temporary, capture is permanent.
+    team_color:   { type: SW, name: 'Team Color On Hit',   label: 'Flash Team Color On Hit',
+                    note: 'Hit flashes in the shooting team’s color. Solid Color / Strobe Flash hit effects only — animated effects keep their own colors. Resting color is restored after the hit.',
+                    section: 'team' },
+    team_capture: { type: SW, name: 'Team Color Capture',  label: 'Capture Mode (keep team color)',
+                    note: 'Target KEEPS the last team’s color as its resting color, for capture-the-flag scoring. Overwrites Solid Color below. Set Idle LED Effect to “Solid Color” to see it.',
+                    section: 'team' },
 
     // ── Aux Triggers ──
     gpio25_trigger: { type: SW, name: 'GPIO25 Hit Trigger', label: 'GPIO25 Trigger', section: 'aux' },
@@ -53,8 +64,13 @@
     led2_solid_color:{ type: SEL, name: 'LED Strip 2 Solid Color', label: 'Solid Hit Color', options: COLORS,     section: 'led2' },
 
     // ── Audio Trigger ──
-    audio_target: { type: TXT, name: 'Audio Target',        label: 'Audio Device IP', section: 'audio' },
-    mp3_num:      { type: NUM, name: 'Hit Sound (MP3 #)',   label: 'Trigger Remote Sound (MP3 #)', min: 1, max: 255, step: 1, box: true, section: 'audio' },
+    // Editable — re-point this target at a different speaker without recompiling.
+    audio_target: { type: TXTIN, name: 'Audio Device IP',   label: 'Audio Device IP', maxlen: 32, placeholder: 'e.g. 192.168.8.3', section: 'audio' },
+    // 0 = let the Audio-50 pick (runs its own Input N MP3); only meaningful in the Input modes.
+    mp3_num:      { type: NUM, name: 'Hit Sound (MP3 #)',   label: 'Trigger Remote Sound (0 = speaker decides)', min: 0, max: 255, step: 1, box: true, section: 'audio' },
+    // "MP3 Only" = sound alone; "Input 1/2" also fires that input's lights,
+    // relay and timer on the Audio-50 (Net Trigger endpoint).
+    remote_mode:  { type: SEL, name: 'Remote Audio Mode',   label: 'Remote Trigger Mode', options: ['MP3 Only', 'Input 1', 'Input 2'], section: 'audio' },
     remote_audio: { type: SW,  name: 'Remote Audio Enable', label: 'Remote Audio', section: 'audio' },
 
     // ── Servo ──
@@ -103,6 +119,7 @@
     lightOn:   (id)    => post(path(LT, id) + '/turn_on'),
     lightOff:  (id)    => post(path(LT, id) + '/turn_off'),
     numSet:    (id, v) => post(path(NUM, id) + '/set?value=' + encodeURIComponent(v)),
+    textSet:   (id, v) => post(path(TXTIN, id) + '/set?value=' + encodeURIComponent(v)),
     selSet:    (id, v) => post(path(SEL, id) + '/set?option=' + encodeURIComponent(v)),
     btnPress:  (id)    => post(path(BTN, id) + '/press'),
     testHit:   ()      => post('/switch/' + encodeURIComponent('Test Target Hit') + '/turn_on'),
@@ -135,6 +152,7 @@
   // ── SSE connection ─────────────────────────────────────────────────────────
   var es = null;
   var retryTimer = null;
+  var pruneTimer = null;
 
   function connect() {
     es = new EventSource('/events');
@@ -146,6 +164,9 @@
     es.onopen = function () {
       clearTimeout(retryTimer);
       setLive(true);
+      // ESPHome dumps all entity states right after the stream opens; give it a
+      // generous window on a slow phone, then drop whatever never reported.
+      if (!pruneTimer && !pruned) pruneTimer = setTimeout(pruneMissing, 2500);
     };
 
     es.onerror = function () {
@@ -159,11 +180,44 @@
   // so each phone holds only one /events socket)
   function disconnect() {
     clearTimeout(retryTimer);
+    clearTimeout(pruneTimer);
     if (es) {
       es.onerror = null;
       es.close();
       es = null;
     }
+  }
+
+  // ── Prune controls the firmware doesn't have ───────────────────────────────
+  // This one registry drives every build, but the entities behind it are
+  // config-dependent: the Team Color switches exist only on laser-tag protocol
+  // builds, the Audio Trigger controls only on networked/HA builds. A control
+  // with no entity behind it is worse than useless — tapping it POSTs to a
+  // nonexistent path, gets a 404, and never changes state (it just looks broken).
+  //
+  // ESPHome's /events stream dumps EVERY registered entity on connect, so any
+  // control that has received no state shortly after connecting does not exist
+  // in this firmware. Hide those, then hide any card left with nothing in it.
+  // A late-arriving state un-hides its row, so this can only fail toward showing.
+  var seen = {}, pruned = false;
+
+  function pruneMissing() {
+    pruned = true;
+    Object.keys(ENTITIES).forEach(function (k) {
+      if (seen[k]) return;
+      var el = document.querySelector('[data-eid="' + ENTITIES[k].type + '-' + k + '"]');
+      if (el) el.classList.add('absent');
+    });
+    // Hide cards whose every control was pruned (the Team Color card on a
+    // non-laser-tag build, for example)
+    Array.prototype.forEach.call(document.querySelectorAll('.app .card'), function (card) {
+      var items = card.querySelectorAll('[data-eid]');
+      if (!items.length) return;
+      var allGone = Array.prototype.every.call(items, function (i) {
+        return i.classList.contains('absent');
+      });
+      card.classList.toggle('absent', allGone);
+    });
   }
 
   // Apply an incoming SSE state update to the DOM.
@@ -205,6 +259,15 @@
     if (!card) return;
     var cfg = ENTITIES[objId];
 
+    // This entity exists in the firmware — remember it for pruneMissing, and
+    // un-hide it (and its card) if a state somehow arrived after the prune.
+    seen[objId] = true;
+    if (pruned && card.classList.contains('absent')) {
+      card.classList.remove('absent');
+      var owner = card.closest('.card');
+      if (owner) owner.classList.remove('absent');
+    }
+
     if (type === 'switch' || type === 'light') {
       var on = data.value === true || data.state === 'ON';
       card.classList.toggle('on', on);
@@ -220,6 +283,12 @@
     if (type === 'select') {
       var sel = card.querySelector('select');
       if (sel && document.activeElement !== sel) sel.value = data.state;
+    }
+
+    // Editable text: don't clobber what the user is currently typing
+    if (type === 'text') {
+      var tinp = card.querySelector('input');
+      if (tinp && document.activeElement !== tinp) tinp.value = data.state != null ? data.state : '';
     }
 
     if (type === 'text_sensor' || type === 'sensor') {
@@ -257,7 +326,9 @@
     div.className   = 'row';
     div.dataset.eid = cfg.type + '-' + id;
     div.innerHTML   =
-      '<span class="lbl">' + cfg.label + '</span>' +
+      '<span class="lbl-wrap"><span class="lbl">' + cfg.label + '</span>' +
+        (cfg.note ? '<span class="note">' + cfg.note + '</span>' : '') +
+      '</span>' +
       '<div class="tgl" role="switch" aria-checked="false" tabindex="0">' +
         '<div class="tgl-thumb"></div>' +
       '</div>';
@@ -301,6 +372,23 @@
     inp.className = 'numbox';
     inp.min = cfg.min; inp.max = cfg.max; inp.step = cfg.step;
     inp.addEventListener('change', function () { api.numSet(id, inp.value); });
+    div.appendChild(inp);
+    return div;
+  }
+
+  // Editable free-text box (ESPHome `text` domain), committed on blur/Enter
+  function makeTextBox(id, cfg) {
+    var div = document.createElement('div');
+    div.className   = 'row';
+    div.dataset.eid = 'text-' + id;
+    div.innerHTML   = '<span class="lbl">' + cfg.label + '</span>';
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'txtbox';
+    if (cfg.maxlen) inp.maxLength = cfg.maxlen;
+    if (cfg.placeholder) inp.placeholder = cfg.placeholder;
+    inp.addEventListener('change', function () { api.textSet(id, inp.value.trim()); });
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') inp.blur(); });
     div.appendChild(inp);
     return div;
   }
@@ -350,6 +438,7 @@
   function makeItem(id, cfg) {
     switch (cfg.type) {
       case NUM:  return cfg.box ? makeNumberBox(id, cfg) : makeSlider(id, cfg);
+      case TXTIN: return makeTextBox(id, cfg);
       case SEL:  return makeSelect(id, cfg);
       case SW:
       case LT:   return makeToggle(id, cfg);
@@ -474,7 +563,12 @@
     '  padding: 14px 16px; border-top: 1px solid #1e1e38;',
     '}',
     '.card-ttl + .row, .card-ttl + .slider { border-top: none; }',
+    /* Controls with no matching entity in this firmware build (see pruneMissing) */
+    '.absent { display: none !important; }',
     '.lbl { font-size: 0.95rem; color: #ccc; }',
+    /* Optional explanatory line under a control label */
+    '.lbl-wrap { display: flex; flex-direction: column; gap: 3px; min-width: 0; }',
+    '.note { font-size: 0.72rem; color: #6f6f92; line-height: 1.4; }',
     '.tgl {',
     '  width: 50px; height: 27px; background: #2a2a45; border-radius: 14px;',
     '  position: relative; cursor: pointer; flex-shrink: 0;',
@@ -497,6 +591,11 @@
     '  background: #12122a; color: #e0e0e0; border: 1px solid #2a2a45;',
     '  border-radius: 8px; padding: 7px 10px; font-size: 0.9rem;',
     '  width: 84px; text-align: right; outline: none;',
+    '}',
+    '.app input.txtbox {',
+    '  background: #12122a; color: #e0e0e0; border: 1px solid #2a2a45;',
+    '  border-radius: 8px; padding: 7px 10px; font-size: 0.88rem;',
+    '  width: 150px; text-align: right; outline: none;',
     '}',
 
     /* Read-only value rows (sensors) */
@@ -609,6 +708,9 @@
 
     // Primary cards
     inner.appendChild(makeCard('Base Target Events', sectionItems('base')));
+    // Team Color entities exist only on laser-tag protocol builds; the card
+    // hides itself on other builds (see pruneMissing).
+    inner.appendChild(makeCard('Team Color',         sectionItems('team')));
     inner.appendChild(makeCard('Aux Triggers',       sectionItems('aux')));
 
     // Collapsible cards

@@ -206,13 +206,17 @@ button:
     id: test_input_1
     name: "Test Input 1"
     on_press:
-      - script.execute: run_input1_script
+      - script.execute:
+          id: run_input1_script
+          mp3_override: 0   # local trigger: use the "Input 1 MP3" setting
 
   - platform: template
     id: test_input_2
     name: "Test Input 2"
     on_press:
-      - script.execute: run_input2_script
+      - script.execute:
+          id: run_input2_script
+          mp3_override: 0   # local trigger: use the "Input 2 MP3" setting
 
 
 
@@ -736,7 +740,9 @@ binary_sensor:
       - delayed_off: 100ms
     on_press:
       - logger.log: "Input 1 Triggered"
-      - script.execute: run_input1_script
+      - script.execute:
+          id: run_input1_script
+          mp3_override: 0   # local trigger: use the "Input 1 MP3" setting
     on_release:
       - logger.log: "Input 1 Released"
 
@@ -751,7 +757,9 @@ binary_sensor:
       - delayed_off: 100ms
     on_press:
       - logger.log: "Input 2 Triggered"
-      - script.execute: run_input2_script
+      - script.execute:
+          id: run_input2_script
+          mp3_override: 0   # local trigger: use the "Input 2 MP3" setting
     on_release:
       - logger.log: "Input 2 Released"
 

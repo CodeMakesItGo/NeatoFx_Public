@@ -1,14 +1,10 @@
 # ==============================================================================
-# GLOBAL VARIABLES - Laser Tag Options
+# LASER TAG OPTIONS
 # ==============================================================================
-globals:
-  # When enabled, the target changes to the detecting team's color on hit.
-  # Only present when the laser tag protocol is in use. On by default.
-  - id: team_color_enabled
-    type: bool
-    restore_value: yes
-    initial_value: 'true'
-
+# The team_color_enabled / capture_mode_enabled globals these switches drive are
+# declared in boards/common/common.yaml, not here, so the shared hit script can
+# read them under every protocol. See the notes there.
+#
 # ==============================================================================
 # TEXT SENSORS - Team Detection
 # ==============================================================================
@@ -24,7 +20,11 @@ text_sensor:
 # SWITCHES - Laser Tag Options
 # ==============================================================================
 switch:
-  # Toggle whether the target changes to the team's color when hit
+  # Flash the hit in the shooting team's color. The hit effect itself is
+  # unchanged — this only swaps the color used by the "Solid Color" and
+  # "Strobe Flash" hit effects. Animated hit effects (Rainbow, Scanner, …)
+  # generate their own colors and are unaffected. The target's resting color is
+  # restored when the hit ends.
   - platform: template
     name: "Team Color On Hit"
     id: team_color_on_hit_switch
@@ -35,12 +35,36 @@ switch:
       - globals.set:
           id: team_color_enabled
           value: 'true'
-      - logger.log: "Team color on hit enabled"
+      - logger.log: "Team color flash on hit enabled"
     turn_off_action:
       - globals.set:
           id: team_color_enabled
           value: 'false'
-      - logger.log: "Team color on hit disabled"
+      - logger.log: "Team color flash on hit disabled"
+
+  # CAPTURE MODE — the target keeps the color of the last team to hit it.
+  # On a team hit the "Target LEDs Solid Color" preset is set to that team's
+  # color, so the target rests in it until another team takes it. At the end of a
+  # capture-the-flag round, whoever holds the most targets wins.
+  #
+  # Set "Target LEDs Idle Effect" to "Solid Color" for this to be visible at a
+  # glance — animated idle effects paint their own colors over the resting color.
+  - platform: template
+    name: "Team Color Capture"
+    id: team_color_capture_switch
+    icon: "mdi:flag-checkered"
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+    turn_on_action:
+      - globals.set:
+          id: capture_mode_enabled
+          value: 'true'
+      - logger.log: "Capture mode enabled - target will keep the last team's color"
+    turn_off_action:
+      - globals.set:
+          id: capture_mode_enabled
+          value: 'false'
+      - logger.log: "Capture mode disabled"
 
 # ==============================================================================
 # INFRARED RECEIVER - LASER TAG TEAM DETECTION
@@ -237,25 +261,38 @@ remote_receiver:
                 // Display results
                 id(detected_team).publish_state(team);
                 
-                // Set team ID based on detection
+                // Set team ID based on detection.
+                //
+                // Hand the team color to target_hit_script via globals instead of
+                // writing it to the strip here. A direct set_rgb() never showed:
+                // the running idle effect (Scanner by default) rewrites every
+                // pixel each frame, so the base color is ignored — while the
+                // strip's on_state auto-save still wrote that unseen color to
+                // flash, which is why the team color only ever appeared after a
+                // reboot. The hit script now paints it during the hit flash and
+                // restores the user's preset afterward.
                 int team_id = 0;  // Default unknown
                 if (team == "Red") {
                   team_id = 3;
-                  if (id(team_color_enabled)) id(led_strip).make_call().set_rgb(1.0, 0.0, 0.0).perform();
+                  id(team_r) = 1.0f; id(team_g) = 0.0f; id(team_b) = 0.0f;
                 }
                 else if (team == "Green") {
                   team_id = 2;
-                  if (id(team_color_enabled)) id(led_strip).make_call().set_rgb(0.0, 1.0, 0.0).perform();
+                  id(team_r) = 0.0f; id(team_g) = 1.0f; id(team_b) = 0.0f;
                 }
                 else if (team == "Blue") {
                   team_id = 1;
-                  if (id(team_color_enabled)) id(led_strip).make_call().set_rgb(0.0, 0.0, 1.0).perform();
+                  id(team_r) = 0.0f; id(team_g) = 0.0f; id(team_b) = 1.0f;
                 }
                 else if (team == "White") {
                   team_id = 4;
-                  if (id(team_color_enabled)) id(led_strip).make_call().set_rgb(1.0, 1.0, 1.0).perform();
+                  id(team_r) = 1.0f; id(team_g) = 1.0f; id(team_b) = 1.0f;
                 }
-                
+                // Recognised team only. team_name matches an option of the
+                // "Target LEDs Solid Color" select, which Capture Mode adopts.
+                id(team_detected) = (team_id != 0);
+                if (id(team_detected)) id(team_name) = team;
+
                 id(ir_command) = team_id;
             - if:
                 condition:
