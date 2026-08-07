@@ -30,7 +30,9 @@
   //   ESPHome REST API: /{domain}/{name}/{action}
   //   ESPHome SSE:      {"name_id": "{domain}/[{device}/]{name}", "state": ..., "value": ...}
   // `auto: true` rows start hidden and appear when the entity reports a state —
-  // used for the RF section, which only exists in rftx_outputs builds.
+  // used for the two RF sections, whose entities exist only in certain builds:
+  // 'rf' (receiver) in rftx_outputs + rftx_inputs, 'rftx' (transmitter) in
+  // rftx_outputs only. See boards/common/rftx_*.yaml.
   const ENTITIES = {
     // ── Audio Control ──
     volume:      { type: NUM, name: 'DFPlayer Volume',  label: 'Volume', min: 0, max: 30, step: 1, section: 'audio' },
@@ -71,24 +73,35 @@
     spot2_bright: { type: NUM, name: 'SpotLight 2 Trigger Brightness', label: 'SpotLight 2 Brightness',
                     min: 0, max: 100, step: 5, unit: '%', section: 'out' },
 
-    // ── RF Receiver (collapsible, only in rftx_outputs builds — auto-shown) ──
-    rf_power: { type: SW,  name: 'RF TX Power',    label: 'RF TX Power', auto: true, section: 'rf' },
-    rf_tx_a:  { type: SW,  name: 'RF TX A',        label: 'RF TX A (pulse)', auto: true, section: 'rf' },
+    // ── RF Receiver (collapsible, auto-shown) ──
+    // What an RF remote button does: which MP3 plays and which output fires.
+    // Present in rftx_outputs AND rftx_inputs builds — the on-board receiver
+    // (Remote BtnA-D) is wired up in every mode. rftx_none marks these entities
+    // internal, so nothing reports state and the whole card stays hidden.
+    // Grouped per channel (A-D) rather than interleaved with the TX switches.
     rf_a_mp3: { type: NUM, name: 'RF A MP3',       label: 'RF A MP3 #', min: 0, max: 255, step: 1, box: true, auto: true, section: 'rf' },
     rf_a_seq: { type: SW,  name: 'RF A Sequential', label: 'RF A Sequential', auto: true, section: 'rf' },
     rf_a_out: { type: SEL, name: 'RF A Output',    label: 'RF A Output', options: OUTPUTS, auto: true, section: 'rf' },
-    rf_tx_b:  { type: SW,  name: 'RF TX B',        label: 'RF TX B (pulse)', auto: true, section: 'rf' },
     rf_b_mp3: { type: NUM, name: 'RF B MP3',       label: 'RF B MP3 #', min: 0, max: 255, step: 1, box: true, auto: true, section: 'rf' },
     rf_b_seq: { type: SW,  name: 'RF B Sequential', label: 'RF B Sequential', auto: true, section: 'rf' },
     rf_b_out: { type: SEL, name: 'RF B Output',    label: 'RF B Output', options: OUTPUTS, auto: true, section: 'rf' },
-    rf_tx_c:  { type: SW,  name: 'RF TX C',        label: 'RF TX C (pulse)', auto: true, section: 'rf' },
     rf_c_mp3: { type: NUM, name: 'RF C MP3',       label: 'RF C MP3 #', min: 0, max: 255, step: 1, box: true, auto: true, section: 'rf' },
     rf_c_seq: { type: SW,  name: 'RF C Sequential', label: 'RF C Sequential', auto: true, section: 'rf' },
     rf_c_out: { type: SEL, name: 'RF C Output',    label: 'RF C Output', options: OUTPUTS, auto: true, section: 'rf' },
-    rf_tx_d:  { type: SW,  name: 'RF TX D',        label: 'RF TX D (pulse)', auto: true, section: 'rf' },
     rf_d_mp3: { type: NUM, name: 'RF D MP3',       label: 'RF D MP3 #', min: 0, max: 255, step: 1, box: true, auto: true, section: 'rf' },
     rf_d_seq: { type: SW,  name: 'RF D Sequential', label: 'RF D Sequential', auto: true, section: 'rf' },
     rf_d_out: { type: SEL, name: 'RF D Output',    label: 'RF D Output', options: OUTPUTS, auto: true, section: 'rf' },
+
+    // ── RF Transmitter (collapsible, auto-shown — rftx_outputs builds ONLY) ──
+    // Outbound side: the RFTX connector driving an RF transmitter. Each channel
+    // switch fires a 100ms momentary pulse (the YAML turns it back off).
+    // These entities do not exist in rftx_inputs / rftx_none builds, where that
+    // connector is 4 trigger inputs or unused — so this card never appears.
+    rf_power: { type: SW,  name: 'RF TX Power',    label: 'RF TX Power', auto: true, section: 'rftx' },
+    rf_tx_a:  { type: SW,  name: 'RF TX A',        label: 'RF TX A (pulse)', auto: true, section: 'rftx' },
+    rf_tx_b:  { type: SW,  name: 'RF TX B',        label: 'RF TX B (pulse)', auto: true, section: 'rftx' },
+    rf_tx_c:  { type: SW,  name: 'RF TX C',        label: 'RF TX C (pulse)', auto: true, section: 'rftx' },
+    rf_tx_d:  { type: SW,  name: 'RF TX D',        label: 'RF TX D (pulse)', auto: true, section: 'rftx' },
 
     // ── Testing (collapsible) ──
     test_in1:   { type: BTN, name: 'Test Input 1',     label: 'Test Input 1',     btnText: 'Trigger', section: 'test' },
@@ -100,6 +113,13 @@
     in1_state:   { type: BIN,  name: 'Input 1',              label: 'Input 1',       section: 'debug' },
     in2_state:   { type: BIN,  name: 'Input 2',              label: 'Input 2',       section: 'debug' },
     push_button: { type: BIN,  name: 'Push Button',          label: 'Push Button',   section: 'debug' },
+    // Live RF receiver pin state (GPIO36/2/15/35). ON while a remote button is
+    // held. A channel stuck ON with no remote pressed is a floating/mis-driven
+    // pin — it will never fire on_press again, since there is no edge left.
+    rx_a_state:  { type: BIN,  name: 'Remote BtnA',          label: 'RF RX A',       auto: true, section: 'debug' },
+    rx_b_state:  { type: BIN,  name: 'Remote BtnB',          label: 'RF RX B',       auto: true, section: 'debug' },
+    rx_c_state:  { type: BIN,  name: 'Remote BtnC',          label: 'RF RX C',       auto: true, section: 'debug' },
+    rx_d_state:  { type: BIN,  name: 'Remote BtnD',          label: 'RF RX D',       auto: true, section: 'debug' },
     wifi_ssid:   { type: TXT,  name: 'WiFi SSID',            label: 'WiFi SSID',     section: 'debug' },
     wifi_ip:     { type: TXT,  name: 'WiFi IP Address',      label: 'IP Address',    section: 'debug' },
     wifi_mac:    { type: TXT,  name: 'WiFi MAC Address',     label: 'MAC',           section: 'debug' },
@@ -195,7 +215,8 @@
   }
 
   // Sections that start hidden and appear when one of their entities reports a
-  // state (RF controls only exist in rftx_outputs builds). Filled by build().
+  // state (the RF receiver / RF transmitter cards, which only exist in some
+  // rftx_* builds). Keyed by section name. Filled by build().
   var autoCards = {};
 
   function reveal(card, cfg) {
@@ -665,10 +686,18 @@
     inner.appendChild(makeCollapsible('Input 1',     sectionItems('in1')));
     inner.appendChild(makeCollapsible('Input 2',     sectionItems('in2')));
     inner.appendChild(makeCollapsible('Outputs',     sectionItems('out')));
+    // RF is two independent cards: the receiver (what a remote button plays) and
+    // the transmitter (the RFTX connector). They are separate because the two
+    // exist in different builds — the receiver in outputs AND inputs mode, the
+    // transmitter only in outputs mode — so an inputs build shows just the one.
     var rfCard = makeCollapsible('RF Receiver', sectionItems('rf'));
     rfCard.classList.add('auto-hide');   // shown when an RF entity reports state
     autoCards.rf = rfCard;
     inner.appendChild(rfCard);
+    var rfTxCard = makeCollapsible('RF Transmitter', sectionItems('rftx'));
+    rfTxCard.classList.add('auto-hide'); // shown when an RF TX entity reports state
+    autoCards.rftx = rfTxCard;
+    inner.appendChild(rfTxCard);
     inner.appendChild(makeCollapsible('Testing',     sectionItems('test')));
     inner.appendChild(makeCollapsible('Diagnostics', sectionItems('debug')));
     inner.appendChild(makeCollapsible('Reset',       sectionItems('reset')));

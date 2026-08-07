@@ -42,7 +42,6 @@ Select exactly one **board** in `main.yaml`:
 | `boards/rev3.yaml` | **Standard** — hold-to-run joystick with limit switches, ramping, current trip, CAN game-gating. Pick a **drive** (DC or AC) below. |
 | `boards/rev3_winch.yaml` | **Winch** — Hall-effect quadrature encoder position tracking, auto-homing on boot, soft length limits, two-zone speed, soft direction-change ramping. |
 | `boards/rev3_pulse.yaml` | **Pulse** — two independent outputs fired for a configurable time (default 100 ms) per input press. For air valves and solenoids. |
-| `boards/rev3_manual.yaml` | **Manual** — pure hold-to-run joystick with hard limit stops. No encoder, no timer, no CAN gating. |
 
 For the standard board, also select exactly one **drive**:
 
@@ -105,7 +104,6 @@ packages:
   board: !include boards/rev3.yaml             # Standard: hold-to-run joystick
   #board: !include boards/rev3_winch.yaml      # Winch: encoder, auto-homing, soft limits
   #board: !include boards/rev3_pulse.yaml      # Pulse: momentary pulse drive
-  #board: !include boards/rev3_manual.yaml     # Manual: self-contained, never CAN-gated
 
   # ---- DRIVE — standard board only ----
   drive: !include boards/common/drive_dc.yaml    # 24V DC motor via PWM ramp
