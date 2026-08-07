@@ -109,16 +109,21 @@ number:
 # ==============================================================================
 # REMOTE AUDIO ENABLE - master switch for the on-hit Audio-50 trigger
 # ==============================================================================
-# When ON (default), a hit POSTs "Hit Sound (MP3 #)" to the Audio-50. Turn OFF
-# from the web UI to silence remote audio without changing anything else — the
-# hit script's POST is gated on this switch (see esphome_hit_script below).
+# When ON, a hit POSTs "Hit Sound (MP3 #)" to the Audio-50. Turn OFF from the
+# web UI to silence remote audio without changing anything else — the hit
+# script's POST is gated on this switch (see esphome_hit_script below).
+#
+# Default is OFF, matching configs/home_assistant.yaml: a target ships silent
+# and only talks to a speaker once someone deliberately enables it.
+# RESTORE_DEFAULT_OFF only supplies the first-boot value — once toggled, the
+# stored state wins.
 switch:
   - platform: template
     name: "Remote Audio Enable"
     id: remote_audio_switch
     icon: "mdi:speaker-wireless"
     optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
+    restore_mode: RESTORE_DEFAULT_OFF
 
 # ==============================================================================
 # REMOTE AUDIO MODE - what a hit asks the Audio-50 to do

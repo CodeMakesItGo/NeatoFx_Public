@@ -18,7 +18,7 @@ remote_receiver:
     inverted: true      # Keep this for most IR receiver modules (TSOP, etc.)
     mode:
       input: true
-      pullup: true
+      pullup: ${ir_pullup}
   tolerance: 25%
   filter: 50us          # Filter noise
   idle: 10ms             # Signal end detection

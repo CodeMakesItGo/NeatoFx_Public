@@ -27,6 +27,11 @@ substitutions:
   led_gpio: GPIO5        # Main target LED strip
   led_ignore_strapping: "true"  # GPIO5 is a strapping pin; variants override
   ir_gpio: GPIO19        # IR receiver
+  # Internal pull-up on the IR pin. Must be "false" on GPIO34-39 (input-only pins
+  # with NO internal pull resistors — ESPHome rejects pullup: true there).
+  # TSOP-style receivers have an internal ~30k pull-up on their output, so
+  # disabling this costs nothing electrically.
+  ir_pullup: "true"
   relay_gpio: GPIO23     # Relay output
   tx_gpio: GPIO01        # UART TX
   rx_gpio: GPIO03        # UART RX

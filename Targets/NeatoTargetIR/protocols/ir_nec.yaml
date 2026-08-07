@@ -7,7 +7,7 @@ remote_receiver:
     inverted: true      # Keep this for most IR receiver modules (TSOP, etc.)
     mode:
       input: true
-      pullup: true
+      pullup: ${ir_pullup}
   tolerance: 25%         # Good for NEC protocol
   filter: 50us           # Reduced filter for better sensitivity
   idle: 10ms             # Optimized for NEC protocol (was 40ms)

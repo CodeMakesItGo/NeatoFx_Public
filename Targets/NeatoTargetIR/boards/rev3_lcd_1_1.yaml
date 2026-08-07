@@ -1,0 +1,551 @@
+# ==============================================================================
+# NEATO TARGET IR - LCD FACE BOARD (REV 3.X, FACE REV 1.1)
+# ==============================================================================
+# Hardware: Rev 3.x target board with HiLetgo GC9A01 1.28" 240x240 round TFT
+#
+# Face rev 1.1 vs 1.0 — LED CTRL is back, RST and IR moved:
+#   GPIO5  - LED Strip 1 (Target LEDs, 6x WS2812)  [1.0: LCD RST]
+#   GPIO32 - LCD RST                               [1.0: IR receiver]
+#   GPIO35 - IR receiver                           [1.0: n/a]
+#
+# LCD Wiring:
+#   GPIO18 - SPI SCL  (VSPI clock   — already on face connector)
+#   GPIO19 - SPI SDA  (VSPI data    — already on face connector)
+#   GPIO21 - LCD DC   (data/command — routed via face connector)
+#   GPIO32 - LCD RST  (reset        — routed via face connector)
+#   CS     - wire display CS pin to GND directly (bypasses R8 uncertainty)
+#   BL     - No pin on 7-pin module (backlight always on via VCC)
+#
+# Face pins repurposed vs boards/rev3.yaml:
+#   GPIO18 - was external trigger input → now SPI CLK  (trigger input dropped)
+#   GPIO19 - was IR receiver            → now SPI MOSI (IR moved to GPIO35)
+#   GPIO5  - LED Strip 1, unchanged from rev3
+#
+# GPIO35 is an INPUT-ONLY pin with no internal pull resistors, so ir_pullup is
+# forced off below. TSOP-style receivers pull their own output up (~30k internal),
+# so no external resistor is required.
+#
+# Feature parity with boards/rev3.yaml: full staged boot + LED restore, both LED
+# strips, servo, aux power, GND ramp, GPIO16/17/25 inputs, relay (via common).
+# The ONLY rev3 feature that cannot exist on this face is the GPIO18 external
+# trigger input — that pin is the SPI clock here. Use the GPIO25 hit trigger
+# (enable the "GPIO25 Hit Trigger" switch) as the wired-trigger substitute.
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Rev 3.x Hardware Pin Assignments (LCD face rev 1.1)
+# ==============================================================================
+substitutions:
+  # Rev 3.x specific hardware
+  aux_pwr_gpio: GPIO26           # Auxiliary power control
+
+  # Right Side Connector Pins (Rev 3.x specific)
+  io16_gpio: GPIO16      # General I/O
+  io17_gpio: GPIO17      # General I/O
+  io25_gpio: GPIO25      # General I/O
+  io34_gpio: GPIO34      # ADC input (input only)
+
+  # Left Side Connector Pins (Rev 3.x specific)
+  switch_12v: GPIO33     # 12V switch control
+  led2_gpio: GPIO22      # Secondary LED strip
+  servo_gpio: GPIO04     # Servo control
+  strip_2_led_count: "100" # Configurable LED count
+  strip_2_internal: "false" # Visible in UI, same as Rev3
+
+  # Main target LED strip — real 6x WS2812 ring on the LCD face (LED CTRL, pin 5)
+  led_gpio: GPIO5
+  led_ignore_strapping: "true"   # GPIO5 is a strapping pin
+
+  # IR receiver relocated to GPIO35 (routed via face connector).
+  # GPIO35 is input-only and has NO internal pull-up — must be disabled.
+  #
+  # You will STILL see this once at boot, and it is harmless:
+  #   E (520) gpio: gpio_pullup_en(85): GPIO number error (input-only pad has no
+  #   internal PU)
+  # ESP-IDF's RMT RX driver hard-codes pull_up_en=true on the receive GPIO when it
+  # configures the pad. gpio_config() ignores the return value, so the channel is
+  # created normally and GPIO35 reads fine. Nothing in this repo can suppress it.
+  ir_gpio: GPIO35
+  ir_pullup: "false"
+
+  # Project Information
+  project_version: "3.0.0"
+  hw_version: "Rev 3 LCD 1.1"    # Overrides common.yaml default for the version readout
+
+# ==============================================================================
+# PACKAGES
+# GPIO18/GPIO19 binary sensors and the external trigger input are intentionally
+# NOT defined; those pins are owned by the SPI bus on this face.
+# ==============================================================================
+packages:
+  common_components: !include common/common.yaml
+
+# ==============================================================================
+# CORE CONFIGURATION - Rev 3.x Boot Sequence (identical to boards/rev3.yaml)
+# ==============================================================================
+esphome:
+  min_version: 2025.8.2
+  on_boot:
+    # Stage 1: Early startup - read settings and turn OFF LEDs (prevent power surge)
+    - priority: 600  # Later priority - after GPIO initialization
+      then:
+        - logger.log: "=== POWER-CONSCIOUS STARTUP (LCD FACE 1.1) ==="
+        - delay: 100ms  # Brief delay to let components initialize
+
+        # Read saved settings first (but don't apply them yet)
+        - lambda: |-
+            ESP_LOGI("LED", "📖 Reading saved LED settings for later restoration...");
+            float brightness = id(saved_brightness);
+            float red = id(saved_red);
+            float green = id(saved_green);
+            float blue = id(saved_blue);
+            int effect_index = id(saved_effect_index);
+            ESP_LOGI("LED", "Saved: B=%.2f, RGB=(%.2f,%.2f,%.2f), Effect=%d",
+                     brightness, red, green, blue, effect_index);
+
+        # TURN OFF LEDs completely to prevent startup surge
+        - logger.log: "=== EARLY BOOT: Turning LEDs OFF for safe startup ==="
+        - light.turn_off: led_strip   # Completely OFF (not just 0% brightness)
+        - light.turn_off: led_strip2  # Secondary strip also OFF
+        - delay: 100ms
+        - logger.log: "✅ Both LED strips OFF - startup surge prevented"
+
+        # Visual startup indicator - Stage 1/6 (Basic Initialization)
+        - light.turn_on:
+            id: led_strip
+            brightness: 50%
+            red: 100%
+            green: 0%
+            blue: 0%
+            effect: "None"
+        - logger.log: "🔴 STARTUP STAGE 1/6 - Basic Initialization (LED 1 RED)"
+
+        # Extended delay for power supply stabilization
+        - delay: 2s
+
+        # Initialize timer controls first (very low power)
+        - number.set:
+            id: relay_timer_control
+            value: !lambda 'return id(relay_timer);'
+        - number.set:
+            id: target_cooldown_control
+            value: !lambda 'return id(cooldown_timer);'
+
+        - logger.log: "Basic systems initialized - power consumption minimal"
+
+        # === STAGE 2/6: Power Preparation ===
+        - light.turn_on:
+            id: led_strip
+            brightness: 50%
+            red: 100%
+            green: 50%
+            blue: 0%
+            effect: "None"
+        - logger.log: "🟠 STARTUP STAGE 2/6 - Power Preparation"
+        - delay: 2s
+        - logger.log: "Power supply conditioning complete"
+
+        # === STAGE 3/6: Auxiliary Power Enable ===
+        # NOTE: aux_pwr is also restore_mode ALWAYS_ON below so the display has
+        # power during component setup() — this stage is the belt-and-braces
+        # re-assert + retry for a struggling supply.
+        - light.turn_on:
+            id: led_strip
+            brightness: 50%
+            red: 100%
+            green: 100%
+            blue: 0%
+            effect: "None"
+        - logger.log: "🟡 STARTUP STAGE 3/6 - Auxiliary Power Enable"
+        - delay: 1s
+
+        # First attempt with extended timing
+        - switch.turn_on: aux_pwr
+        - delay: 1s  # Wait for stabilization
+
+        # Verify with multiple retries
+        - if:
+            condition:
+              switch.is_on: aux_pwr
+            then:
+              - logger.log: "✓ Auxiliary power stable on first attempt"
+            else:
+              - logger.log: "⚠ Power supply struggling - implementing extended recovery..."
+              - delay: 2s
+              - switch.turn_on: aux_pwr
+              - delay: 1s
+              - if:
+                  condition:
+                    switch.is_on: aux_pwr
+                  then:
+                    - logger.log: "✓ Auxiliary power stable after retry"
+                  else:
+                    - logger.log: "❌ CRITICAL: Power supply insufficient!"
+
+        # === STAGE 4/6: Power Verification ===
+        - light.turn_on:
+            id: led_strip
+            brightness: 50%
+            red: 0%
+            green: 100%
+            blue: 0%
+            effect: "None"
+        - logger.log: "🟢 STARTUP STAGE 4/6 - Power Verification"
+        - delay: 2s
+
+        # Only restore LEDs if power is confirmed stable
+        - if:
+            condition:
+              switch.is_on: aux_pwr
+            then:
+              - logger.log: "✓ Power verified stable - proceeding with component initialization"
+
+              # Now restore LED with all saved settings
+              - lambda: |-
+                  ESP_LOGI("LED", "🔆 Restoring LED with saved settings...");
+
+                  float brightness = id(saved_brightness);
+                  if (brightness <= 0.0) brightness = 0.5;  // Default 50%
+
+                  float red = id(saved_red);
+                  float green = id(saved_green);
+                  float blue = id(saved_blue);
+                  int effect_index = id(saved_effect_index);
+
+                  ESP_LOGI("LED", "Restoring: B=%.2f, RGB=(%.2f,%.2f,%.2f), Effect=%d",
+                           brightness, red, green, blue, effect_index);
+
+                  auto call = id(led_strip).make_call();
+                  call.set_state(true);
+                  call.set_brightness(brightness);
+                  call.set_rgb(red, green, blue);
+
+                  if (effect_index > 0 && effect_index <= 5) {
+                    if (effect_index == 1) call.set_effect("Rainbow Effect");
+                    else if (effect_index == 2) call.set_effect("Color Wipe Effect");
+                    else if (effect_index == 3) call.set_effect("Scanner Effect");
+                    else if (effect_index == 4) call.set_effect("Twinkle Effect");
+                    else if (effect_index == 5) call.set_effect("Heartbeat Effect");
+                    ESP_LOGI("LED", "Setting effect index %d", effect_index);
+                  } else {
+                    call.set_effect("None");
+                    ESP_LOGI("LED", "Setting solid color mode");
+                  }
+                  call.perform();
+                  ESP_LOGI("LED", "✅ LED restoration call completed");
+
+              - delay: 1s
+              - logger.log: "✅ LED TURNED ON with saved settings - startup complete!"
+              - lambda: 'id(startup_complete) = true;'
+              - logger.log: "⚪ STARTUP SUCCESS - All LEDs bright white confirmation"
+
+              # Home the servo to its saved idle position now that aux power is up.
+              # Doubles as a hardware self-test: if the servo does NOT twitch/move
+              # here, the problem is servo power or the GPIO4 signal wire — not the
+              # web UI or firmware (servo.write is proven to run at this point).
+              - script.execute: servo_go_idle
+
+            else:
+              - logger.log: "❌ POWER ISSUE: Skipping LED restoration due to auxiliary power failure"
+              - delay: 2s
+              - logger.log: "=== FINAL STARTUP VERIFICATION ==="
+              - light.turn_on:
+                  id: led_strip
+                  brightness: 100%
+                  red: 100%
+                  green: 0%
+                  blue: 0%
+                  effect: "None"
+              - logger.log: "🔴 STARTUP FAILURE - All LEDs red warning"
+              - delay: 1s
+              # startup_complete must still be set or the LED auto-save never arms
+              - lambda: 'id(startup_complete) = true;'
+
+# ==============================================================================
+# BINARY SENSORS - Digital Inputs
+# (GPIO18 external trigger omitted — that pin is the SPI clock on this face)
+# ==============================================================================
+binary_sensor:
+  # GPIO25 Hit Trigger — enable via "GPIO25 Hit Trigger" switch in the UI
+  - platform: gpio
+    pin:
+      number: ${io25_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "GPIO25 Hit Trigger Input"
+    id: gpio25_trigger_input
+    filters:
+      - delayed_on: 5ms
+      - delayed_off: 50ms
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(gpio25_hit_enabled);'
+          then:
+            - logger.log: "GPIO25 hit trigger fired"
+            - script.execute: run_hit_script
+
+  # GPIO16 Digital Input
+  - platform: gpio
+    pin:
+      number: ${io16_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    id: gpio16_digital
+    name: "GPIO16 Digital State"
+    device_class: "motion"
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+    on_press:
+      - logger.log: "GPIO16 state is HIGH"
+    on_release:
+      - logger.log: "GPIO16 state is LOW"
+
+  # GPIO17 Digital Input
+  - platform: gpio
+    pin:
+      number: ${io17_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    id: gpio17_digital
+    name: "GPIO17 Digital State"
+    device_class: "motion"
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+    on_press:
+      - logger.log: "GPIO17 state is HIGH"
+    on_release:
+      - logger.log: "GPIO17 state is LOW"
+
+# ==============================================================================
+# SWITCHES - Digital Outputs
+# ==============================================================================
+switch:
+  # Auxiliary power control.
+  # ALWAYS_ON (unlike rev3) because display VCC hangs off this rail and ESPHome
+  # runs the display setup()/init sequence BEFORE on_boot. If aux starts OFF the
+  # panel gets its init sequence unpowered and shows garbage. See docs/LCD_Face_Setup.md.
+  - platform: gpio
+    pin:
+      number: ${aux_pwr_gpio}
+    name: "Aux Pwr"
+    id: aux_pwr
+    restore_mode: ALWAYS_ON
+
+# ==============================================================================
+# GROUND SWITCH (12V control) — PWM-capable for optional 0→100% ramp on hit
+# ==============================================================================
+# GPIO33 is driven by LEDC PWM (not a plain GPIO switch) so the GND switch can
+# be ramped 0→100% via the light transition engine. See scripts/hit_script.yaml
+# (gnd_ramp_enabled) and boards/common/common.yaml (GND Ramp switch).
+light:
+  - platform: monochromatic
+    name: "Gnd Switch"
+    id: gnd_light
+    output: gnd_output
+    gamma_correct: 0
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+
+# ==============================================================================
+# SERVO & PWM OUTPUT HARDWARE
+# ==============================================================================
+servo:
+  - id: servo1
+    output: pwm_output
+
+output:
+  # See boards/rev3.yaml for the full explanation: the servo (50 Hz) and GND ramp
+  # (1000 Hz) LEDC outputs MUST be on different timers (timer = (channel % 8) / 2),
+  # or the shared timer forces one frequency and the servo stops responding.
+  - platform: ledc
+    id: pwm_output
+    pin: ${servo_gpio}
+    channel: 0            # timer 0 — servo, must stay 50 Hz
+    frequency: 50 Hz
+
+  # Ground switch PWM output (drives gnd_light above)
+  - platform: ledc
+    id: gnd_output
+    pin: ${switch_12v}
+    channel: 2            # timer 1 — separate from the servo timer
+    frequency: 1000 Hz
+
+number:
+  # NOTE: id must NOT be servo_slider — that id belongs to the "Servo Idle
+  # Position" control in scripts/servo_movement_script.yaml, which is included
+  # alongside this board (redefinition breaks the build).
+  - platform: template
+    name: "Servo Test Slider"
+    id: servo_test_slider
+    min_value: -85
+    max_value: 85
+    step: 1
+    initial_value: 0
+    restore_value: true
+    optimistic: true
+    icon: "mdi:arrow-expand-horizontal"
+    set_action:
+      - servo.write:
+          id: servo1
+          level: !lambda 'return (x / 100.0);'
+      - lambda: 'id(servo_test_slider).publish_state(x);'
+
+# ==============================================================================
+# LCD HIT EFFECT SELECTOR
+# ==============================================================================
+select:
+  - platform: template
+    name: "LCD Hit Effect"
+    id: lcd_hit_effect_select
+    icon: "mdi:television-play"
+    options:
+      - "Expanding Rings"
+      - "Flash"
+      - "Solid"
+    initial_option: "Expanding Rings"
+    restore_value: true
+    optimistic: true
+
+# ==============================================================================
+# SPI BUS — VSPI hardware SPI (GPIO18 CLK / GPIO19 MOSI)
+# No MISO defined — GC9A01 is write-only.
+# ==============================================================================
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO19
+
+# ==============================================================================
+# FONTS
+# ==============================================================================
+font:
+  - file: "gfonts://Roboto"
+    id: font_score
+    size: 48
+    glyphs: "0123456789 ptsPTS!"
+  - file: "gfonts://Roboto"
+    id: font_label
+    size: 22
+    glyphs: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 !.-"
+
+# ==============================================================================
+# IMAGES — Optional custom PNG graphics (240x240, stored in flash)
+# ==============================================================================
+# To use custom images:
+#   1. Create a NeatoTargetIR/images/ directory
+#   2. Add 240x240 PNG files named target_idle.png and target_hit.png
+#   3. Uncomment the block below and switch the display lambda to use
+#      it.image(0, 0, id(img_target_idle)) / it.image(0, 0, id(img_target_hit))
+#
+# image:
+#   - file: "images/target_idle.png"
+#     id: img_target_idle
+#     type: RGB565
+#     resize: 240x240
+#   - file: "images/target_hit.png"
+#     id: img_target_hit
+#     type: RGB565
+#     resize: 240x240
+
+# ==============================================================================
+# DISPLAY — GC9A01A 240x240 round TFT
+# Idle: programmatic bullseye with hit counter
+# Hit:  red screen with point value (driven by hit_processing global)
+# ==============================================================================
+display:
+  - platform: ili9xxx
+    model: GC9A01A
+    dc_pin: GPIO21
+    reset_pin: GPIO32
+    # cs_pin omitted — wire display CS pin directly to GND
+    invert_colors: true
+    data_rate: 40MHz
+    rotation: 0
+    update_interval: 100ms
+    # auto_clear MUST stay false. It runs BEFORE the lambda and fills the whole
+    # buffer, which (a) marks the entire 240x240 frame dirty every tick — a
+    # ~25 ms full-frame SPI flush that stalls the LED animation — and (b) would
+    # blank the screen on the idle ticks where the lambda returns early.
+    # Every branch of the lambda does its own it.fill() first.
+    auto_clear_enabled: false
+    color_palette: 8BIT
+    lambda: |-
+      auto BLACK  = Color(0,   0,   0);
+      auto WHITE  = Color(255, 255, 255);
+      auto RED    = Color(220, 30,  30);
+      auto YELLOW = Color(255, 200, 0);
+
+      // Skip idle redraws when nothing has changed
+      static int  last_hit_count      = -1;
+      static bool last_hit_processing = false;
+      static std::string last_effect  = "";
+      bool idle_dirty = (!id(hit_processing) &&
+                         (id(hit_count) != last_hit_count ||
+                          last_hit_processing              ||
+                          id(lcd_hit_effect_select).current_option() != last_effect));
+      if (!id(hit_processing) && !idle_dirty) return;
+      last_hit_count      = id(hit_count);
+      last_hit_processing = id(hit_processing);
+      last_effect         = id(lcd_hit_effect_select).current_option();
+
+      if (id(hit_processing)) {
+        // ── HIT SCREEN ───────────────────────────────────────────────────────
+        auto effect = id(lcd_hit_effect_select).current_option();
+
+        if (effect == "Expanding Rings") {
+          it.fill(BLACK);
+          int ring = (millis() % 1000) / 100;
+          for (int i = 0; i < 5; i++) {
+            int r = ((ring + i * 2) % 10) * 11 + 10;
+            auto c = (i % 2 == 0) ? RED : YELLOW;
+            it.circle(120, 120, r, c);
+          }
+          it.printf(120, 100, id(font_score), WHITE, TextAlign::CENTER,
+                    "%d", id(target_points));
+          it.print(120, 155, id(font_label), WHITE, TextAlign::CENTER, "pts");
+
+        } else if (effect == "Flash") {
+          uint32_t frame = (millis() / 150) % 2;
+          auto BG   = frame ? BLACK : RED;
+          auto TEXT = frame ? RED   : WHITE;
+          it.fill(BG);
+          it.print(120, 70,  id(font_label), TEXT, TextAlign::CENTER, "HIT!");
+          it.printf(120, 125, id(font_score), TEXT, TextAlign::CENTER,
+                    "%d", id(target_points));
+          it.print(120, 180, id(font_label), TEXT, TextAlign::CENTER, "pts");
+
+        } else {
+          // Solid
+          it.fill(RED);
+          it.print(120, 70,  id(font_label), WHITE, TextAlign::CENTER, "HIT!");
+          it.printf(120, 125, id(font_score), WHITE, TextAlign::CENTER,
+                    "%d", id(target_points));
+          it.print(120, 180, id(font_label), WHITE, TextAlign::CENTER, "pts");
+        }
+
+      } else {
+        // ── IDLE SCREEN — bullseye ───────────────────────────────────────────
+        it.fill(BLACK);
+
+        it.filled_circle(120, 120, 100, WHITE);
+        it.filled_circle(120, 120,  85, BLACK);
+        it.filled_circle(120, 120,  70, WHITE);
+        it.filled_circle(120, 120,  55, BLACK);
+        it.filled_circle(120, 120,  40, RED);
+        it.filled_circle(120, 120,  25, BLACK);
+        it.filled_circle(120, 120,  12, YELLOW);
+
+        // Crosshair
+        it.line(120, 20,  120, 55,  WHITE);
+        it.line(120, 185, 120, 220, WHITE);
+        it.line(20,  120, 55,  120, WHITE);
+        it.line(185, 120, 220, 120, WHITE);
+
+        // Hit counter (bottom-right)
+        if (id(hit_count) > 0) {
+          it.printf(190, 190, id(font_label), WHITE, TextAlign::CENTER,
+                    "x%d", id(hit_count));
+        }
+      }

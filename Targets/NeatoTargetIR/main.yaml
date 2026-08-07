@@ -28,9 +28,10 @@ substitutions:
 # ==============================================================================
 packages:
   # Hardware — select one board revision:
-  board: !include boards/rev3.yaml     # Rev 3.x (current production)
   #board: !include boards/rev1.yaml    # Rev 1.x (legacy)
-  #board: !include boards/rev3_lcd.yaml # Rev 3.x + GC9A01 round LCD face (IR moves to GPIO32; see docs/LCD_Face_Setup.md)
+  board: !include boards/rev3.yaml     # Rev 3.x (current production)
+  #board: !include boards/rev3_hit_1_0.yaml # Rev 3.x + hit face 1.0 (push button on GPIO19, no IR receiver)
+  #board: !include boards/rev3_lcd_1_1.yaml # Rev 3.x + GC9A01 LCD face 1.1 (LED CTRL GPIO5, RST GPIO32, IR GPIO35)
 
   # Network mode — select one:
   #config: !include configs/standalone.yaml       # Device's own AP, no router
@@ -38,6 +39,12 @@ packages:
   config: !include configs/home_assistant.yaml    # Router + Home Assistant server
 
   # IR receiver configuration
+  # ALL COMMENTED OUT for the hit face 1.0 board: that face detects hits with a
+  # push button on GPIO19 — the pin the IR receiver used — so there is no IR
+  # receiver to configure. The team/IR globals (ir_enabled, ir_command,
+  # team_detected, ...) live in boards/common/common.yaml, so hit_script.yaml
+  # still compiles with no protocol package selected. Re-enable one of these
+  # when switching back to an IR board above.
   #ir_receiver: !include protocols/ir_nec.yaml
   #ir_receiver: !include protocols/ir_raw.yaml
   ir_receiver: !include protocols/ir_laser_tag.yaml
@@ -57,6 +64,26 @@ packages:
 
   # Hit behavior script - defines what happens when the target is hit
   hit_script: !include scripts/hit_script.yaml
+
+# ==============================================================================
+# BLE PROVISIONING — MUST BE REMOVED ON LCD BUILDS
+# ==============================================================================
+# _shared/networked_base.yaml enables esp32_improv (BLE). Bluedroid needs ~60-70 KB
+# of internal DRAM, and the GC9A01 framebuffer already takes 57.6 KB. Together they
+# do not fit on a no-PSRAM ESP32: btc_config_init() fails, then Bluedroid aborts in
+# btc_config_lock ("assert failed: xQueueSemaphoreTake ... btc_init_bluetooth") and
+# the device boot-loops. Serial provisioning (improv_serial, in configs/*.yaml) is
+# unaffected and still works — only BLE provisioning is lost.
+#
+# This has to live here in main.yaml: !remove only takes effect from the top-level
+# config, which merges LAST and wins over every package. Putting it in the board
+# file does nothing (board packages merge first, as the lowest-precedence base).
+#
+# Remove the leading '#' below when using an LCD board above; put the '#' back
+# for non-LCD boards. Currently disabled (the '#' is present): the hit face 1.0
+# board has no display, so there is no framebuffer competing with Bluedroid and
+# BLE provisioning fits again.
+#esp32_improv: !remove
 
 # ==============================================================================
 # TARGET HIT SCRIPTS - what to do when target is hit
