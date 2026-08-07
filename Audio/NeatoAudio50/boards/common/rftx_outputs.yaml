@@ -6,20 +6,52 @@
 #
 # Pin mapping:
 #   RFTX0  GPIO14  → RF TX A
-#   RFTX1  GPIO12  → RF TX B  (strapping pin — warning suppressed)
+#   RFTX1  GPIO12  → RF TX B  (strapping pin — warning suppressed, see below)
 #   RFTX2  GPIO19  → RF TX C
 #   RFTX3  GPIO18  → RF TX D
 #
 # GPIO4 (RF TX Power) is defined in the board file and controls transmitter power.
 # To switch to input mode: esphome -s rftx rftx_inputs compile main.yaml
+#
+# ------------------------------------------------------------------------------
+# SIGNALLING: ACTIVE-LOW, OPEN-DRAIN  (idle = released/high, trigger = pulled to GND)
+# ------------------------------------------------------------------------------
+# This matches how keyfob-style RF transmitter boards are keyed: their button
+# pads sit high on the module's own pull-up and are activated by shorting to
+# ground. Each channel is therefore:
+#
+#   open_drain: true   The pin only ever pulls DOWN. Released, it is high-Z, so
+#                      it never fights the transmitter's own pull-up rail and
+#                      never sources current into it.
+#   pullup: true       Internal ~45k keeps the line high when nothing external
+#                      pulls it up, so a disconnected/unpopulated transmitter
+#                      still idles high instead of floating.
+#   inverted: true     Flips the electrical sense only. The switch's logical
+#                      state is unchanged: ON = triggered = pin at GND,
+#                      OFF = idle = released. The UI and any automation calling
+#                      switch.turn_on keep reading the same way.
+#
+# With restore_mode: ALWAYS_OFF every channel comes up released at boot.
+#
+# WARNING — GPIO12 (RF TX B) is the MTDI strapping pin. It must be LOW at reset
+# or the ESP32 sets VDD_SDIO to 1.8V and the 3.3V flash fails to boot. The
+# internal pull-up above is applied by firmware AFTER the strapping latch, so it
+# is safe. Do NOT add an EXTERNAL pull-up to this line — the transmitter side of
+# RFTX1 must leave it low/open at power-up or the board will not boot.
 # ==============================================================================
 
 # ==============================================================================
-# RF TRANSMITTER SWITCHES - Momentary Pulse Outputs
+# RF TRANSMITTER SWITCHES - Momentary Pulse Outputs (active-low, open-drain)
 # ==============================================================================
 switch:
   - platform: gpio
-    pin: GPIO14
+    pin:
+      number: GPIO14
+      mode:
+        output: true
+        open_drain: true
+        pullup: true
+      inverted: true
     name: "RF TX A"
     id: rf_tx_a
     restore_mode: ALWAYS_OFF
@@ -30,6 +62,11 @@ switch:
   - platform: gpio
     pin:
       number: GPIO12
+      mode:
+        output: true
+        open_drain: true
+        pullup: true
+      inverted: true
       ignore_strapping_warning: true
     name: "RF TX B"
     id: rf_tx_b
@@ -39,7 +76,13 @@ switch:
       - switch.turn_off: rf_tx_b
 
   - platform: gpio
-    pin: GPIO19
+    pin:
+      number: GPIO19
+      mode:
+        output: true
+        open_drain: true
+        pullup: true
+      inverted: true
     name: "RF TX C"
     id: rf_tx_c
     restore_mode: ALWAYS_OFF
@@ -48,7 +91,13 @@ switch:
       - switch.turn_off: rf_tx_c
 
   - platform: gpio
-    pin: GPIO18
+    pin:
+      number: GPIO18
+      mode:
+        output: true
+        open_drain: true
+        pullup: true
+      inverted: true
     name: "RF TX D"
     id: rf_tx_d
     restore_mode: ALWAYS_OFF

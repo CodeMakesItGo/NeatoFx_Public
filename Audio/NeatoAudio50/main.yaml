@@ -24,9 +24,15 @@ packages:
   #board:         !include boards/rev2_3.yaml    # Rev 2.3 (mp3_power on GPIO21)
 
   # RFTX connector — select one mode:
-  #rftx:           !include boards/common/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
+  # NOTE: this line also decides whether the RF A/B/C/D receiver controls (MP3 #,
+  # Sequential, Output) are visible. The on-board RF receiver itself (Remote
+  # BtnA-D, GPIO36/2/15/35 in the board file) is wired up in ALL three modes and
+  # always runs run_rf_*_script — but rftx_none marks those controls internal and
+  # pins each RF MP3 # to 0 (None), so the UI shows nothing and a remote press
+  # plays nothing. Use outputs or inputs to get the RF Receiver card back.
+  rftx:           !include boards/common/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
   #rftx:          !include boards/common/rftx_inputs.yaml    # RFTX as 4 trigger inputs
-  rftx:          !include boards/common/rftx_none.yaml      # RFTX unused (hides all RF controls from UI)
+  #rftx:          !include boards/common/rftx_none.yaml      # RFTX unused (hides all RF controls from UI)
 
   # Network mode — select one:
   #config:        !include configs/standalone.yaml       # Device's own AP, no router
@@ -57,5 +63,5 @@ web_server:
 # DEBUGGING
 # ==============================================================================
 logger:
-  level: DEBUG   # TEMP: troubleshooting DFPlayer "track not found" — shows
+  level: WARN   # TEMP: troubleshooting DFPlayer "track not found" — shows
                  # "Playing file X in mp3 folder". Set back to WARN for production.

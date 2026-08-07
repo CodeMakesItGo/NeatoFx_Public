@@ -666,16 +666,40 @@ dfplayer:
 
 # ==============================================================================
 # RF INPUTS - System Controls
-# ==============================================================================          
+# ==============================================================================
+# Board silkscreen ↔ firmware channel (the two namings do NOT line up — the
+# silkscreen is 0-indexed, the firmware letters are not):
+#   RFD0 → BtnA GPIO36     RFD1 → BtnC GPIO15
+#   ...verify against the board before trusting a channel letter in a bug report.
+#
+# A, B and D are BARE INPUTS — no internal pull. The receiver drives these lines
+# and defines their level; a pull would only fight it.
+#
+# C (GPIO15) is the exception and carries a pulldown — see the note on that pin.
+# GPIO15 is the only one of the four whose RESET default is a pull-UP, which lets
+# it sit stuck-high when undriven and silently kill on_press.
+#
+# Only GPIO2 (B) and GPIO15 (C) can take an internal pull at all. GPIO36 (A) and
+# GPIO35 (D) are INPUT-ONLY pins (GPIO34-39) with no pull resistors on the die —
+# ESPHome refuses to compile one: "GPIO36 (34-39) does not support pullups." If
+# either ever needs a defined idle level it takes an EXTERNAL resistor on the
+# PCB; firmware cannot supply one.
+#
+# POLARITY — inverted: false, so on_press fires on a HIGH level: idle low, driven
+# high while a remote button is held. If the receiver turns out to be
+# open-collector / active-low instead, these need inverted: true to fire on the
+# HIGH→LOW edge.
+#
+# These are exposed (not internal) so their live state shows in the web UI
+# Diagnostics card — the only way to see a stuck channel in the field.
 binary_sensor:
   - platform: gpio
     name: "Remote BtnA"
     id: remote_btn_A
-    internal: true
     pin:
       number: GPIO36
-      mode: INPUT  
-      inverted: false  
+      mode: INPUT
+      inverted: false
     on_press:
       - logger.log: "Remote Btn A Pressed"
       - script.execute: run_rf_a_script  
@@ -685,11 +709,10 @@ binary_sensor:
   - platform: gpio 
     name: "Remote BtnB"
     id: remote_btn_B
-    internal: true
     pin:
-      number: GPIO2  
-      mode: INPUT  
-      inverted: false  
+      number: GPIO2
+      mode: INPUT
+      inverted: false
       ignore_strapping_warning: true
     on_press:
      - logger.log: "Remote Btn B Pressed"  
@@ -700,11 +723,10 @@ binary_sensor:
   - platform: gpio
     name: "Remote BtnC"
     id: remote_btn_C
-    internal: true
     pin:
-      number: GPIO15  
-      mode: INPUT  
-      inverted: false  
+      number: GPIO15
+      mode: INPUT
+      inverted: false
       ignore_strapping_warning: true
     on_press:
       - logger.log: "Remote Btn C Pressed"
@@ -715,11 +737,10 @@ binary_sensor:
   - platform: gpio
     name: "Remote BtnD"
     id: remote_btn_D
-    internal: true
     pin:
-      number: GPIO35  
-      mode: INPUT  
-      inverted: false  
+      number: GPIO35
+      mode: INPUT
+      inverted: false
     on_press:
       - logger.log: "Remote Btn D Pressed"
       - script.execute: run_rf_d_script
