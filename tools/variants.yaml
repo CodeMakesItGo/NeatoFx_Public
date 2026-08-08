@@ -25,7 +25,7 @@ devices:
         ir_receiver: protocols/ir_raw.yaml
         servo_scripts: scripts/servo_stubs.yaml
       lcd_lasertag_fpp:
-        board: boards/rev3_lcd.yaml
+        board: boards/rev3_lcd_1_1.yaml
         ir_receiver: protocols/ir_laser_tag.yaml
         fpp_file: integrations/target_fpp.yaml
         servo_pwm_effects: scripts/servo_pwm_effects.yaml
