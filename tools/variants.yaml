@@ -36,6 +36,10 @@ devices:
         ir_receiver: protocols/ir_nec.yaml
       lan_no_ha:                # No-HA LAN mode (router present, no HA server)
         config: configs/networked.yaml
+      rev3_hit_1_0:             # Rev 3.x + hit face 1.0 (push button target)
+        board: boards/rev3_hit_1_0.yaml
+      rev3_lcd_1_1:             # Rev 3.x + LCD face 1.1 (GC9A01 LCD)
+        board: boards/rev3_lcd_1_1.yaml
 
   motor:
     path: Controllers/NeatoMotor/main.yaml
@@ -90,6 +94,8 @@ devices:
         config: configs/standalone.yaml
       ha:                      # Home Assistant LAN mode
         config: configs/home_assistant.yaml
+      rftx_none:                # RF TX disabled (hides RF controls)
+        rftx: boards/common/rftx_none.yaml
 
   display:
     path: Displays/NeatoDisplay4/main.yaml
