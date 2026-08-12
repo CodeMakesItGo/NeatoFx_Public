@@ -5,20 +5,28 @@
 # It includes hardware definitions, network configuration, IR protocols,
 # and optional integrations like FPP (Falcon Player) support.
 #
+# ONE BINARY for every target — there is no per-unit build.
+#
 # Usage:
-#   esphome -s id 1 compile main.yaml
-#   esphome -s id 1 run     main.yaml
-#   esphome -s id 1 logs    main.yaml
+#   esphome compile main.yaml
+#   esphome run     main.yaml
+#   esphome logs    main.yaml
+#   Then set the Device ID from the device web interface.
 # ==============================================================================
 
 # ==============================================================================
 # SUBSTITUTIONS - Device Identification
 # ==============================================================================
 substitutions:
-  # Default ID - override with -s id XXXX command line parameter
-  id: "1"                     # Default target ID
-  name: target-${id}             
-  friendly_name: "NeatoFx Target ${id}"
+  # ONE BINARY: there is no build-time id substitution. ESPHome appends the MAC
+  # suffix to the hostname at runtime (see _shared/esphome_base.yaml), giving
+  # each unit a unique, permanent hostname. Logical identity is the runtime
+  # Device ID, assigned from the web UI and stored in flash — swapping in a
+  # replacement target means setting that number and nothing else.
+  name: target
+  name_add_mac_suffix: "true"
+  friendly_name: "NeatoFx Target"
+  runtime_name_label: "Target Name"
   # Servo PWM effect — only used when servo_pwm_effects package is enabled below
   # Options: servo_pwm_sawzall | servo_pwm_flicker
   # servo_pwm_script: "servo_pwm_flicker"
@@ -27,6 +35,11 @@ substitutions:
 # EXTERNAL PACKAGES
 # ==============================================================================
 packages:
+  # Runtime identity — in main.yaml, not the network configs, so a
+  # standalone build gets the Device ID and Target Name too. The package is
+  # pure globals/template entities and has no api: dependency.
+  runtime_id: !include ../../_shared/runtime_id.yaml
+
   # Hardware — select one board revision:
   #board: !include boards/rev1.yaml    # Rev 1.x (legacy)
   board: !include boards/rev3.yaml     # Rev 3.x (current production)

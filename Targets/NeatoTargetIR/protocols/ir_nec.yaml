@@ -24,11 +24,16 @@ remote_receiver:
             - lambda: 'return id(ir_enabled);'
           then:
             - lambda: |-
-                ESP_LOGI("IR", "NEC - Address: 0x%04X, Command: 0x%02X", 
-                         x.address, x.command & 0xFF);
-                
-                // Store the command and set team detection
-                id(ir_command) = x.command & 0xFF;
+                // The blaster encodes the player in the low nibble of the NEC
+                // command: 0x70 | player, so 0x71..0x7F = players 1-15.
+                // Masking with 0x0F recovers the player number directly, which
+                // is what gets reported to Home Assistant as `player:`.
+                // 0 = the blaster has no Player ID assigned; the hit is still
+                // registered so HA can surface "no player 0" as the anomaly.
+                ESP_LOGI("IR", "NEC - Address: 0x%04X, Command: 0x%02X, Player: %d",
+                         x.address, x.command & 0xFF, x.command & 0x0F);
+
+                id(ir_command) = x.command & 0x0F;
             - script.execute: run_hit_script
           else:
             - lambda: 'ESP_LOGI("IR", "NEC_DISABLED");'

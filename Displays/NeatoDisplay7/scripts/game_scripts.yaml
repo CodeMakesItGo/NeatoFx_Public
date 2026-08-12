@@ -49,7 +49,7 @@ interval:
           // Only run idle check when game is active
           if (lv_obj_has_flag(id(game_screen), LV_OBJ_FLAG_HIDDEN)) return;
           if (id(game_over_active)) return;
-          int current = (int)id(player_${id}_shot).state;
+          int current = (int)id(player_shot_sensor).state;
           if (current != id(last_shot_count)) {
             id(last_shot_count) = current;
             id(idle_seconds) = 0;
@@ -119,7 +119,7 @@ script:
     then:
       - if:
           condition:
-            lambda: 'return (int)id(player_${id}_shot).state >= id(g_max_shots);'
+            lambda: 'return (int)id(player_shot_sensor).state >= id(g_max_shots);'
           then:
             - globals.set:
                 id: game_over_active
@@ -128,7 +128,7 @@ script:
                 id: game_over_score
                 text:
                   format: "%d"
-                  args: [ '(int)id(player_${id}_score).state' ]
+                  args: [ '(int)id(player_score_sensor).state' ]
             - lvgl.widget.hide: game_screen
             - lvgl.widget.hide: game_shot_screen
             - lvgl.widget.show: game_over_screen

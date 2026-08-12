@@ -89,6 +89,10 @@ switch:
 # ==============================================================================
 # USER CONTROLS - Numbers and Selects
 # ==============================================================================
+# NOTE: the "Player ID" number and the "Blaster Name" text sensor both come
+# from _shared/runtime_id.yaml now (runtime_id / runtime_id_label /
+# runtime_name_label are set in main.yaml). Do not re-add them here — a second
+# entity with the same name on one device collides in Home Assistant.
 number:
   # Relay activation duration control
   - platform: template
@@ -154,7 +158,7 @@ globals:
     restore_value: no
     initial_value: 'false'
 
-  # Game active state - false blocks trigger (set by HA helper player_${id}_active)
+  # Game active state - false blocks trigger (set by HA helper player_<player_id>_active)
   - id: game_active
     type: bool
     restore_value: no

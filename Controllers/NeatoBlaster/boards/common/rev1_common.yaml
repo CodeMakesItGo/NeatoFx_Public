@@ -62,37 +62,14 @@ sensor:
 
 
 # ==============================================================================
-# TEXT SENSORS - Device Information
+# IDENTITY
 # ==============================================================================
-text_sensor:
-  # Blaster ID display
-  - platform: template
-    name: "Blaster ID"
-    id: blaster_id_display
-    icon: "mdi:identifier"
-    lambda: |-
-      return {"${id}"};
-    update_interval: never
-
-# ==============================================================================
-# NUMBERS - Configuration Controls
-# ==============================================================================
-number:
-  # Blaster ID selector (for changing blaster ID via web interface)
-  - platform: template
-    name: "Blaster ID"
-    id: blaster_id_number
-    icon: "mdi:numeric"
-    optimistic: true
-    min_value: 1
-    max_value: 99
-    step: 1
-    initial_value: ${id}
-    mode: box
-    set_action:
-      - lambda: |-
-          ESP_LOGI("blaster", "Blaster ID changed to: %.0f", x);
-          id(blaster_id_display).publish_state(String((int)x).c_str());
+# The "Player ID" number and the "Blaster Name" text sensor both come from
+# _shared/runtime_id.yaml (runtime_id / runtime_id_label / runtime_name_label
+# are set in main.yaml). This file used to declare a "Player ID" text sensor
+# AND a "Player ID" number — two entities with the same name on one device,
+# which Home Assistant silently disambiguates by appending _2 to one of the
+# entity_ids. Do not re-add either here.
 
 # ==============================================================================
 # GLOBALS - Shared State

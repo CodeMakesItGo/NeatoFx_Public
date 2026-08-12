@@ -8,24 +8,37 @@
 # a swappable drive so the same firmware runs a 24V DC motor OR a 240VAC
 # controller. Winch is a self-contained alternate board.
 #
+# ONE BINARY for every unit — there is no per-unit build.
+#
 # Usage:
-#   esphome -s id <id> run     Controllers/NeatoMotor/main.yaml
-#   esphome -s id <id> compile Controllers/NeatoMotor/main.yaml
-#   esphome -s id <id> logs    Controllers/NeatoMotor/main.yaml
+#   esphome run     Controllers/NeatoMotor/main.yaml
+#   esphome compile Controllers/NeatoMotor/main.yaml
+#   esphome logs    Controllers/NeatoMotor/main.yaml
+#   Then set the CAN Source Address from the device web interface.
 # ==============================================================================
 
 # ==============================================================================
 # SUBSTITUTIONS - Device Identification
 # ==============================================================================
 substitutions:
-  id: "1"
-  name: "motor-${id}"
-  friendly_name: "NeatoFx Motor ${id}"
+  # ONE BINARY: there is no build-time id substitution — ESPHome appends the MAC
+  # suffix to the hostname at runtime. Logical identity is the runtime CAN
+  # Source Address, assigned from the web UI and stored in flash.
+  name: motor
+  name_add_mac_suffix: "true"
+  # This node's CAN source address, 0x00-0xEF, set from the web UI.
+  runtime_id_label: "Source Address"
+  runtime_id_max: "239"         # 0xEF
+  runtime_name_label: "Motor Name"
+  friendly_name: "NeatoFx Motor"
 
 # ==============================================================================
 # PACKAGES
 # ==============================================================================
 packages:
+  # Runtime identity — required by can.yaml and the HA event address.
+  runtime_id: !include ../../_shared/runtime_id.yaml
+
   # ---- BOARD / BEHAVIOR — select exactly ONE ----
   board: !include boards/rev3.yaml             # Standard: hold-to-run joystick (pick a DRIVE below)
   #board: !include boards/rev3_winch.yaml      # Winch: hall-encoder, auto-homing, soft limits

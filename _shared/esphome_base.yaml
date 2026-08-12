@@ -8,10 +8,24 @@
 # ==============================================================================
 # CORE ESPHOME CONFIGURATION - Common Settings
 # ==============================================================================
+# ONE BINARY PER PRODUCT
+# ----------------------
+# Products that ship a single firmware for every unit set
+#   name_add_mac_suffix: "true"
+# in their main.yaml substitutions. ESPHome then appends the last 3 bytes of the
+# MAC to both name and friendly_name at runtime, so `blaster` becomes
+# blaster-a1b2c3 — unique per device, permanent, and identical in every build.
+#
+# The hostname CANNOT carry a logical ID: App.pre_setup() runs before
+# preferences exist and writes into a fixed-length buffer. Logical identity
+# (player number, target number) is therefore a restore_value global exposed as
+# a number entity, assigned once from the web UI.
+#
+# Products still compiled per unit with -s id N leave this "false".
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
-  name_add_mac_suffix: false
+  name_add_mac_suffix: ${name_add_mac_suffix}
   project:
     name: ${project_name}
     version: ${project_version}
@@ -30,9 +44,28 @@ esp32:
 # ==============================================================================
 # OTA - Over The Air Updates
 # ==============================================================================
+# The password is a substitution, not a bare !secret, so it can be overridden on
+# the command line. That matters when updating a device still running firmware
+# that used a DIFFERENT (or empty) OTA password: the handshake uses the password
+# from the config you invoke, so a plain `upload` is rejected by the old device.
+# Migrate such a device without a USB trip by compiling normally, then uploading
+# the resulting binary while overriding the password to the OLD one:
+#
+#   esphome -s id 1 compile Audio/NeatoAudio50/main.yaml
+#   esphome -s id 1 -s ota_password "" upload \
+#       --file Audio/NeatoAudio50/.esphome/build/audio-1/.pioenvs/audio-1/firmware.bin \
+#       Audio/NeatoAudio50/main.yaml
+#
+# The uploaded binary still contains the new password, so this is needed once
+# per device. Do NOT `compile` with the override — that bakes the old password in.
+substitutions:
+  # Products shipping ONE binary override this to "true" in their main.yaml.
+  name_add_mac_suffix: "false"
+  ota_password: !secret ota_password
+
 ota:
   - platform: esphome
-    password: ""
+    password: "${ota_password}"
   # Enable firmware (.bin) upload from the web UI — adds an "OTA Update"
   # file-upload form to the web server at http://<device>/.
   - platform: web_server

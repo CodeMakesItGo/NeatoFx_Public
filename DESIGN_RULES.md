@@ -83,12 +83,34 @@ Shared files: `esphome_base.yaml`, `networked_base.yaml`, `standalone_base.yaml`
 
 ```yaml
 substitutions:
-  id: "1"
-  name: "<device>-${id}"
-  friendly_name: "Neato <Device> ${id}"
+  name: "<device>"
+  name_add_mac_suffix: "true"
+  friendly_name: "NeatoFx <Device>"
+  runtime_id: player_id          # or device_id — see below
+  runtime_id_label: "Player ID"
+  runtime_id_max: "15"
+  runtime_name_label: "<Device> Name"
 ```
 
-`project_name: "CodeMakesItGo.<Device>"` and `project_version` live in `common.yaml` or the board. Every device is parameterized by `-s id <N>`.
+**ONE BINARY per product.** There is no `id` substitution and no `-s id <N>`;
+`tools/lint_repo.py` fails a `main.yaml` that reintroduces one. ESPHome appends
+the MAC suffix to the hostname at runtime, and logical identity is a restoring
+global from `_shared/runtime_id.yaml`, assigned once from the web UI. Swapping a
+unit is: flash, set that number, done.
+
+`runtime_id` names the global: `player_id` on player-facing products (Blaster,
+Display), `device_id` on everything else. Renaming it strands every deployed
+unit's assignment, because a restoring global's flash key is the md5 of its ID
+string — do not change it for a shipped product without a migration.
+
+The only per-build variation in the whole line is display colour, which selects
+compiled-in artwork.
+
+`project_name: "CodeMakesItGo.<Device>"` and `project_version` live in
+`common.yaml` or the board, and must be written as `${project_version}` wherever
+`esphome: project:` is set — hardcoding a literal there silently overrides the
+substitution. `project_version` is the FIRMWARE version and is synced across the
+whole line; hardware revision is the separate `hw_version` substitution.
 
 ## 6. Naming
 
@@ -138,7 +160,7 @@ These already hold today and are the basis for the rules above:
 - **`boards/rev<N>.yaml` → `boards/common/common.yaml`** hardware→logic split.
 - **`configs/networked.yaml` + `configs/standalone.yaml`** operating-mode pair.
 - **`_shared/` bases** (`esphome_base`, `networked_base`, `standalone_base`, `network_sensors`, `firmware_update`) with the fixed include depths above.
-- **Substitutions** `id` / `name` / `friendly_name` + `project: CodeMakesItGo.<Device>`.
+- **Substitutions** `name` / `name_add_mac_suffix` / `friendly_name` / `runtime_id*` + `project: CodeMakesItGo.<Device>`. No build-time `id`.
 - **Safe-state `on_boot`**, `WARN` logging, improv + dashboard_import for MFE, `custom_ui.js` web UI.
 - **IR devices** (Target, Blaster) share the `protocols/` set (`ir_nec`, `ir_raw`, `ir_laser_tag`, `ir_custom`) and `integrations/` FPP.
 - **Servo/effect devices** (Target, Golf) share `scripts/servo_movement_script.yaml`, `servo_stubs.yaml`, `servo_pwm_effects.yaml`, `color_controls.yaml`.

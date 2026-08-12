@@ -38,7 +38,7 @@ substitutions:
   tx_gpio: GPIO03        # RX pin (free when baud_rate: 0) - start game button
 
   # Project Information (Rev 3.x specific)
-  project_version: "3.0.0"
+  project_version: "3.1.0"
 
 # ==============================================================================
 # EXTERNAL PACKAGES
@@ -60,7 +60,9 @@ esphome:
 
         # Initialize blaster state
         - lambda: |-
-            ESP_LOGI("blaster", "Neato Blaster ${id} initialized");
+            // player_id is the RUNTIME identity (restored at HARDWARE, 800, so
+            // it is already valid here at 600). 0 = unassigned.
+            ESP_LOGI("blaster", "Neato Blaster initialized - player %d", id(player_id));
             id(blaster_pumped) = false;
 
         - logger.log: "Basic systems initialized"
@@ -219,15 +221,14 @@ binary_sensor:
     filters:
       - delayed_on: 50ms
       - delayed_off: 50ms
+    # Behaviour lives in the active config's start_game_pressed script, NOT
+    # here: this is a board file and is shared by both network modes, but
+    # homeassistant.event only exists when api: does. Inlining it broke the
+    # standalone build ("Unable to find action with the name
+    # 'homeassistant.event'"), since configs/standalone.yaml has no api:.
+    # Same split as blaster_trigger_pressed.
     on_press:
-      - if:
-          condition:
-            lambda: 'return !id(game_active);'
-          then:
-            - homeassistant.event:
-                event: esphome.game_start_requested
-                data:
-                  blaster_id: "${id}"
+      - script.execute: start_game_pressed
 
 # ==============================================================================
 # BUTTON - Trigger Action Handler
@@ -249,7 +250,10 @@ button:
             # Transmit IR signal to target
             - remote_transmitter.transmit_nec:
                 address: 0x0003
-                command: 7${id}
+                # Player number in the low nibble: 0x71..0x7F for players 1-15.
+                # Target side recovers it with `command & 0x0F`.
+                command: !lambda |-
+                  return (uint16_t) (0x70 | (id(player_id) & 0x0F));
                 repeat: 3
 
 

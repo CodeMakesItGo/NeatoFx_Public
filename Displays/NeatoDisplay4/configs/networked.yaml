@@ -30,119 +30,202 @@ substitutions:
 api:
   reboot_timeout: 5min
   homeassistant_services: true
+  # ---------------------------------------------------------------------------
+  # LEGACY ENTRY POINT — prefer the player_<id>_* helpers below.
+  # ---------------------------------------------------------------------------
+  # These services are named from the DEVICE name, which carries the MAC suffix
+  # (esphome.station_ylw_a1b2c3_set_shot). Swap a display for a spare and every
+  # Home Assistant script calling them has to be edited. They are kept so
+  # existing installs keep working; new automations should write the
+  # input_number.player_<id>_* helpers instead — see the sensor block below.
+  #
+  # Each service just delegates to the same script the helper subscription uses,
+  # so the two paths can never drift.
   services:
-    # Called by Home Assistant to update the player's score label
     - service: set_score
       variables:
         score_value: int
       then:
-        - sensor.template.publish:
-            id: player_${id}_score
-            state: !lambda 'return score_value;'
-        - lvgl.label.update:
-            id: player_score
-            text:
-              format: "%d"
-              args: [ '(int)id(player_${id}_score).state' ]
-        - if:
-            condition:
-              lambda: 'return id(game_over_active);'
-            then:
-              - lvgl.label.update:
-                  id: game_over_score
-                  text:
-                    format: "%d"
-                    args: [ '(int)score_value' ]
+        - script.execute:
+            id: apply_score
+            value: !lambda 'return score_value;'
 
-    # Called by Home Assistant (via pump gun start button) to start the game
     - service: start_game
       then:
-        - globals.set:
-            id: game_over_active
-            value: 'false'
-        - lvgl.widget.hide: boot_screen
-        - lvgl.widget.show: game_screen
-        - lvgl.widget.show: game_shot_screen
-        - script.execute: reset_score_script
-        - lvgl.label.update:
-            id: player_shot
-            text: !lambda 'return std::to_string(id(g_max_shots));'
-        - homeassistant.service:
-            service: input_boolean.turn_on
-            data:
-              entity_id: input_boolean.player_${id}_active
+        - script.execute: apply_start_game
 
-    # Called by Home Assistant to update the hit count label
     - service: set_hit
       variables:
         score_value: int
       then:
-        - sensor.template.publish:
-            id: player_${id}_hit
-            state: !lambda 'return score_value;'
-        - lvgl.label.update:
-            id: player_hit
-            text:
-              format: "%d"
-              args: [ '(int)id(player_${id}_hit).state' ]
+        - script.execute:
+            id: apply_hit
+            value: !lambda 'return score_value;'
 
-    # Called by Home Assistant to update the remaining shots label
     - service: set_shot
       variables:
         score_value: int
       then:
-        - if:
-            condition:
-              lambda: 'return score_value > 0 && !id(game_over_active) && !lv_obj_has_flag(id(boot_screen), LV_OBJ_FLAG_HIDDEN);'
-            then:
-              - lvgl.label.update:
-                  id: player_score
-                  text: "0"
-              - lvgl.label.update:
-                  id: player_hit
-                  text: "0"
-              - lvgl.label.update:
-                  id: player_shot
-                  text: !lambda 'return std::to_string(id(g_max_shots));'
-              - lvgl.label.update:
-                  id: game_over_score
-                  text: ""
-              - lvgl.widget.hide: boot_screen
-              - lvgl.widget.show: game_screen
-              - lvgl.widget.show: game_shot_screen
-              - script.execute: reset_score_script
-              - homeassistant.service:
-                  service: input_boolean.turn_on
-                  data:
-                    entity_id: input_boolean.player_${id}_active
-        - sensor.template.publish:
-            id: player_${id}_shot
-            state: !lambda 'return score_value;'
-        - lvgl.label.update:
-            id: player_shot
-            text:
-              format: "%d"
-              args: [ 'std::max(0, id(g_max_shots) - (int)score_value)' ]
-        - if:
-            condition:
-              lambda: 'return score_value >= id(g_max_shots);'
-            then:
-              - homeassistant.service:
-                  service: input_boolean.turn_off
-                  data:
-                    entity_id: input_boolean.player_${id}_active
-              - globals.set:
-                  id: game_over_active
-                  value: 'true'
-              - lvgl.widget.hide: game_screen
-              - lvgl.widget.hide: game_shot_screen
-              - lvgl.label.update:
-                  id: game_over_score
-                  text:
-                    format: "%d"
-                    args: [ '(int)id(player_${id}_score).state' ]
-              - lvgl.widget.show: game_over_screen
-              - script.execute: game_over_transition_script
+        - script.execute:
+            id: apply_shot
+            value: !lambda 'return score_value;'
+
+# ==============================================================================
+# GAME STATE — player-keyed, survives a hardware swap
+# ==============================================================================
+# Home Assistant addresses this display by its PLAYER ID, never by its hostname
+# or MAC. Set the Player ID on a replacement unit and every script below keeps
+# working untouched.
+#
+# The entity_ids in the sensor block are compile-time placeholders only —
+# ESPHome's schema makes entity_id Required (cv.Required(CONF_ENTITY_ID)), so
+# something syntactically valid has to be there. on_boot rebinds them to the
+# restored player_id at priority 600: globals restore at HARDWARE (800) and the
+# homeassistant sensors subscribe at AFTER_WIFI (200), so the placeholder is
+# never actually subscribed. Changing the Player ID reboots the device, which is
+# what re-runs this binding.
+#
+# Home Assistant needs these helpers, one set per player (1-15):
+#   input_number.player_<id>_score
+#   input_number.player_<id>_hits
+#   input_number.player_<id>_shots
+#   input_boolean.player_<id>_active   (already used by the blaster gate)
+esphome:
+  on_boot:
+    - priority: 600
+      then:
+        - lambda: |-
+            // static: set_entity_id stores the pointer, not a copy, so these
+            // strings must outlive the components' setup().
+            const std::string p = "player_" + std::to_string(id(player_id)) + "_";
+            static std::string score_id = "input_number." + p + "score";
+            static std::string hits_id  = "input_number." + p + "hits";
+            static std::string shots_id = "input_number." + p + "shots";
+            id(ha_player_score).set_entity_id(score_id.c_str());
+            id(ha_player_hits).set_entity_id(hits_id.c_str());
+            id(ha_player_shots).set_entity_id(shots_id.c_str());
+            ESP_LOGI("display", "Game state bound to input_number.%s*", p.c_str());
+
+# ==============================================================================
+# SCRIPTS - Shared game-state handlers
+# ==============================================================================
+# One implementation per action, called by BOTH the legacy api services and the
+# player_<id>_* helper subscriptions.
+script:
+  - id: apply_score
+    parameters:
+      value: int
+    then:
+      - sensor.template.publish:
+          id: player_score_sensor
+          state: !lambda 'return value;'
+      - lvgl.label.update:
+          id: player_score
+          text:
+            format: "%d"
+            args: [ '(int)id(player_score_sensor).state' ]
+      - if:
+          condition:
+            lambda: 'return id(game_over_active);'
+          then:
+            - lvgl.label.update:
+                id: game_over_score
+                text:
+                  format: "%d"
+                  args: [ 'value' ]
+
+  - id: apply_hit
+    parameters:
+      value: int
+    then:
+      - sensor.template.publish:
+          id: player_hit_sensor
+          state: !lambda 'return value;'
+      - lvgl.label.update:
+          id: player_hit
+          text:
+            format: "%d"
+            args: [ '(int)id(player_hit_sensor).state' ]
+
+  - id: apply_start_game
+    then:
+      - globals.set:
+          id: game_over_active
+          value: 'false'
+      - lvgl.widget.hide: boot_screen
+      - lvgl.widget.show: game_screen
+      - lvgl.widget.show: game_shot_screen
+      - script.execute: reset_score_script
+      - lvgl.label.update:
+          id: player_shot
+          text: !lambda 'return std::to_string(id(g_max_shots));'
+      - homeassistant.service:
+          service: input_boolean.turn_on
+          data_template:
+            entity_id: "input_boolean.player_{{ pid }}_active"
+          variables:
+            pid: !lambda 'return id(player_id);'
+
+  - id: apply_shot
+    parameters:
+      value: int
+    then:
+      - if:
+          condition:
+            lambda: 'return value > 0 && !id(game_over_active) && !lv_obj_has_flag(id(boot_screen), LV_OBJ_FLAG_HIDDEN);'
+          then:
+            - lvgl.label.update:
+                id: player_score
+                text: "0"
+            - lvgl.label.update:
+                id: player_hit
+                text: "0"
+            - lvgl.label.update:
+                id: player_shot
+                text: !lambda 'return std::to_string(id(g_max_shots));'
+            - lvgl.label.update:
+                id: game_over_score
+                text: ""
+            - lvgl.widget.hide: boot_screen
+            - lvgl.widget.show: game_screen
+            - lvgl.widget.show: game_shot_screen
+            - script.execute: reset_score_script
+            - homeassistant.service:
+                service: input_boolean.turn_on
+                data_template:
+                  entity_id: "input_boolean.player_{{ pid }}_active"
+                variables:
+                  pid: !lambda 'return id(player_id);'
+      - sensor.template.publish:
+          id: player_shot_sensor
+          state: !lambda 'return value;'
+      - lvgl.label.update:
+          id: player_shot
+          text:
+            format: "%d"
+            args: [ 'std::max(0, id(g_max_shots) - (int)value)' ]
+      - if:
+          condition:
+            lambda: 'return value >= id(g_max_shots);'
+          then:
+            - homeassistant.service:
+                service: input_boolean.turn_off
+                data_template:
+                  entity_id: "input_boolean.player_{{ pid }}_active"
+                variables:
+                  pid: !lambda 'return id(player_id);'
+            - globals.set:
+                id: game_over_active
+                value: 'true'
+            - lvgl.widget.hide: game_screen
+            - lvgl.widget.hide: game_shot_screen
+            - lvgl.label.update:
+                id: game_over_score
+                text:
+                  format: "%d"
+                  args: [ '(int)id(player_score_sensor).state' ]
+            - lvgl.widget.show: game_over_screen
+            - script.execute: game_over_transition_script
 
 # ==============================================================================
 # SENSORS - System Monitoring & Game State from Home Assistant
@@ -159,6 +242,37 @@ sensor:
     on_value:
       - globals.set:
           id: g_max_shots
+          value: !lambda 'return (int)x;'
+
+  # --------------------------------------------------------------------------
+  # Player-keyed game state — entity_id is rebound at boot, see the on_boot
+  # block above. The values below are placeholders and are never subscribed.
+  # --------------------------------------------------------------------------
+  - platform: homeassistant
+    id: ha_player_score
+    entity_id: input_number.player_0_score
+    internal: true
+    on_value:
+      - script.execute:
+          id: apply_score
+          value: !lambda 'return (int)x;'
+
+  - platform: homeassistant
+    id: ha_player_hits
+    entity_id: input_number.player_0_hits
+    internal: true
+    on_value:
+      - script.execute:
+          id: apply_hit
+          value: !lambda 'return (int)x;'
+
+  - platform: homeassistant
+    id: ha_player_shots
+    entity_id: input_number.player_0_shots
+    internal: true
+    on_value:
+      - script.execute:
+          id: apply_shot
           value: !lambda 'return (int)x;'
 
 # ==============================================================================

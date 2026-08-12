@@ -70,7 +70,7 @@ script:
       - homeassistant.event:
           event: esphome.speaker-triggered
           data:
-            address: ${id}
+            address: !lambda 'return id(device_id);'
             input: '1'
   - id: esphome_script_in2
     mode: single  # Prevent overlapping hits
@@ -79,7 +79,7 @@ script:
       - homeassistant.event:
           event: esphome.speaker-triggered
           data:
-            address: ${id}
+            address: !lambda 'return id(device_id);'
             input: '2'
 
 # ==============================================================================

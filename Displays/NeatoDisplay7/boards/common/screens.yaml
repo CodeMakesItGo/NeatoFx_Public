@@ -15,17 +15,17 @@
 sensor:
   - platform: template
     name: "Player Score"
-    id: player_${id}_score
+    id: player_score_sensor
     update_interval: never
 
   - platform: template
     name: "Player Hit"
-    id: player_${id}_hit
+    id: player_hit_sensor
     update_interval: never
 
   - platform: template
     name: "Player Shots"
-    id: player_${id}_shot
+    id: player_shot_sensor
     update_interval: never
 
 # Images removed to stay within 3.93MB OTA flash partition.

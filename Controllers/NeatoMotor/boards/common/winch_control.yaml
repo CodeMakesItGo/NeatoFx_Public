@@ -46,7 +46,7 @@ packages:
 
 substitutions:
   project_name: "CodeMakesItGo.WinchMotor"
-  project_version: "1.0.0"
+  project_version: "3.1.0"
 
 # ==============================================================================
 # GLOBAL VARIABLES

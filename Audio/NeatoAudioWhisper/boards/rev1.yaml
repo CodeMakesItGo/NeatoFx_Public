@@ -22,11 +22,10 @@ packages:
 # SUBSTITUTIONS - Device Identification
 # ==============================================================================
 substitutions:
-  id: "0000"                      # Default ID - override with -s id XXXX
-  name: whisper-${id}
-  friendly_name: "NEATO Audio Whisper ${id}"
+  # name / friendly_name are set in main.yaml (one binary, MAC-suffixed
+  # hostname). Only board-specific values belong here.
   project_name: "CodeMakesItGo.AudioWhisper"
-  project_version: "1.0.0"
+  project_version: "3.1.0"
 
 # ==============================================================================
 # ESP32 FRAMEWORK
@@ -40,15 +39,18 @@ esp32:
 # BOOT SEQUENCE
 # ==============================================================================
 esphome:
+  # MUST stay a LIST (leading "-"). ESPHome only concatenates on_boot
+  # across packages when both sides are lists; as a bare dict this block
+  # silently overwrites, or is overwritten by, another package's trigger.
   on_boot:
-    priority: 300
-    then:
-      - delay: 1500ms                 # Let the DY-SV8F finish its own boot
-      - script.execute:               # Push saved volume to the module
-          id: set_volume
-          vol: !lambda 'return (int) id(volume).state;'
-      - script.execute: query_song_count   # populate "MP3 Song Count" once at boot
-      - logger.log: "Boot complete - MP3 module initialized"
+    - priority: 300
+      then:
+        - delay: 1500ms                 # Let the DY-SV8F finish its own boot
+        - script.execute:               # Push saved volume to the module
+            id: set_volume
+            vol: !lambda 'return (int) id(volume).state;'
+        - script.execute: query_song_count   # populate "MP3 Song Count" once at boot
+        - logger.log: "Boot complete - MP3 module initialized"
 
 # ==============================================================================
 # UART - DY-SV8F MP3 module (9600 8N1)

@@ -13,18 +13,33 @@ packages:
 # ==============================================================================
 # STANDALONE BOOT - Enable blaster immediately (no HA to set player active)
 # ==============================================================================
+# MUST stay a LIST (leading "-"). The board file (boards/rev3.yaml) declares its
+# own on_boot trigger, and ESPHome only concatenates on_boot across packages
+# when both sides are lists — as a bare dict this block silently overwrites, or
+# is overwritten by, the board's power-up sequence. Neither side errors.
 esphome:
   on_boot:
-    priority: 250
-    then:
-      - globals.set:
-          id: game_active
-          value: 'true'
+    - priority: 250
+      then:
+        - globals.set:
+            id: game_active
+            value: 'true'
 
 # ==============================================================================
 # BLASTER SCRIPTS - what to do when trigger is pulled
 # ==============================================================================
 script:
+  # Start Game button (rev 3.x, TX pin) — no-op in standalone.
+  #
+  # There is no Home Assistant to ask for a game, and on_boot above already
+  # latched game_active true, so the blaster is live from power-up and stays
+  # that way: the button has nothing to start. The script still has to exist
+  # because the board file executes it unconditionally.
+  - id: start_game_pressed
+    mode: single
+    then:
+      - logger.log: "Start Game pressed - standalone blaster is always active"
+
   # Main Trigger Script - do these things when trigger is pulled
   - id: blaster_trigger_pressed
     mode: single
@@ -34,5 +49,8 @@ script:
       #- homeassistant.event:
       #    event: esphome.blaster_fired
       #    data:
-      #      blaster_id: "${id}"
       #      blaster_name: "${friendly_name}"
+      #    data_template:
+      #      blaster_id: "{{ blaster_id }}"
+      #    variables:
+      #      blaster_id: !lambda 'return id(player_id);'

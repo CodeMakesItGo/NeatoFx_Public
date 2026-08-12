@@ -73,12 +73,18 @@ script:
           ESP_LOGI("bg_loop", "Background loop: playing MP3 #%d", (int)id(bg_loop_mp3_select).state);
       - output.turn_on: amp_wake
       - delay: 50ms
-      - output.turn_on: amp_unmute
-      - delay: 100ms
+      # Volume MUST be set while the amp is still muted. This command steps the
+      # DFPlayer's DAC output to the new level, and an unmuted amp reproduces
+      # that step as an audible pop. Re-sent before every play because the
+      # DFPlayer powers up (and resets) at volume 30 = max: if it missed the
+      # boot-time set_volume — SD mount can outlast the boot delay — it would
+      # otherwise blast full volume while the UI shows the saved value.
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - delay: 100ms
+      - output.turn_on: amp_unmute
+      - delay: 50ms
       - dfplayer.play_mp3:
           id: dfplayer1
           file: !lambda 'return (int)id(bg_loop_mp3_select).state;'
@@ -88,22 +94,24 @@ script:
     mode: queued
     then:
       - logger.log: "Random MP3 script started"
-       # NOW turn on amp after play command is sent
+       # Wake + unmute the amp BEFORE playing; volume is set while still muted
       - logger.log: "Waking amp..."
       - output.turn_on: amp_wake    # Wake amp first
       - delay: 50ms                 # Let amp stabilize
-      - logger.log: "Unmuting amp..."
-      - output.turn_on: amp_unmute  # Unmute
-      - delay: 100ms
-      - logger.log: "Amp should be awake and unmuted"
-      # Re-send saved volume before every play: the DFPlayer powers up (and
-      # resets) at its default volume 30 (max). If it missed the boot-time
-      # set_volume — SD mount can outlast the boot delay — it would otherwise
-      # blast full volume while the UI shows the saved value.
+      # Volume MUST be set while the amp is still muted. This command steps the
+      # DFPlayer's DAC output to the new level, and an unmuted amp reproduces
+      # that step as an audible pop. Re-sent before every play because the
+      # DFPlayer powers up (and resets) at volume 30 = max: if it missed the
+      # boot-time set_volume — SD mount can outlast the boot delay — it would
+      # otherwise blast full volume while the UI shows the saved value.
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - delay: 100ms
+      - logger.log: "Unmuting amp..."
+      - output.turn_on: amp_unmute  # Unmute
+      - delay: 50ms
+      - logger.log: "Amp awake, unmuted, volume already set"
       - lambda: |-
           id(button_counter) += 1;
           int max_files = (int)id(max_mp3_files).state;
@@ -120,20 +128,24 @@ script:
       mp3_override: int   # 0 = use "Input 1 MP3"; 1-255 = caller-supplied file
     then:
       - logger.log: "Input 1 MP3 script started"
-       # NOW turn on amp after play command is sent
+       # Wake + unmute the amp BEFORE playing; volume is set while still muted
       - logger.log: "Waking amp..."
       - output.turn_on: amp_wake    # Wake amp first
       - delay: 50ms                 # Let amp stabilize
-      - logger.log: "Unmuting amp..."
-      - output.turn_on: amp_unmute  # Unmute
-      - delay: 100ms
-      - logger.log: "Amp should be awake and unmuted"
-      # Re-send saved volume before every play (DFPlayer defaults to max after
-      # power-up/reset; see note in play_random_mp3)
+      # Volume MUST be set while the amp is still muted. This command steps the
+      # DFPlayer's DAC output to the new level, and an unmuted amp reproduces
+      # that step as an audible pop. Re-sent before every play because the
+      # DFPlayer powers up (and resets) at volume 30 = max: if it missed the
+      # boot-time set_volume — SD mount can outlast the boot delay — it would
+      # otherwise blast full volume while the UI shows the saved value.
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - delay: 100ms
+      - logger.log: "Unmuting amp..."
+      - output.turn_on: amp_unmute  # Unmute
+      - delay: 50ms
+      - logger.log: "Amp awake, unmuted, volume already set"
 
       - lambda: |-
           // Control selected output
@@ -193,20 +205,24 @@ script:
       mp3_override: int   # 0 = use "Input 2 MP3"; 1-255 = caller-supplied file
     then:
       - logger.log: "Input 2 MP3 script started"
-       # NOW turn on amp after play command is sent
+       # Wake + unmute the amp BEFORE playing; volume is set while still muted
       - logger.log: "Waking amp..."
       - output.turn_on: amp_wake    # Wake amp first
       - delay: 50ms                 # Let amp stabilize
-      - logger.log: "Unmuting amp..."
-      - output.turn_on: amp_unmute  # Unmute
-      - delay: 100ms
-      - logger.log: "Amp should be awake and unmuted"
-      # Re-send saved volume before every play (DFPlayer defaults to max after
-      # power-up/reset; see note in play_random_mp3)
+      # Volume MUST be set while the amp is still muted. This command steps the
+      # DFPlayer's DAC output to the new level, and an unmuted amp reproduces
+      # that step as an audible pop. Re-sent before every play because the
+      # DFPlayer powers up (and resets) at volume 30 = max: if it missed the
+      # boot-time set_volume — SD mount can outlast the boot delay — it would
+      # otherwise blast full volume while the UI shows the saved value.
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - delay: 100ms
+      - logger.log: "Unmuting amp..."
+      - output.turn_on: amp_unmute  # Unmute
+      - delay: 50ms
+      - logger.log: "Amp awake, unmuted, volume already set"
 
       - lambda: |-
           // Control selected output
@@ -261,14 +277,13 @@ script:
     then:
       - output.turn_on: amp_wake
       - delay: 50ms
-      - output.turn_on: amp_unmute
-      - delay: 100ms
-      # Re-send saved volume before every play (DFPlayer defaults to max after
-      # power-up/reset; see note in play_random_mp3)
+      # Set volume while muted — see note in play_random_mp3
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - delay: 100ms
+      - output.turn_on: amp_unmute
+      - delay: 50ms
       - lambda: |-
           std::string output_choice = id(rf_a_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
@@ -289,14 +304,13 @@ script:
     then:
       - output.turn_on: amp_wake
       - delay: 50ms
-      - output.turn_on: amp_unmute
-      - delay: 100ms
-      # Re-send saved volume before every play (DFPlayer defaults to max after
-      # power-up/reset; see note in play_random_mp3)
+      # Set volume while muted — see note in play_random_mp3
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - delay: 100ms
+      - output.turn_on: amp_unmute
+      - delay: 50ms
       - lambda: |-
           std::string output_choice = id(rf_b_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
@@ -317,14 +331,13 @@ script:
     then:
       - output.turn_on: amp_wake
       - delay: 50ms
-      - output.turn_on: amp_unmute
-      - delay: 100ms
-      # Re-send saved volume before every play (DFPlayer defaults to max after
-      # power-up/reset; see note in play_random_mp3)
+      # Set volume while muted — see note in play_random_mp3
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - delay: 100ms
+      - output.turn_on: amp_unmute
+      - delay: 50ms
       - lambda: |-
           std::string output_choice = id(rf_c_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
@@ -345,14 +358,13 @@ script:
     then:
       - output.turn_on: amp_wake
       - delay: 50ms
-      - output.turn_on: amp_unmute
-      - delay: 100ms
-      # Re-send saved volume before every play (DFPlayer defaults to max after
-      # power-up/reset; see note in play_random_mp3)
+      # Set volume while muted — see note in play_random_mp3
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
       - delay: 100ms
+      - output.turn_on: amp_unmute
+      - delay: 50ms
       - lambda: |-
           std::string output_choice = id(rf_d_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }

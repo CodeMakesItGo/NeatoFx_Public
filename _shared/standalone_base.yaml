@@ -18,9 +18,15 @@ wifi:
   fast_connect: false
 
   # AP configuration for standalone mode
+  # ssid intentionally omitted. ESPHome derives the hotspot name from
+  # App.get_name() at runtime (wifi_component.cpp), which is the ONLY way it can
+  # include the MAC suffix on one-binary products — the ${name} substitution is
+  # just the generic "target"/"blaster", so hardcoding it here would name every
+  # unit's hotspot identically. For per-unit builds this resolves to the same
+  # value as before (motor-5, station-205), so the SSID always matches the
+  # .local hostname and the label.
   ap:
-    ssid: "${name}"
-    password: ""
+    password: !secret ap_password
     ap_timeout: 1min
 
   # Disable station mode and prevent network scanning

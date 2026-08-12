@@ -19,7 +19,7 @@
 # ==============================================================================
 substitutions:
   # Project Information (Rev 1.x specific)
-  project_version: "1.0.0"
+  project_version: "3.1.0"
   
   # Audio Configuration
   max_value: "2"                 # Number of different shot sounds
@@ -51,7 +51,9 @@ esphome:
         - logger.log: "=== NEATO Neato Blaster Rev 1.x Starting ==="
         - delay: 250ms
         - lambda: |-
-            ESP_LOGI("blaster", "Blaster ${id} initialized");
+            // player_id is the RUNTIME identity (restored at HARDWARE, 800, so
+            // it is already valid here at 600). 0 = unassigned.
+            ESP_LOGI("blaster", "Blaster initialized - player %d", id(player_id));
             id(blaster_pumped) = false;
 
 # ==============================================================================
@@ -185,7 +187,9 @@ button:
       # Transmit IR signal to target
       - remote_transmitter.transmit_nec:
           address: 0x0002
-          command: 7${id}
+          # Player number in the low nibble — see the note in boards/rev3.yaml
+          command: !lambda |-
+            return (uint16_t) (0x70 | (id(player_id) & 0x0F));
           repeat: 3
 
 # ==============================================================================

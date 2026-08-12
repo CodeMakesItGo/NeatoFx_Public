@@ -18,7 +18,7 @@
 # SUBSTITUTIONS - Rev 1.x Specific Configuration Variables
 # ==============================================================================
 substitutions:
-  project_version: "1.0.0"
+  project_version: "3.1.0"
 
 # ==============================================================================
 # EXTERNAL PACKAGES
@@ -32,14 +32,18 @@ packages:
 # ==============================================================================
 esphome:
   min_version: 2025.8.2
+  # MUST stay a LIST (leading "-"). configs/networked.yaml adds its own on_boot
+  # trigger; ESPHome only concatenates on_boot across packages when both sides
+  # are lists — as a bare dict this block silently overwrites, or is overwritten
+  # by, the other package's trigger.
   on_boot:
-    priority: 300   # Let LVGL and the display initialize first
-    then:
-      - logger.log: "Booting up..."
-      - lvgl.widget.show: boot_screen
-      - lvgl.widget.hide: game_screen
-      - lvgl.widget.hide: game_shot_screen
-      - lvgl.widget.hide: game_over_screen
+    - priority: 300   # Let LVGL and the display initialize first
+      then:
+        - logger.log: "Booting up..."
+        - lvgl.widget.show: boot_screen
+        - lvgl.widget.hide: game_screen
+        - lvgl.widget.hide: game_shot_screen
+        - lvgl.widget.hide: game_over_screen
 
 # ==============================================================================
 # ESP32-S3 FRAMEWORK

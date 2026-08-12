@@ -46,7 +46,7 @@ substitutions:
   strip_2_internal: "false" # Visible in UI for Rev3
 
   # Project Information (Rev 3.x specific)
-  project_version: "3.0.0"
+  project_version: "3.1.0"
   hw_version: "Rev 3"            # Overrides common.yaml default for the version readout
 
 # ==============================================================================

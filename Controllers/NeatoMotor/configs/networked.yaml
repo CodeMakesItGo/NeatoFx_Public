@@ -32,7 +32,8 @@ packages:
 # SUBSTITUTIONS - Configuration Variables
 # ==============================================================================
 substitutions:
-  # ip_addr default (${ip_base}${id}) is set in _shared/networked_base.yaml.
+  # ip_addr default (${ip_base}1) is set in _shared/networked_base.yaml. It is a
+  # placeholder, not a per-unit address — override it here before enabling manual_ip.
   # Override here only if this device type needs a different subnet offset.
 
 # ==============================================================================
