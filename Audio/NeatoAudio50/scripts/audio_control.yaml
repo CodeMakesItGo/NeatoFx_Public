@@ -5,6 +5,7 @@
 # plays in response to each input trigger. Included by speaker_main.yaml.
 #
 # Scripts:
+#   play_sound_script  - Play one MP3 by number (the shared play implementation)
 #   playback_timeout   - Watchdog: resets DFPlayer if playback stalls
 #   play_bg_loop       - Plays a looping background track
 #   play_random_mp3    - Plays next MP3 in sequence (cycles through all files)
@@ -17,6 +18,47 @@
 # ==============================================================================
 
 script:
+  # ==========================================================================
+  # PLAY ONE MP3 - the shared play implementation
+  # ==========================================================================
+  # Every "just play file N" caller goes through here: the Net Play REST
+  # endpoint, the Home Assistant play_sound action, and the device-ID sound
+  # subscription (all in configs/home_assistant.yaml). One implementation means
+  # the amp sequence cannot drift between entry points — which it had: Net Play
+  # used to play WITHOUT setting the volume first, so a DFPlayer that missed the
+  # boot-time set_volume (the SD mount can outlast the boot delay) would play
+  # that sound at its power-on default of 30 = full volume.
+  #
+  # Order matters. The volume MUST be set while the amp is still muted: the
+  # command steps the DFPlayer's DAC output to the new level, and an unmuted amp
+  # reproduces that step as an audible pop.
+  - id: play_sound_script
+    mode: queued
+    parameters:
+      mp3: int    # 1-255 = file number; anything else is ignored and logged
+    then:
+      - if:
+          condition:
+            lambda: 'return mp3 >= 1 && mp3 <= 255;'
+          then:
+            - logger.log:
+                format: "play_sound: playing MP3 %d"
+                args: ['mp3']
+            - output.turn_on: amp_wake     # Wake amp first
+            - delay: 50ms                  # Let amp stabilize
+            - dfplayer.set_volume:         # While still muted — see above
+                id: dfplayer1
+                volume: !lambda 'return (int)id(dfplayer_volume).state;'
+            - delay: 100ms
+            - output.turn_on: amp_unmute
+            - delay: 50ms
+            - lambda: 'id(dfplayer1).play_mp3(mp3);'
+            - script.execute: playback_timeout
+          else:
+            - logger.log:
+                format: "play_sound: ignoring out-of-range MP3 %d"
+                args: ['mp3']
+
   - id: playback_timeout
     mode: restart  # Restart timer if new playback starts
     then:

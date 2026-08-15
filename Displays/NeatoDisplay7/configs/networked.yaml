@@ -101,9 +101,11 @@ esphome:
             static std::string score_id = "input_number." + p + "score";
             static std::string hits_id  = "input_number." + p + "hits";
             static std::string shots_id = "input_number." + p + "shots";
+            static std::string active_id = "input_boolean." + p + "active";
             id(ha_player_score).set_entity_id(score_id.c_str());
             id(ha_player_hits).set_entity_id(hits_id.c_str());
             id(ha_player_shots).set_entity_id(shots_id.c_str());
+            id(ha_player_active).set_entity_id(active_id.c_str());
             ESP_LOGI("display", "Game state bound to input_number.%s*", p.c_str());
 
 # ==============================================================================
@@ -279,6 +281,31 @@ sensor:
 # BINARY SENSORS - Status
 # ==============================================================================
 binary_sensor:
+  # --------------------------------------------------------------------------
+  # START GAME — player-keyed, replaces the esphome.<device>_start_game service.
+  # --------------------------------------------------------------------------
+  # Turning input_boolean.player_<id>_active ON starts the round, so Home
+  # Assistant routes a game start by writing a helper it can name from the
+  # player number alone — no device name, no MAC, no per-station automation.
+  # entity_id below is a placeholder, rebound at boot (see the on_boot block).
+  #
+  # No feedback loop: apply_start_game turns the same helper on, and Home
+  # Assistant emits no state change for an already-on boolean.
+  #
+  # The screen check keeps a mid-round reboot from wiping the score — the
+  # display re-subscribes on reconnect and is immediately handed the current
+  # 'on' state, which would otherwise look like a fresh start request.
+  - platform: homeassistant
+    id: ha_player_active
+    entity_id: input_boolean.player_0_active
+    internal: true
+    on_state:
+      - if:
+          condition:
+            lambda: 'return x && lv_obj_has_flag(id(game_screen), LV_OBJ_FLAG_HIDDEN);'
+          then:
+            - script.execute: apply_start_game
+
   - platform: status
     name: "Status"
     entity_category: diagnostic

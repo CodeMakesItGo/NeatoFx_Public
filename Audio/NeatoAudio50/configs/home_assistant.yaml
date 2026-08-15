@@ -53,6 +53,79 @@ substitutions:
 # _shared/networked_base.yaml provides api: (with a 5-min reboot timer if no HA
 # client connects). We KEEP it here — a Home Assistant server is expected on the
 # LAN, so the connection stays up and the reboot timer never fires.
+#
+# ------------------------------------------------------------------------------
+# LEGACY ENTRY POINT — prefer the Device ID subscription below.
+# ------------------------------------------------------------------------------
+# This action is named from the DEVICE name, which carries the MAC suffix
+# (esphome.audio_a1b2c3_play_sound). Swap a speaker for a spare and every Home
+# Assistant script calling it has to be edited. It exists because the units this
+# replaces exposed exactly this action (from the site-local .speaker_base.yaml,
+# `name: speaker-21${id}`), so installs keep working across the reflash.
+#
+# It delegates to the same script the subscription uses, so the two paths can
+# never drift.
+api:
+  # Required for the esphome.speaker-triggered events fired further down — the
+  # device->HA direction is gated by this flag, and it was never set here even
+  # though this config's whole purpose includes sending those events. The
+  # Display and Blaster HA configs both set it for the same reason.
+  homeassistant_services: true
+  services:
+    - service: play_sound
+      variables:
+        sound_id: int
+      then:
+        - script.execute:
+            id: play_sound_script
+            mp3: !lambda 'return sound_id;'
+
+# ==============================================================================
+# SOUND BY DEVICE ID - survives a hardware swap
+# ==============================================================================
+# Home Assistant plays a sound on this speaker by writing its file number to
+#
+#   input_number.speaker_<device_id>_sound
+#
+# and nothing in Home Assistant needs this unit's name or MAC. Set the Device ID
+# on a replacement speaker and every script keeps working untouched. Same
+# mechanism the displays use for player_<id>_score — see
+# Displays/NeatoDisplay7/configs/networked.yaml.
+#
+# The entity_id below is a compile-time placeholder only: ESPHome's schema makes
+# it Required, so something syntactically valid has to be there. on_boot rebinds
+# it to the restored device_id at priority 600 — globals restore at HARDWARE
+# (800) and the homeassistant sensor subscribes at AFTER_WIFI (200), so the
+# placeholder is never actually subscribed. Changing the Device ID reboots the
+# device, which is what re-runs this binding.
+#
+# WHY THE HELPER IS RESET TO 0 AFTER EACH PLAY (Home Assistant side):
+# Home Assistant only pushes a state CHANGE. Writing 5 to a helper that already
+# reads 5 sends nothing, so the second hit on the same target would be silent —
+# and repeat hits are the normal case in a gallery. The play script in
+# HomeAssistant/scripts.yaml therefore writes the file number and then writes 0.
+# 0 is out of range here, so it is ignored and never plays.
+esphome:
+  on_boot:
+    - priority: 600   # after globals restore (800), before HA subscribe (200)
+      then:
+        - lambda: |-
+            // static: set_entity_id stores the pointer, not a copy, so this
+            // string must outlive the component's setup().
+            static std::string sound_eid = "input_number.speaker_" +
+                                           std::to_string(id(device_id)) + "_sound";
+            id(ha_speaker_sound).set_entity_id(sound_eid.c_str());
+            ESP_LOGI("audio", "Sound channel bound to %s", sound_eid.c_str());
+
+sensor:
+  - platform: homeassistant
+    id: ha_speaker_sound
+    entity_id: input_number.speaker_0_sound
+    internal: true
+    on_value:
+      - script.execute:
+          id: play_sound_script
+          mp3: !lambda 'return (int)x;'
 
 improv_serial:
 
@@ -100,24 +173,13 @@ number:
     step: 1
     mode: box
     optimistic: true
+    # Delegates to the shared play script — same amp/volume sequence as every
+    # other entry point. It used to inline its own, which skipped setting the
+    # volume while muted; see the note on play_sound_script.
     set_action:
-      - if:
-          condition:
-            lambda: 'return ((int)x) >= 1 && ((int)x) <= 255;'
-          then:
-            - logger.log:
-                format: "Net Play: playing MP3 %d"
-                args: ['(int)x']
-            - output.turn_on: amp_wake     # Wake amp first
-            - delay: 50ms                  # Let amp stabilize
-            - output.turn_on: amp_unmute   # Unmute
-            - delay: 100ms
-            - lambda: 'id(dfplayer1).play_mp3((int)x);'
-            - script.execute: playback_timeout
-          else:
-            - logger.log:
-                format: "Net Play: ignoring out-of-range value %d"
-                args: ['(int)x']
+      - script.execute:
+          id: play_sound_script
+          mp3: !lambda 'return (int)x;'
 
   # ============================================================================
   # NETWORK TRIGGER ENDPOINT - fire a full input chain remotely
