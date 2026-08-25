@@ -21,8 +21,13 @@ dashboard_import:
   package_import_url: github://CodeMakesItGo/NeatoFx_Public/Controllers/NeatoBlaster/main.yaml@main
   import_full_config: true
 
-# Serial provisioning (Made for ESPHome requirement)
-improv_serial:
+# NOTE: improv_serial is NOT here — it lives in the BOARD file, because
+# whether it can exist at all is a board-level fact, not a network-mode one.
+# It requires logger baud_rate != 0, and rev 3.x sets baud_rate: 0 to hand
+# UART0 (GPIO1) to the DY-SV5W MP3 player. boards/rev1.yaml declares it; rev
+# 3.x provisions over BLE (esp32_improv, from _shared/networked_base.yaml) or
+# the setup hotspot instead. Same split _shared/networked_base.yaml already
+# documents for NeatoDisplay4.
 
 # ==============================================================================
 # SUBSTITUTIONS - Network Configuration
@@ -109,7 +114,7 @@ binary_sensor:
 # ==============================================================================
 script:
   # --------------------------------------------------------------------------
-  # START GAME BUTTON (rev 3.x, TX pin)
+  # START GAME BUTTON (rev 3.x, serial header RX pin / GPIO3)
   # --------------------------------------------------------------------------
   # Asks Home Assistant to start a game. Only meaningful while the blaster is
   # idle — once the player gate is on, game_active is true and a press is

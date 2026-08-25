@@ -28,9 +28,44 @@ sensor:
     id: player_shot_sensor
     update_interval: never
 
-# Images removed to stay within 3.93MB OTA flash partition.
-# Each 800x480 RGB565 image = ~768KB; three images = ~2.3MB.
-# Re-add here once real 800x480 artwork is ready.
+# ==============================================================================
+# IMAGES - Screen Backgrounds
+# ==============================================================================
+# Artwork lives in images/ pre-sized to EXACTLY 800x480, the panel resolution.
+# That is deliberate and must stay true: ESPHome's `resize:` preserves aspect
+# ratio (it fits within the box, it does not fill it), so art at any other
+# ratio gets letterboxed and the plate coordinates below stop lining up. The
+# source renders were 1344x752 (1.787:1) and were squashed ~7% horizontally to
+# reach 5:3; re-exporting future artwork at 5:3 (e.g. 1600x960) avoids that.
+# `platform: file` is required: the bare `image:` list is the legacy format,
+# deprecated in 2026.7 and removed in ESPHome 2027.1.0.
+#
+# FLASH BUDGET — this is the tight one. The 8MB part gives a 0x3C0000
+# (3,932,160 byte) OTA app slot, and each 800x480 RGB565 image costs exactly
+# 768,000 bytes, so these three eat 2,304,000 of it. That is why the numeric
+# fonts in boards/rev1.yaml are digit-only: without that glyph restriction the
+# build does not fit. Check the "Flash:" line after any change here.
+image:
+  - platform: file
+    file: "images/GAME_START_${color}.png"
+    id: boot_logo
+    type: RGB565
+    resize: 800x480
+    transparency: opaque
+
+  - platform: file
+    file: "images/GAME_PLAY_${color}.png"
+    id: shots_background
+    type: RGB565
+    resize: 800x480
+    transparency: opaque
+
+  - platform: file
+    file: "images/GAME_OVER.png"
+    id: game_over_background
+    type: RGB565
+    resize: 800x480
+    transparency: opaque
 
 # ==============================================================================
 # LVGL - Touch UI (800x480 landscape)
@@ -70,23 +105,24 @@ lvgl:
             border_width: 0
             bg_color: 0x000000
             widgets:
-              - label:
-                  x: 410
-                  y: 100
-                  width: 360
-                  height: 50
-                  text_font: label_font
-                  text_align: CENTER
-                  align: TOP_LEFT
-                  text_color: ${font_color}
-                  text: "SHOTS LEFT"
-                  bg_opa: TRANSP
+              # The "SHOTS LEFT" / "SCORE" / "HITS" captions are part of the
+              # artwork now, so only the numbers are LVGL labels.
+              - image:
+                  x: 0
+                  y: 0
+                  width: 100%
+                  height: 100%
+                  src: shots_background
+              # Geometry tracks the artwork: the three value plates in
+              # GAME_PLAY_${color}.png sit at x 319..650 (332 wide), with the
+              # SHOTS LEFT plate at y 224..273, SCORE at 296..344 and HITS at
+              # 367..416. Re-measure these if the artwork is redrawn.
               - label:
                   id: player_shot
-                  x: 410
-                  y: 155
-                  width: 360
-                  height: 200
+                  x: 319
+                  y: 224
+                  width: 332
+                  height: 50
                   text_font: shot_font
                   text_align: CENTER
                   align: TOP_LEFT
@@ -110,22 +146,11 @@ lvgl:
             bg_color: 0x000000
             widgets:
               - label:
-                  x: 410
-                  y: 60
-                  width: 360
-                  height: 45
-                  text_font: label_font
-                  text_align: CENTER
-                  align: TOP_LEFT
-                  text_color: ${font_color}
-                  text: "HITS"
-                  bg_opa: TRANSP
-              - label:
                   id: player_hit
-                  x: 410
-                  y: 105
-                  width: 360
-                  height: 110
+                  x: 319
+                  y: 367
+                  width: 332
+                  height: 50
                   text_font: hit_font
                   text_align: CENTER
                   align: TOP_LEFT
@@ -133,22 +158,11 @@ lvgl:
                   text: ""
                   bg_opa: TRANSP
               - label:
-                  x: 410
-                  y: 235
-                  width: 360
-                  height: 45
-                  text_font: label_font
-                  text_align: CENTER
-                  align: TOP_LEFT
-                  text_color: ${font_color}
-                  text: "SCORE"
-                  bg_opa: TRANSP
-              - label:
                   id: player_score
-                  x: 410
-                  y: 280
-                  width: 360
-                  height: 150
+                  x: 319
+                  y: 295
+                  width: 332
+                  height: 50
                   text_font: score_font
                   text_align: CENTER
                   align: TOP_LEFT
@@ -165,22 +179,16 @@ lvgl:
             y: 0
             width: 100%
             height: 100%
-            bg_color: 0x1C1C1C
+            bg_color: 0x000000
             bg_opa: COVER
             radius: 0
             pad_all: 0
             border_width: 0
             widgets:
-              - label:
-                  x: 0
-                  y: 180
-                  width: 800
-                  height: 80
-                  text_font: hit_font
-                  text_align: CENTER
-                  text_color: ${font_color}
-                  text: "TAP TO START"
-                  bg_opa: TRANSP
+              # GAME_START_${color}.png carries the "TOUCH TO START GAME" panel.
+              - image:
+                  align: CENTER
+                  src: boot_logo
               - button:
                   x: 0
                   y: 0
@@ -197,16 +205,13 @@ lvgl:
                   shadow_color: 0x000000
                   on_click:
                     then:
-                      - globals.set:
-                          id: game_over_active
-                          value: 'false'
-                      - lvgl.widget.hide: boot_screen
-                      - lvgl.widget.show: game_screen
-                      - lvgl.widget.show: game_shot_screen
-                      - script.execute: reset_score_script
-                      - lvgl.label.update:
-                          id: player_shot
-                          text: !lambda 'return std::to_string(id(g_max_shots));'
+                      # Ask Home Assistant to start the round instead of
+                      # starting it locally: start_player_game applies the
+                      # credit gate, and the round begins only when it turns
+                      # player_<id>_active on (see request_start_game in
+                      # configs/networked.yaml). A refused start - no credit,
+                      # free play off - leaves this screen untouched.
+                      - script.execute: request_start_game
 
         # ------------------------------------------------------------------
         # GAME OVER SCREEN
@@ -223,23 +228,17 @@ lvgl:
             pad_all: 0
             border_width: 0
             widgets:
-              - label:
-                  x: 0
-                  y: 120
-                  width: 800
-                  height: 80
-                  text_font: hit_font
-                  text_align: CENTER
-                  text_color: 0xFF2200
-                  text: "GAME OVER"
-                  bg_opa: TRANSP
+              - image:
+                  align: CENTER
+                  src: game_over_background
+              # FINAL SCORE plate in GAME_OVER.png: x 239..560, y 340..420.
               - label:
                   id: game_over_score
-                  x: 200
-                  y: 200
-                  width: 400
-                  height: 150
-                  text_font: score_font
+                  x: 239
+                  y: 342
+                  width: 322
+                  height: 77
+                  text_font: final_score_font
                   text_align: CENTER
                   align: TOP_LEFT
                   text_color: ${font_color}

@@ -58,9 +58,9 @@ packages:
   # team_detected, ...) live in boards/common/common.yaml, so hit_script.yaml
   # still compiles with no protocol package selected. Re-enable one of these
   # when switching back to an IR board above.
-  #ir_receiver: !include protocols/ir_nec.yaml
+  ir_receiver: !include protocols/ir_nec.yaml
   #ir_receiver: !include protocols/ir_raw.yaml
-  ir_receiver: !include protocols/ir_laser_tag.yaml
+  #ir_receiver: !include protocols/ir_laser_tag.yaml
   #ir_receiver: !include protocols/ir_custom.yaml
 
   # Falcon Player Packages (only for networked targets)

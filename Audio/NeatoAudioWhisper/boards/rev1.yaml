@@ -24,8 +24,8 @@ packages:
 substitutions:
   # name / friendly_name are set in main.yaml (one binary, MAC-suffixed
   # hostname). Only board-specific values belong here.
-  project_name: "CodeMakesItGo.AudioWhisper"
-  project_version: "3.1.0"
+  project_name: "NeatoFX.AudioWhisper"
+  project_version: "3.2.0"
 
 # ==============================================================================
 # ESP32 FRAMEWORK

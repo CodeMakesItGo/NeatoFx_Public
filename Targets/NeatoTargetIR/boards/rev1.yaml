@@ -39,7 +39,7 @@ substitutions:
   strip_2_internal: "true" # Hide from UI since it's not used
 
   # Project Information (Rev 1.x specific)
-  project_version: "3.1.0"
+  project_version: "3.2.0"
 
 # ==============================================================================
 # EXTERNAL PACKAGES

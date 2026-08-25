@@ -38,8 +38,8 @@ packages:
 # ==============================================================================
 substitutions:
   # Project Information
-  project_name: "CodeMakesItGo.Motor"
-  project_version: "3.1.0"
+  project_name: "NeatoFX.Motor"
+  project_version: "3.2.0"
 
 # ==============================================================================
 # GLOBAL VARIABLES

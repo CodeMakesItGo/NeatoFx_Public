@@ -106,7 +106,7 @@ string — do not change it for a shipped product without a migration.
 The only per-build variation in the whole line is display colour, which selects
 compiled-in artwork.
 
-`project_name: "CodeMakesItGo.<Device>"` and `project_version` live in
+`project_name: "NeatoFX.<Device>"` and `project_version` live in
 `common.yaml` or the board, and must be written as `${project_version}` wherever
 `esphome: project:` is set — hardcoding a literal there silently overrides the
 substitution. `project_version` is the FIRMWARE version and is synced across the
@@ -160,7 +160,7 @@ These already hold today and are the basis for the rules above:
 - **`boards/rev<N>.yaml` → `boards/common/common.yaml`** hardware→logic split.
 - **`configs/networked.yaml` + `configs/standalone.yaml`** operating-mode pair.
 - **`_shared/` bases** (`esphome_base`, `networked_base`, `standalone_base`, `network_sensors`, `firmware_update`) with the fixed include depths above.
-- **Substitutions** `name` / `name_add_mac_suffix` / `friendly_name` / `runtime_id*` + `project: CodeMakesItGo.<Device>`. No build-time `id`.
+- **Substitutions** `name` / `name_add_mac_suffix` / `friendly_name` / `runtime_id*` + `project: NeatoFX.<Device>`. No build-time `id`.
 - **Safe-state `on_boot`**, `WARN` logging, improv + dashboard_import for MFE, `custom_ui.js` web UI.
 - **IR devices** (Target, Blaster) share the `protocols/` set (`ir_nec`, `ir_raw`, `ir_laser_tag`, `ir_custom`) and `integrations/` FPP.
 - **Servo/effect devices** (Target, Golf) share `scripts/servo_movement_script.yaml`, `servo_stubs.yaml`, `servo_pwm_effects.yaml`, `color_controls.yaml`.

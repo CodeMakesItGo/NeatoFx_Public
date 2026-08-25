@@ -18,10 +18,10 @@ substitutions:
   # ONE BINARY PER COLOUR (not per unit). The colour selects artwork that is
   # compiled in, so it stays a build-time choice — but the unit number does
   # not: that is the runtime "Player ID". The colour is part of the name so
-  # the four builds get their own .esphome/build/ directories instead of
+  # the five builds get their own .esphome/build/ directories instead of
   # overwriting each other, and ESPHome appends the MAC suffix per device.
   # color_lc MUST match color — program.sh sets both from one choice.
-  color_lc: "ylw"                  # lowercase of ${color}: ylw | grn | blu | org
+  color_lc: "ylw"                  # lowercase of ${color}: ylw | grn | blu | org | red
   name: station-${color_lc}
   name_add_mac_suffix: "true"
   friendly_name: "NeatoFx Display"
@@ -31,8 +31,9 @@ substitutions:
   runtime_id_label: "Player ID"
   runtime_id_max: "15"
   runtime_name_label: "Display Name"
-  color: "YLW"                     # Screen color: YLW | GRN | BLU | ORG
-  font_color: "0xFFE000"           # YLW=0xFFE000  GRN=0x00E000  BLU=0x00BFFF  ORG=0xFF6000
+  color: "YLW"                     # Screen color: YLW | GRN | BLU | ORG | RED
+  font_color: "0xFFE000"           # YLW=0xFFE000  GRN=0x00E000  BLU=0x00BFFF
+                                   # ORG=0xFF6000  RED=0xFF0000
 
 # ==============================================================================
 # EXTERNAL PACKAGES
@@ -40,6 +41,13 @@ substitutions:
 packages:
   # Runtime player assignment (replaces the old compile-time -s id N).
   runtime_id: !include ../../_shared/runtime_id.yaml
+
+  # ---- SCREEN ARTWORK LAYOUT — select exactly ONE ----
+  # Where the score / shots / hits / final-score digits sit on the artwork,
+  # plus their font sizes and colours. This MUST match whatever PNGs are in
+  # images/ — swapping a customer's artwork means swapping this line too.
+  image_layout: !include boards/common/image_layout_gunslinger.yaml   # Temecula "Gunslinger Jacks" (current images/)
+  #image_layout: !include boards/common/image_layout_shootout.yaml    # stock "Target Shootout" (images_bak/)
 
   # Hardware board definition
   board: !include boards/rev1.yaml
@@ -54,5 +62,18 @@ packages:
 # DEBUGGING
 # ==============================================================================
 logger:
+  # WARN in production. The lane's decision points - TAP / ACTIVE / START / END,
+  # plus the two SYNC/BOOT warnings - all log at WARN deliberately, so a fault
+  # is diagnosable from a stock unit without reflashing anything. They are one
+  # line per game start, not per frame.
+  #
+  # For a deeper trace, set `level: DEBUG` and add:
+  #     logs:
+  #       homeassistant.binary_sensor: DEBUG
+  #       homeassistant.sensor: DEBUG
+  # which prints "'input_boolean.player_<n>_active': Got state ON" every time
+  # Home Assistant pushes a value - the one line that distinguishes "the device
+  # never heard" from "the device heard and ignored it". Per-tag levels may not
+  # exceed the global level, so the global has to come up for that to compile in.
   level: WARN
   baud_rate: 115200  # Must be non-zero for improv_serial (Made for ESPHome requirement)

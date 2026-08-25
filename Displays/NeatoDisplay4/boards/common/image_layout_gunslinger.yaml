@@ -1,0 +1,96 @@
+# ==============================================================================
+# NEATO DISPLAY 4 - IMAGE TEXT LAYOUT: "Gunslinger Jacks" (Temecula)
+# ==============================================================================
+# WHERE THE NUMBERS SIT ON THE ARTWORK.
+#
+# The captions ("SHOTS LEFT", "Score", "Hits", "SCORE") are painted into the
+# PNGs; only the digits are LVGL labels. That means every value's position,
+# size and colour is a property of the ARTWORK, not of the game logic — so it
+# all lives here instead of being scattered through screens.yaml and rev1.yaml.
+#
+# TO SWAP A CUSTOMER'S ARTWORK:
+#   1. Drop the new 1024x1024 PNGs into images/ (same file names).
+#   2. Copy this file to image_layout_<name>.yaml and re-measure the plates.
+#   3. Point the image_layout: line in main.yaml at the new file.
+# Nothing else changes.
+#
+# COORDINATE SPACE — 480x480, the panel's native resolution. The 1024x1024
+# source art is downscaled to 480x480 at compile time (screens.yaml), so
+# measure on the art at 480x480, not at 1024. Multiply a 1024-space
+# measurement by 0.46875 to convert.
+#
+# HOW TO RE-MEASURE A PLATE
+#   *_x / *_w  = left edge and width of the box the digits centre inside
+#                (text_align: CENTER centres them horizontally in *_w).
+#   *_y        = TOP OF THE TEXT LINE BOX, not the top of the digits. LVGL
+#                draws from the line-box top, and Roboto's line height is
+#                size * 2400/2048 (48px -> 56, 52px -> 61). Digits start
+#                ~11px lower (at 48px) and are ~34px tall.
+#                Practical rule:  y = (vertical centre of the plate) - size*0.585
+#   *_h        = the line height above; it only has to clear the glyphs.
+#
+# MEASURED FROM (all five colours share identical plate geometry):
+#   images/GAME_PLAY_${color}.png — a yellow board split by two rules into
+#   three rows. The captions sit on the left (out to x~175) and the digits go
+#   in the open space to their right, x 185..450:
+#       row 1 "SHOTS LEFT"  band y  27..148, caption centred on y  86
+#       row 2 "Score"       band y 152..237, caption centred on y 196
+#       row 3 "Hits"        band y 241..378, caption centred on y 295
+#   images/GAME_OVER.png — cream signboard, "SCORE" title with a dotted rule
+#   under it; the empty value area below is x 118..384, y 288..335.
+#
+# COLOURS — the five GAME_PLAY boards range from bright yellow (relative
+# luminance 0.55) to near-black navy (0.02), so NO single flat colour clears
+# 4.5:1 on all of them: white manages 16:1 on BLU but only 1.6:1 on YLW.
+# The fix is white text plus a hard drop shadow, which is also how the artwork's
+# own captions are drawn. LVGL has no text outline, so the shadow is a second
+# label stacked underneath, offset by ${play_value_shadow_offset} — see
+# boards/common/screens.yaml. Set play_value_shadow_opa: TRANSP to switch the
+# shadow off for artwork that does not need it.
+#
+# GAME_OVER is the exception and deliberately does NOT match: it is a single
+# shared PNG with a CREAM plate, so white would vanish and the shadow would be
+# the only thing readable. It keeps dark brown text and no shadow.
+# ==============================================================================
+
+substitutions:
+
+  # ---- GAME PLAY SCREEN -----------------------------------------------------
+  # One shared column so the three numbers line up under each other.
+  # 72px is sized to the tightest row: Score's band is 86px tall and Roboto's
+  # line height at 72 is 84. A 5-digit score is ~205px wide in a 265px column.
+  shots_x: "185"
+  shots_y: "44"                  # caption centre 86 - 72*0.585
+  shots_w: "265"
+  shots_h: "84"                  # 72 * 2400/2048
+  shots_font_size: "72"
+
+  score_x: "185"
+  score_y: "152"                 # band centre 194
+  score_w: "265"
+  score_h: "84"
+  score_font_size: "72"
+
+  hits_x: "185"
+  hits_y: "253"                  # caption centre 295
+  hits_w: "265"
+  hits_h: "84"
+  hits_font_size: "72"
+
+  # One colour for all five builds — see the COLOURS note above.
+  play_value_color: "0xFFFFFF"
+  play_value_shadow_color: "0x100600"
+  play_value_shadow_offset: "4"     # px right and down; 0 stacks it invisibly
+  play_value_shadow_opa: "COVER"    # TRANSP disables the shadow entirely
+
+  # ---- GAME OVER SCREEN -----------------------------------------------------
+  # 56px, not the old 72px: this signboard's value area is only 48px tall, so
+  # 56 (39.8px caps) fills it with a few px of margin. No shadow here.
+  final_score_x: "118"
+  final_score_y: "279"           # plate centre 311 - 56*0.585
+  final_score_w: "266"
+  final_score_h: "66"            # 56 * 2400/2048
+  final_score_font_size: "56"
+
+  # Dark brown — the cream plate needs a dark value, not ${font_color}.
+  final_score_color: "0x4A2A14"

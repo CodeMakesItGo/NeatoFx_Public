@@ -30,7 +30,7 @@ packages:
 # SUBSTITUTIONS - Hardware Pin Assignments
 # ==============================================================================
 substitutions:
-  project_name: "CodeMakesItGo.PulseMotor"
+  project_name: "NeatoFX.PulseMotor"
 
 # ==============================================================================
 # CORE CONFIGURATION

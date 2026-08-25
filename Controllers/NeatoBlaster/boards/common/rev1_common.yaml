@@ -17,7 +17,7 @@ packages:
 # ==============================================================================
 substitutions:
   # Project Information
-  project_name: "CodeMakesItGo.Blaster"
+  project_name: "NeatoFX.Blaster"
   device_description: "NEATO Neato Blaster"
 
 # ==============================================================================

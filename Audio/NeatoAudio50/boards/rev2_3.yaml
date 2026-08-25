@@ -13,12 +13,12 @@ substitutions:
   # name / friendly_name intentionally NOT set here — they are defined in
   # main.yaml (audio + MAC suffix) and main-file substitutions override packages.
   # Setting them here too created a confusing speaker-* vs audio-* ambiguity.
-  project_name: "CodeMakesItGo.Speaker"
+  project_name: "NeatoFX.Speaker"
   # Kept in lockstep with rev2_4 on purpose: the manifest serves ONE binary for
   # the whole audio50 product, and a device only offers an update when its
   # compiled version differs from the manifest. If this board lagged at 1.0.0 it
   # would download the rev2.4 build, which has a different GPIO map.
-  project_version: "3.1.0"
+  project_version: "3.2.0"
   hw_version: "Rev 2.3"
 
 # ==============================================================================

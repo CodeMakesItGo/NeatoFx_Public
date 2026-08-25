@@ -42,7 +42,7 @@ packages:
 # SUBSTITUTIONS - Hardware Pin Assignments
 # ==============================================================================
 substitutions:
-  project_name: "CodeMakesItGo.WinchMotor"
+  project_name: "NeatoFX.WinchMotor"
   hall_a_pin: "GPIO13"  # Swapped: reel-out now counts up (positive)
   hall_b_pin: "GPIO4"
 

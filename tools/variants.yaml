@@ -102,7 +102,9 @@ devices:
     label: "Neato Display 4"
     substitutions: { color: "YLW", font_color: "0xFFE000" }
     variants:
-      default: {}
+      default: {}   # "Gunslinger Jacks" artwork geometry (matches images/)
+      shootout_art:            # stock "Target Shootout" geometry (images_bak/)
+        image_layout: boards/common/image_layout_shootout.yaml
 
   display7:
     path: Displays/NeatoDisplay7/main.yaml

@@ -29,7 +29,7 @@ esphome:
 # BLASTER SCRIPTS - what to do when trigger is pulled
 # ==============================================================================
 script:
-  # Start Game button (rev 3.x, TX pin) — no-op in standalone.
+  # Start Game button (rev 3.x, serial header RX pin / GPIO3) — no-op in standalone.
   #
   # There is no Home Assistant to ask for a game, and on_boot above already
   # latched game_active true, so the blaster is live from power-up and stays
