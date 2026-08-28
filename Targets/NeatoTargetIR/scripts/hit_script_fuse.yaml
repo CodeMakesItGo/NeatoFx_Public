@@ -1,9 +1,67 @@
 # ==============================================================================
-# TARGET HIT SCRIPTS - general target hit behavior
+# TARGET HIT SCRIPTS - FUSE + EXPLOSION variant
 # ==============================================================================
+# Drop-in replacement for scripts/hit_script.yaml. In main.yaml swap the include:
+#
+#   packages:
+#     #hit_script: !include scripts/hit_script.yaml        # standard hit
+#     hit_script: !include scripts/hit_script_fuse.yaml    # fuse + explosion
+#
+# Include EXACTLY ONE of the two — both define the same script ids
+# (target_hit_script, gnd_pulse, target_disable_apply, target_enable_apply).
+#
+# BEHAVIOR
+#   Hit  -> main "Target LEDs" show the normal hit effect immediately (the
+#           "you hit it" acknowledgement, unchanged from the standard script)
+#        -> LED Strip 2 lights a fuse that burns from the first LED to the last
+#        -> when the flame runs off the end it detonates: relay / GND / servo
+#           fire together, and the remaining embers die out behind it
+#        -> then the usual display / cooldown / restore
+#
+#   The strip does NOT flash on detonation. It is the fuse, not the explosion —
+#   the bang belongs to the relay / audio / whatever the servo drives. See POWER.
+#
+# Ported from the Old Town Mining DMX_Lighting_Uno FastLED fuse (100 x WS2811 on
+# an Arduino Uno). Rev 3.x LED Strip 2 is set to 150 LEDs on GPIO22 — a 3 m
+# (9.8 ft) run at 50 LEDs/m. The effect is written against it.size(), so it
+# scales to whatever strip_2_led_count is set to.
+#
+# POWER
+#   Draw is bounded by design and does NOT scale with strip length: only the
+#   ~10-LED head and its decaying trail are ever lit, roughly
+#       10 x 20 mA x 2.0  +  ~30 trail LEDs averaging ~0.45  =  well under 1 A
+#   no matter whether the strip is 100 LEDs or 150. Adding more LEDs makes the
+#   fuse longer, not brighter.
+#
+#   This is why there is deliberately no full-strip detonation flash: lighting
+#   150 LEDs white at once would pull ~8 A at 5 V, far beyond the target board's
+#   regulator, and would brown out the ESP32 at the exact moment the relay fires.
+#   If you want a visible blast, drive it from the relay or a second device —
+#   not from this strip.
+#
+# LED STRIP 2 NOTE
+#   This script drives LED Strip 2 itself, so the "LED Strip 2 Hit Effect"
+#   select in the web UI is IGNORED while this package is included. Strip 2 is
+#   the fuse; that is the whole point of this variant.
+#
+# TUNING
+#   All fuse parameters are substitutions (compile-time), not number entities,
+#   deliberately: adding restore_value globals reindexes the flash preference
+#   table and corrupts other saved settings on already-deployed targets. Change
+#   the values below (or override them in main.yaml) and recompile.
+#
+#   fuse_burn_ms MUST stay the single source of truth for the burn length — the
+#   effect lambda and the script's pre-detonation delay both read it, and that
+#   is what keeps the bang aligned with the flame reaching the end.
+#
+#   fuse_burn_ms is a DURATION, not a speed: the head always covers the whole
+#   strip in that time, so a longer strip just burns faster unless you raise it.
+#   2500 ms over 3 m is a brisk ~1.2 m/s. Match it to the length of the fuse
+#   portion of your MP3 — that is what makes the bang land on the sound.
+#
 # SERVO PIN PWM EFFECT
 # By default the servo pin is unused during a hit. To drive a device on the
-# servo pin when a target is hit, add to target_main.yaml:
+# servo pin when a target is hit, add to main.yaml:
 #   packages:
 #     servo_pwm_effects: !include scripts/servo_pwm_effects.yaml
 #   substitutions:
@@ -12,6 +70,97 @@
 substitutions:
   servo_pwm_script: "servo_pwm_none"   # no-op default
 
+  # --- Fuse tuning ------------------------------------------------------------
+  fuse_burn_ms: "2500"        # burn time, first LED to detonation (ms)
+  fuse_head_len: "10"         # LEDs in the glowing head (Uno: FUSE_LENGTH 10)
+  fuse_flicker: "30"          # +/- brightness jitter on the tip (Uno: FLICKER_INTENSITY)
+  fuse_ember_decay: "20"      # per-frame fade of the trail (Uno: EMBER_DECAY)
+  fuse_fade_ms: "600"         # how long the leftover embers keep dying (ms)
+
+# ==============================================================================
+# FUSE EFFECT - merged onto LED Strip 2 (boards/common/common.yaml)
+# ==============================================================================
+# `!extend` is required here, not a plain `id:`. ESPHome's package merge simply
+# concatenates lists — a bare `- id: led_strip2` would be appended as a SECOND,
+# platform-less light and fail validation. `!extend` is resolved after all
+# packages are merged and folds this entry into the existing led_strip2, so the
+# strip keeps Rainbow / Color Wipe / Scanner / Twinkle / Heartbeat and gains
+# "Fuse Effect".
+light:
+  - id: !extend led_strip2
+    effects:
+      - addressable_lambda:
+          name: "Fuse Effect"
+          update_interval: 16ms
+          lambda: |-
+            // Self-contained timeline, started fresh each time the effect is
+            // selected (initial_run). Two phases:
+            //   [0, BURN)        head travels the strip, embers trail behind it
+            //   [BURN, +FADE)    head is gone; leftover embers keep dying
+            // The script fires the relay at BURN, so the bang lands as the flame
+            // reaches the end of the fuse. The strip itself never flashes.
+            static uint32_t t0 = 0;
+
+            const uint32_t BURN_MS  = ${fuse_burn_ms};
+            const uint32_t FADE_MS  = ${fuse_fade_ms};
+            const int      HEAD_LEN = ${fuse_head_len};
+
+            uint32_t now = millis();
+            if (initial_run || t0 == 0) {
+              t0 = now;
+              it.all() = Color::BLACK;
+            }
+            uint32_t t = now - t0;
+            int n = it.size();
+
+            if (t < BURN_MS) {
+              // Dim everything first so the head leaves a decaying ember trail.
+              it.all().fade_to_black(${fuse_ember_decay});
+
+              // The LEADING EDGE reaches the last LED exactly at BURN_MS, which
+              // is the same instant the script fires the relay — so the bang
+              // lands as the flame arrives, with the tail still glowing on the
+              // final few LEDs. (The Uno ran the head on to n + FUSE_LENGTH and
+              // detonated once it had fully cleared; that left a visible gap
+              // between the flame vanishing and the bang.)
+              float progress = (float) t / (float) BURN_MS;
+              int head = (int)(progress * (float) n);
+
+              for (int i = 0; i < HEAD_LEN; i++) {
+                int pos = head - i;
+                if (pos < 0 || pos >= n) continue;
+
+                // Only the leading pixel flickers - that is what reads as a
+                // live flame rather than a moving gradient.
+                int flicker = 0;
+                if (i == 0) {
+                  flicker = (int)(random_uint32() % (2 * ${fuse_flicker} + 1)) - ${fuse_flicker};
+                }
+                int b = 255 - (i * (255 / HEAD_LEN)) + flicker;
+                if (b < 0)   b = 0;
+                if (b > 255) b = 255;
+
+                if (i == 0) {
+                  // Leading edge: white-hot with a warm cast
+                  it[pos] = Color((uint8_t) b, (uint8_t)(b * 0.75f), (uint8_t)(b * 0.25f));
+                } else if (i <= 3) {
+                  // Just behind the tip: white -> orange
+                  it[pos] = Color((uint8_t) b, (uint8_t)(b * 0.35f), 0);
+                } else {
+                  // Trailing embers: dark red
+                  it[pos] = Color((uint8_t) b, 0, 0);
+                }
+              }
+            } else if (t < BURN_MS + FADE_MS) {
+              // The flame has run off the end. Nothing new is drawn - the trail
+              // it left behind just keeps decaying at the same rate, so the fuse
+              // dies out the way it burned rather than being cut to black.
+              it.all().fade_to_black(${fuse_ember_decay});
+            } else {
+              // Spent - hold dark until the script turns the strip off
+              it.all() = Color::BLACK;
+            }
+
 script:
   # GND-switch pulse — runs concurrently with the hit so the GND output can hold
   # for its own duration, independent of the relay. Fired from target_hit_script
@@ -19,6 +168,9 @@ script:
   # when gnd_timer == 0 ("follow relay", the default). mode: restart re-arms the
   # pulse cleanly if a new hit lands while one is still running. There is
   # intentionally no "off" control — to disable GND, disconnect its load.
+  #
+  # In this variant gnd_pulse is launched at DETONATION, not at hit, so a GND
+  # load (vibration, shaker) fires with the blast rather than with the fuse.
   - id: gnd_pulse
     mode: restart
     then:
@@ -34,11 +186,11 @@ script:
           id: gnd_light
           transition_length: 0s
 
-  # Main Target Hit Script - Standalone version
+  # Main Target Hit Script - fuse + explosion version
   - id: target_hit_script
     mode: single  # Prevent overlapping hits
     then:
-      - logger.log: "Target hit detected - processing..."
+      - logger.log: "Target hit detected - lighting fuse..."
       # Disable IR during hit processing
       - globals.set:
           id: ir_enabled
@@ -69,7 +221,9 @@ script:
           id(saved_brightness) = id(led_strip).remote_values.get_brightness();
           ESP_LOGI("target_hit", "Saved effect index: %d, brightness: %.2f", effect_index, (float)id(saved_brightness));
 
-      # Apply hit effect
+      # Apply hit effect to the MAIN strip — unchanged from the standard script.
+      # This is the immediate "you hit it" acknowledgement and it stays lit
+      # through the whole fuse burn.
       - if:
           condition:
             lambda: 'return id(hit_effect_select).current_option() == "Strobe Flash";'
@@ -141,32 +295,47 @@ script:
                       id: led_strip
                       effect: !lambda 'return id(hit_effect_select).current_option();'
 
-      # Apply LED Strip 2 hit effect (mirrors the main strip). "Solid Color" and
-      # "Strobe Flash" both resolve to the LED Strip 2 Solid Color preset; every
-      # other option is a native led_strip2 effect. Strip 2 goes dark together
-      # with the main strip at cooldown below (no per-strip save/restore).
-      - if:
-          condition:
-            lambda: |-
-              auto o = id(led_strip2_hit_effect).current_option();
-              return o == "Solid Color" || o == "Strobe Flash";
-          then:
-            - light.turn_on:
-                id: led_strip2
-                effect: "None"
-            - select.set:
-                id: led_strip2_color_preset
-                option: !lambda 'return id(led_strip2_color_preset).current_option();'
-          else:
-            - light.turn_on:
-                id: led_strip2
-                effect: !lambda 'return id(led_strip2_hit_effect).current_option();'
+      # Trigger linked audio / HA event BEFORE the fuse is lit. This is the
+      # opposite order from the standard hit script, on purpose:
+      # esphome_hit_script does a *blocking* http_request.post to the Audio-50 in
+      # networked mode, and ESPHome's http_request freezes the main loop for the
+      # whole round-trip. The standard script hides that freeze inside the relay
+      # window; here the relay window comes AFTER a 2.5 s animation, so hiding it
+      # there would stall the fuse mid-burn and visibly stutter it. Firing the
+      # POST first means the freeze lands before the first frame, and the fuse
+      # sound and the fuse animation then start together — which is what you
+      # want anyway with a combined fuse+explosion MP3. The main strip already
+      # rendered above (20 ms yield below), so the hit still reads as instant.
+      # In standalone mode esphome_hit_script is a no-op stub and costs nothing.
+      - delay: 20ms
+      - script.execute: esphome_hit_script
 
-      # Activate outputs with error checking
+      # ---- LIGHT THE FUSE ----
+      # The strip is dark at this point — the explicit light.turn_off at the end
+      # of the previous hit also clears the active effect index, so selecting the
+      # effect here is always a fresh start and the lambda sees initial_run ==
+      # true, resetting the burn to LED 0. Brightness is forced to full so a
+      # dimmed idle level cannot wash the fuse out.
+      #
+      # No transition_length: it is mutually exclusive with `effect` (ESPHome
+      # rejects the pair at validation), and none is needed — LightCall skips the
+      # default 500 ms transition whenever a non-None effect is being started, so
+      # the first fuse frame lands immediately.
+      - light.turn_on:
+          id: led_strip2
+          brightness: 100%
+          effect: "Fuse Effect"
+
+      # Burn. Same constant the effect uses, so the outputs below fire on the
+      # exact frame the flame reaches the end of the fuse.
+      - delay: ${fuse_burn_ms}ms
+
+      # ---- DETONATION ----
       - lambda: |-
           if (id(relay_1).state) {
             ESP_LOGW("target_hit", "Relay already active!");
           }
+          ESP_LOGI("target_hit", "Fuse burned down - detonating");
       - switch.turn_on: relay_1
       # GND switch runs on its own timer via gnd_pulse, so its on-duration can
       # differ from the relay window — e.g. relay drives a lantern's AC while GND
@@ -177,18 +346,7 @@ script:
       - script.execute: ${servo_pwm_script}
       - script.execute: servo_go_hit
 
-      # Trigger linked audio / HA event AFTER the visual hit effect is on screen.
-      # In networked mode esphome_hit_script does a *blocking* http_request.post to
-      # the Audio-50; ESPHome's http_request is synchronous and freezes the main
-      # loop for the whole round-trip. The delay yields one frame so the LED flash,
-      # relay and servo have actually rendered/actuated before that block lands —
-      # the freeze then happens harmlessly during the relay-hold window below,
-      # instead of delaying the effect. In standalone mode esphome_hit_script is a
-      # no-op stub, so this costs nothing there.
-      - delay: 20ms
-      - script.execute: esphome_hit_script
-
-      # Hold relay for configured time while hit effect displays
+      # Hold relay for configured time while the embers die out
       - delay: !lambda 'return id(relay_timer);'
 
       # Deactivate outputs
@@ -200,7 +358,10 @@ script:
       - script.stop: ${servo_pwm_script}
       - script.execute: servo_pwm_zero
 
-      # Continue displaying hit effect until total hit_display_time is reached
+      # Continue displaying the hit effect until total hit_display_time is
+      # reached. NOTE: total hit length is now fuse_burn_ms + hit_display_time —
+      # the burn is added in front of the normal display window, not carved out
+      # of it, so hit_display_time still means "how long the aftermath shows".
       - delay: !lambda |-
           int remaining_display = ${hit_display_time} - id(relay_timer);
           return std::max(0, remaining_display);
@@ -295,7 +456,9 @@ script:
     mode: restart
     then:
       # Kill a hit mid-flight — otherwise its pending delays would re-light the
-      # strips and drop the relay seconds after the target was disabled.
+      # strips and drop the relay seconds after the target was disabled. With the
+      # fuse variant this also matters mid-burn: without the stop, a target
+      # disabled while the fuse is travelling would still detonate.
       - script.stop: target_hit_script
       - script.stop: gnd_pulse
       - script.stop: ${servo_pwm_script}

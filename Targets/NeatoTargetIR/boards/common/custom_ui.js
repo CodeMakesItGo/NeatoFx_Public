@@ -37,6 +37,13 @@
     device_id:   { type: NUM, name: 'Device ID', label: 'Device ID', min: 0, max: 99, step: 1, box: true,
                    hint: '0 = unassigned', section: 'setup' },
 
+    // ── Master enable ──
+    // First control in the card: a disabled target is dark and ignores every
+    // hit source, so nothing below it matters until this is on.
+    target_enabled: { type: SW, name: 'Target Enabled', label: 'Target Enabled',
+                      note: 'Off = LEDs dark, outputs released, all hits ignored (IR, triggers, Test Hit). On = normal operation. Persists across reboots.',
+                      section: 'base' },
+
     // ── Base Target Events ──
     hit_points:     { type: NUM, name: 'Hit Points',    label: 'Hit Points', min: 10, max: 100, step: 10, unit: 'pts', section: 'base' },
     cooldown_timer: { type: NUM, name: 'Cooldown Timer', label: 'Cooldown',  min: 0, max: 10000, step: 100, unit: 'ms', section: 'base' },

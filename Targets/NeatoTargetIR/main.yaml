@@ -75,8 +75,10 @@ packages:
   # Also uncomment + set servo_pwm_script in substitutions below
   #servo_pwm_effects: !include scripts/servo_pwm_effects.yaml
 
-  # Hit behavior script - defines what happens when the target is hit
-  hit_script: !include scripts/hit_script.yaml
+  # Hit behavior script - defines what happens when the target is hit.
+  # Include EXACTLY ONE — both define the same script ids.
+  #hit_script: !include scripts/hit_script.yaml       # standard hit
+  hit_script: !include scripts/hit_script_fuse.yaml   # fuse burns down LED Strip 2, then explodes
 
 # ==============================================================================
 # BLE PROVISIONING — MUST BE REMOVED ON LCD BUILDS
@@ -106,9 +108,18 @@ script:
   - id: run_hit_script
     mode: parallel
     then:
-      - script.execute: target_hit_script
-      # Uncomment the next line when FPP package is enabled above
-      #- script.execute: fpp_start_playlist
+      # MASTER ENABLE GATE — every hit source funnels through this script (IR
+      # protocols, GPIO25, the external trigger, the Test Target Hit switch), so
+      # gating here is what makes a disabled target ignore all of them.
+      - if:
+          condition:
+            lambda: 'return !id(target_enabled);'
+          then:
+            - logger.log: "Target disabled - hit ignored"
+          else:
+            - script.execute: target_hit_script
+            # Uncomment the next line when FPP package is enabled above
+            #- script.execute: fpp_start_playlist
       # NOTE: esphome_hit_script (the audio / HA trigger) is intentionally NOT
       # launched here. In networked mode it makes a *blocking* http_request.post
       # to the Audio-50, which freezes the single-threaded main loop and stalls
