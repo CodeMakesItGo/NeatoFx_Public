@@ -21,7 +21,7 @@
 # SUBSTITUTIONS
 # ==============================================================================
 substitutions:
-  project_version: "1.0.0"
+  project_version: "3.2.0"
 
 # ==============================================================================
 # EXTERNAL PACKAGES
@@ -39,6 +39,29 @@ esphome:
       then:
         - logger.log: "Booting up..."
         - lvgl.page.show: shot_page
+        # None of the four overlapping objs declares hidden: true, so they all
+        # start VISIBLE, stacked. Every one of them has to be placed explicitly.
+        # Boot PARKED on the game over screen, not on the attract screen.
+        # Which screen an idle lane should show is a function of Home Assistant
+        # state - credits, free play - and none of that has arrived yet at
+        # priority 300. The game over screen is the honest answer at this point:
+        # it is exactly the state a paid lane sits in between players, and
+        # refresh_idle_screen promotes it to the attract screen the moment the
+        # lane is known to be playable, over the SAME path a mid-session credit
+        # takes. That means the boot screen is reached by one code path instead
+        # of two, and the lane can never boot into an attract screen that Home
+        # Assistant would not have offered.
+        #
+        # end_sync_grace runs refresh_idle_screen once the sync window closes,
+        # so a free site - no credits helper, so no credit update to react to -
+        # still gets promoted.
+        - lvgl.widget.hide: boot_screen
+        - lvgl.widget.hide: game_screen
+        - lvgl.widget.hide: game_shot_screen
+        - lvgl.widget.show: game_over_screen
+        - globals.set:
+            id: game_over_active
+            value: 'true'
 
 # ==============================================================================
 # ESP32-S3 FRAMEWORK
@@ -91,22 +114,36 @@ light:
 # ==============================================================================
 # FONTS
 # ==============================================================================
+# Sizes are dictated by the artwork's value plates (see boards/common/
+# screens.yaml): the three GAME_PLAY plates are 50 px tall, so 44 px arialbd
+# (50 px line height) fills them exactly. The GAME_OVER "FINAL SCORE" plate is
+# 81 px tall and gets its own larger face.
+#
+# `glyphs` is not cosmetic here — it is what makes the build fit the 3.93MB OTA
+# slot alongside three 768KB backgrounds. These four labels only ever render
+# printf("%d") output, so digits (plus a sign, for safety) are the whole
+# alphabet they need. Dropping the default ~95-glyph ASCII set saves ~200KB.
+# Any caption text belongs in the artwork, not in a label using these fonts.
 font:
   - file: "fonts/arialbd.ttf"
     id: score_font
-    size: 120
+    size: 44
+    glyphs: "-0123456789"
 
   - file: "fonts/arialbd.ttf"
     id: hit_font
-    size: 80
+    size: 44
+    glyphs: "-0123456789"
 
   - file: "fonts/arialbd.ttf"
     id: shot_font
-    size: 120
+    size: 44
+    glyphs: "-0123456789"
 
-  - file: "fonts/arial.ttf"
-    id: label_font
-    size: 36
+  - file: "fonts/arialbd.ttf"
+    id: final_score_font
+    size: 68
+    glyphs: "-0123456789"
 
   - file: "fonts/arial.ttf"
     id: small_font

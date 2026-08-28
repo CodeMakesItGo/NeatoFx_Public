@@ -4,24 +4,35 @@
 # A minimal MP3 player: plays / loops a track number on request via the API,
 # plus web-UI test buttons. Built on the DY-SV8F voice module over UART.
 #
+# ONE BINARY for every unit — there is no per-unit build.
+#
 # Usage:
-#   esphome -s id 1 compile main.yaml
-#   esphome -s id 1 run     main.yaml
-#   esphome -s id 1 logs    main.yaml
+#   esphome compile main.yaml
+#   esphome run     main.yaml
+#   esphome logs    main.yaml
+#   Then set the Device ID from the device web interface.
 # ==============================================================================
 
 # ==============================================================================
 # SUBSTITUTIONS - Device Identification
 # ==============================================================================
 substitutions:
-  id: "1"
-  name: whisper-${id}
-  friendly_name: "NeatoFx Audio Whisper ${id}"
+  # ONE BINARY: there is no build-time id substitution. ESPHome appends the MAC
+  # suffix to the hostname at runtime (see _shared/esphome_base.yaml), giving
+  # each unit a unique, permanent hostname. Logical identity is the runtime
+  # Device ID, assigned from the web UI and stored in flash.
+  name: whisper
+  name_add_mac_suffix: "true"
+  friendly_name: "NeatoFx Audio Whisper"
+  runtime_name_label: "Whisper Name"
 
 # ==============================================================================
 # PACKAGES
 # ==============================================================================
 packages:
+  # Runtime identity — the shared Device ID global + number entity.
+  runtime_id:   !include ../../_shared/runtime_id.yaml
+
   # Hardware
   board:        !include boards/rev1.yaml
 

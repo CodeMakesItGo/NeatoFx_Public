@@ -34,6 +34,10 @@
   // 'rf' (receiver) in rftx_outputs + rftx_inputs, 'rftx' (transmitter) in
   // rftx_outputs only. See boards/common/rftx_*.yaml.
   const ENTITIES = {
+    // ── Device identity (one binary for every unit; see the card note) ──
+    device_id:   { type: NUM, name: 'Device ID', label: 'Device ID', min: 0, max: 99, step: 1, box: true,
+                   hint: '0 = unassigned', section: 'setup' },
+
     // ── Audio Control ──
     volume:      { type: NUM, name: 'DFPlayer Volume',  label: 'Volume', min: 0, max: 30, step: 1, section: 'audio' },
     max_mp3:     { type: NUM, name: 'Max MP3 Files',    label: 'Max MP3 Files', min: 1, max: 255, step: 1, box: true,
@@ -247,7 +251,16 @@
       return;
     }
 
-    // Header readout (not a real card)
+    // Header readouts (not real cards)
+    if (objId === 'device_id' && data.value != null) {
+      var di = document.getElementById('dev-id');
+      if (di) {
+        var n = Math.round(data.value);
+        di.textContent = n === 0 ? 'unassigned' : n;
+        di.parentNode.classList.toggle('unset', n === 0);
+      }
+      // fall through so the editable card row updates too
+    }
     if (objId === 'fw_version') {
       var fv = document.getElementById('fw-ver');
       if (fv && data.state) fv.textContent = data.state;
@@ -435,6 +448,24 @@
       .map(function (k) { return makeItem(k, ENTITIES[k]); });
   }
 
+  // A short explanatory paragraph, used above the Device ID control.
+  function makeNote(html) {
+    var d = document.createElement('div');
+    d.className = 'note';
+    d.innerHTML = html;
+    return d;
+  }
+
+  const DEVICE_ID_NOTE =
+    'Every unit ships with the same firmware, so this number — not the factory — ' +
+    'is what tells the system which unit this is. Home Assistant and the other ' +
+    'NeatoFx devices use it to address this one. Change it when you swap this unit ' +
+    'in for another: set the replacement to the same number and it takes over that ' +
+    'role, with no reflashing. ' +
+    '<b>0 means unassigned</b> — the unit still works, but reports as device 0 so a ' +
+    'forgotten ID shows up plainly instead of quietly clashing with another unit. ' +
+    'Changing this restarts the device.';
+
   function makeCard(title, items) {
     var card = document.createElement('div');
     card.className = 'card';
@@ -501,6 +532,10 @@
     '.hdr-link { color: #e94560; text-decoration: none; }',
     '.hdr-link:hover { text-decoration: underline; }',
     '.hdr-ver  { font-size: 0.68rem; color: #4a4a68; margin-top: 3px; letter-spacing: .3px; }',
+    '.hdr-id   { font-size: 0.72rem; color: #4a4a68; margin-top: 2px; letter-spacing: .3px; font-weight: 600; }',
+    '.hdr-id.unset { color: #b45309; }',   /* amber while the ID is still 0 */
+    '.note { font-size: 0.72rem; line-height: 1.45; color: #555; padding: 2px 2px 8px; }',
+    '.note b { color: #b45309; }',
     '.live { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #666; flex-shrink: 0; }',
     '#live-dot {',
     '  width: 8px; height: 8px; border-radius: 50%; background: #ef4444;',
@@ -656,6 +691,7 @@
           '<a class="hdr-link" href="' + WEBSITE_URL + '" target="_blank" rel="noopener">neatofx.com</a>' +
         '</div>' +
         '<div class="hdr-ver">v<span id="fw-ver">–</span></div>' +
+        '<div class="hdr-id">ID <span id="dev-id">–</span></div>' +
       '</div>' +
       '<div class="live">' +
         '<div id="live-dot"></div>' +
@@ -679,6 +715,10 @@
     inner.appendChild(heroRow);
 
     // Primary cards
+    // Device identity first — it is the one thing that must be set on a new unit.
+    inner.appendChild(makeCard('Device ID',
+      [makeNote(DEVICE_ID_NOTE)].concat(sectionItems('setup'))));
+
     inner.appendChild(makeCard('Audio Control',   sectionItems('audio')));
     inner.appendChild(makeCard('Background Loop', sectionItems('bg')));
 

@@ -24,11 +24,11 @@ substitutions:
   switch_12v: GPIO33     # 12V switch control
   led2_gpio: GPIO22      # Secondary LED strip
   servo_gpio: GPIO04     # Servo control
-  strip_2_led_count: "100" # Configurable LED count
+  strip_2_led_count: "150" # 3 m (9.8 ft) @ 50 LEDs/m — the fuse strip
   strip_2_internal: "false" # Visible in UI for Rev3
 
   # Project Information (Rev 3.x specific)
-  project_version: "3.0.0"
+  project_version: "3.2.0"
   hw_version: "Rev 3"            # Overrides common.yaml default for the version readout
 
 # ==============================================================================

@@ -19,4 +19,4 @@ packages:
 # ==============================================================================
 substitutions:
   device_description: "480x480 Touch Screen"
-  project_name: "CodeMakesItGo.Display"
+  project_name: "NeatoFX.Display"

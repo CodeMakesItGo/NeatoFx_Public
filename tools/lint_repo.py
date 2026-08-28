@@ -9,7 +9,8 @@ Checks (per device):
      no 'Smart' branding anywhere in yaml.
   3. Include depth: ../../../_shared/ from device root subdirs,
      ../../../../_shared/ from boards/common/; every !include target exists.
-  4. main.yaml has substitutions id/name/friendly_name.
+  4. main.yaml has substitutions name/name_add_mac_suffix/friendly_name
+     (NO `id`: every product ships one binary; identity is runtime).
   5. networked.yaml has improv_serial + dashboard_import, and the
      dashboard_import URL points at THIS device's main.yaml.
   6. logger baud_rate must not be 0 in any device that has a networked config.
@@ -114,9 +115,15 @@ def check_main(dev: Path, rel: str):
     if not main.exists():
         return
     text = main.read_text()
-    for sub in ("id:", "name:", "friendly_name:"):
+    for sub in ("name:", "name_add_mac_suffix:", "friendly_name:"):
         if not re.search(rf"^\s+{sub}", text, re.M):
             err(f"{rel}/main.yaml: substitutions missing '{sub.rstrip(':')}'")
+    # One binary per product: no build-time `id`. Identity is the runtime
+    # player_id/device_id global from _shared/runtime_id.yaml, so a build-time
+    # id substitution means someone reintroduced per-unit builds.
+    if re.search(r"^\s+id:\s", text, re.M):
+        err(f"{rel}/main.yaml: has a build-time 'id' substitution; products "
+            f"ship ONE binary and take identity from _shared/runtime_id.yaml")
     if re.search(r"^\s*baud_rate:\s*0\b", text, re.M) and \
             (dev / "configs/networked.yaml").exists():
         err(f"{rel}/main.yaml: logger baud_rate 0 conflicts with improv_serial "

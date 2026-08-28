@@ -284,6 +284,90 @@ script:
       - logger.log: "Target hit processing complete"
 
 
+  # ==========================================================================
+  # MASTER ENABLE / DISABLE — driven by the "Target Enabled" switch
+  # (boards/common/common.yaml) and by the boot handler in that same file.
+  # ==========================================================================
+
+  # Apply the DISABLED state: abort any hit in flight, release every output and
+  # take both strips dark. mode: restart so repeated toggles are harmless.
+  - id: target_disable_apply
+    mode: restart
+    then:
+      # Kill a hit mid-flight — otherwise its pending delays would re-light the
+      # strips and drop the relay seconds after the target was disabled.
+      - script.stop: target_hit_script
+      - script.stop: gnd_pulse
+      - script.stop: ${servo_pwm_script}
+      - script.execute: servo_pwm_zero
+      # Clear the hit's latched flags. ir_enabled is restored on re-enable, not
+      # here: leaving it false is a second, harmless layer of "ignore IR".
+      - globals.set:
+          id: hit_processing
+          value: 'false'
+      - globals.set:
+          id: team_detected
+          value: 'false'
+      - globals.set:
+          id: team_color_applied
+          value: 'false'
+      # Outputs off. 0s transitions so a disable is immediate, not a fade.
+      - switch.turn_off: relay_1
+      - light.turn_off:
+          id: gnd_light
+          transition_length: 0s
+      - light.turn_off:
+          id: led_strip
+          transition_length: 0s
+      - light.turn_off:
+          id: led_strip2
+          transition_length: 0s
+      - script.execute: servo_go_idle
+      - logger.log: "Target disabled - outputs released, LEDs dark"
+
+  # Apply the ENABLED state: re-arm IR and restore the saved idle look — the
+  # same brightness / color / effect the board's boot sequence restores, so an
+  # enable and a reboot leave the target looking identical. LED Strip 2 stays
+  # off on purpose: it only lights during a hit.
+  - id: target_enable_apply
+    mode: restart
+    then:
+      - globals.set:
+          id: hit_processing
+          value: 'false'
+      - globals.set:
+          id: team_detected
+          value: 'false'
+      - globals.set:
+          id: team_color_applied
+          value: 'false'
+      # A hit killed by target_disable_apply may have left IR gated off — it is
+      # normally re-armed at the end of target_hit_script, which never ran.
+      - globals.set:
+          id: ir_enabled
+          value: 'true'
+      - lambda: |-
+          std::string effect_name = "None";
+          switch (id(saved_effect_index)) {
+            case 1: effect_name = "Rainbow Effect"; break;
+            case 2: effect_name = "Color Wipe Effect"; break;
+            case 3: effect_name = "Scanner Effect"; break;
+            case 4: effect_name = "Twinkle Effect"; break;
+            case 5: effect_name = "Heartbeat Effect"; break;
+            default: break;  // 0 (or unknown) = solid color, no effect
+          }
+          float brightness = id(saved_brightness);
+          if (brightness <= 0.0f) brightness = 0.5f;  // never restore fully dark
+          auto call = id(led_strip).turn_on();
+          call.set_brightness(brightness);
+          call.set_rgb(id(saved_red), id(saved_green), id(saved_blue));
+          call.set_effect(effect_name);
+          call.perform();
+          ESP_LOGI("target_enable", "Enabled - restored effect: %s, brightness: %.2f",
+                   effect_name.c_str(), brightness);
+      - script.execute: servo_go_idle
+
+
   # No-op stub — active when no servo PWM effect is configured (default)
   - id: servo_pwm_none
     mode: single

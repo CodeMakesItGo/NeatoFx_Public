@@ -1,3 +1,9 @@
+# Shared base packages — common to all NEATO-FX devices.
+# This board used to duplicate esphome:/ota:/esp32: instead of including this,
+# which silently overrode the shared OTA password and MAC-suffix settings.
+packages:
+  esphome_base: !include ../../../_shared/esphome_base.yaml
+
 # ==============================================================================
 # SUBSTITUTIONS - Device Identification
 # ==============================================================================
@@ -5,23 +11,22 @@ substitutions:
   # Default ID - override with -s id XXXX command line parameter
   id: "0000"                     # Default speaker ID
   # name / friendly_name intentionally NOT set here — they are defined in
-  # main.yaml (audio-${id}) and main-file substitutions override packages.
+  # main.yaml (audio + MAC suffix) and main-file substitutions override packages.
   # Setting them here too created a confusing speaker-* vs audio-* ambiguity.
-  project_name: "CodeMakesItGo.Speaker"
-  project_version: "1.0.0"
+  project_name: "NeatoFX.Speaker"
+  # Kept in lockstep with rev2_4 on purpose: the manifest serves ONE binary for
+  # the whole audio50 product, and a device only offers an update when its
+  # compiled version differs from the manifest. If this board lagged at 1.0.0 it
+  # would download the rev2.4 build, which has a different GPIO map.
+  project_version: "3.2.0"
   hw_version: "Rev 2.3"
 
 # ==============================================================================
 # CORE ESPHOME CONFIGURATION - Common Settings
 # ==============================================================================
+# name / friendly_name / name_add_mac_suffix / project all come from
+# _shared/esphome_base.yaml. Only the board-specific boot sequence lives here.
 esphome:
-  name: ${name}
-  friendly_name: ${friendly_name}
-  name_add_mac_suffix: false
-  project:
-    name: ${project_name}
-    version: ${project_version}
-
   on_boot:
     - priority: -100   # after all components are set up
       then:
@@ -61,19 +66,12 @@ esphome:
 # ==============================================================================
 esp32:
   board: esp32dev
-  # DIO required by hardware flash chip. platformio_options.board_build.flash_mode
-  # (formerly under esphome: above) is now ignored — ESP32 Arduino builds run on
-  # the native ESP-IDF toolchain too. esp32.flash_mode is the replacement that
-  # works under both frameworks.
-  flash_mode: dio
   framework:
     type: arduino
 
-
-# Allow Over-The-Air updates
-ota: 
-  - platform: esphome
-    password: ""
+# OTA comes from _shared/esphome_base.yaml (password: !secret ota_password).
+# This board previously declared its own `ota:` with an empty password, which
+# overrode the shared one and shipped rev2.3 units with no OTA password.
 
 # ==============================================================================
 # COMMON SENSORS - System Monitoring

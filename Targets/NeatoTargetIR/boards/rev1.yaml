@@ -39,7 +39,7 @@ substitutions:
   strip_2_internal: "true" # Hide from UI since it's not used
 
   # Project Information (Rev 1.x specific)
-  project_version: "1.0.0"
+  project_version: "3.2.0"
 
 # ==============================================================================
 # EXTERNAL PACKAGES
@@ -54,20 +54,23 @@ packages:
 # ==============================================================================
 esphome:
   min_version: 2025.7.4  
+  # MUST stay a LIST (leading "-"). ESPHome only concatenates on_boot
+  # across packages when both sides are lists; as a bare dict this block
+  # silently overwrites, or is overwritten by, another package's trigger.
   on_boot:
-    priority: 300
-    then:
-      # Initialize timer controls with saved values
-      - number.set:
-          id: relay_timer_control
-          value: !lambda 'return id(relay_timer);'
-      - number.set:
-          id: target_cooldown_control
-          value: !lambda 'return id(cooldown_timer);'
-      # Wait for components to initialize
-      - delay: 500ms
-      # Log startup completion
-      - logger.log: "Target system initialized successfully"
+    - priority: 300
+      then:
+        # Initialize timer controls with saved values
+        - number.set:
+            id: relay_timer_control
+            value: !lambda 'return id(relay_timer);'
+        - number.set:
+            id: target_cooldown_control
+            value: !lambda 'return id(cooldown_timer);'
+        # Wait for components to initialize
+        - delay: 500ms
+        # Log startup completion
+        - logger.log: "Target system initialized successfully"
 
 # ==============================================================================
 # SENSORS - Rev 1.x Specific ADC Inputs

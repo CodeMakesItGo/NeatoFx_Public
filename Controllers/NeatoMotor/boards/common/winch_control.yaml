@@ -45,8 +45,8 @@ packages:
   esphome_base: !include ../../../../_shared/esphome_base.yaml
 
 substitutions:
-  project_name: "CodeMakesItGo.WinchMotor"
-  project_version: "1.0.0"
+  project_name: "NeatoFX.WinchMotor"
+  project_version: "3.2.0"
 
 # ==============================================================================
 # GLOBAL VARIABLES

@@ -30,119 +30,452 @@ substitutions:
 api:
   reboot_timeout: 5min
   homeassistant_services: true
+  # Close the boot-sync grace window a beat after Home Assistant connects:
+  # initial helper states arrive sub-second, so a player_<id>_active that is
+  # already ON lands inside the window and is treated as a stale round (see
+  # ha_sync_grace and the ha_player_active on_state handler).
+  on_client_connected:
+    - script.execute: end_sync_grace
+  # ---------------------------------------------------------------------------
+  # LEGACY ENTRY POINT — prefer the player_<id>_* helpers below.
+  # ---------------------------------------------------------------------------
+  # These services are named from the DEVICE name, which carries the MAC suffix
+  # (esphome.station_ylw_a1b2c3_set_shot). Swap a display for a spare and every
+  # Home Assistant script calling them has to be edited. They are kept so
+  # existing installs keep working; new automations should write the
+  # input_number.player_<id>_* helpers instead — see the sensor block below.
+  #
+  # Each service just delegates to the same script the helper subscription uses,
+  # so the two paths can never drift.
   services:
-    # Called by Home Assistant to update the player's score label
     - service: set_score
       variables:
         score_value: int
       then:
-        - sensor.template.publish:
-            id: player_${id}_score
-            state: !lambda 'return score_value;'
-        - lvgl.label.update:
-            id: player_score
-            text:
-              format: "%d"
-              args: [ '(int)id(player_${id}_score).state' ]
-        - if:
-            condition:
-              lambda: 'return id(game_over_active);'
-            then:
-              - lvgl.label.update:
-                  id: game_over_score
-                  text:
-                    format: "%d"
-                    args: [ '(int)score_value' ]
+        - script.execute:
+            id: apply_score
+            value: !lambda 'return score_value;'
 
-    # Called by Home Assistant (via pump gun start button) to start the game
     - service: start_game
       then:
-        - globals.set:
-            id: game_over_active
-            value: 'false'
-        - lvgl.widget.hide: boot_screen
-        - lvgl.widget.show: game_screen
-        - lvgl.widget.show: game_shot_screen
-        - script.execute: reset_score_script
-        - lvgl.label.update:
-            id: player_shot
-            text: !lambda 'return std::to_string(id(g_max_shots));'
-        - homeassistant.service:
-            service: input_boolean.turn_on
-            data:
-              entity_id: input_boolean.player_${id}_active
+        - script.execute: apply_start_game
 
-    # Called by Home Assistant to update the hit count label
     - service: set_hit
       variables:
         score_value: int
       then:
-        - sensor.template.publish:
-            id: player_${id}_hit
-            state: !lambda 'return score_value;'
-        - lvgl.label.update:
-            id: player_hit
-            text:
-              format: "%d"
-              args: [ '(int)id(player_${id}_hit).state' ]
+        - script.execute:
+            id: apply_hit
+            value: !lambda 'return score_value;'
 
-    # Called by Home Assistant to update the remaining shots label
     - service: set_shot
       variables:
         score_value: int
       then:
-        - if:
-            condition:
-              lambda: 'return score_value > 0 && !id(game_over_active) && !lv_obj_has_flag(id(boot_screen), LV_OBJ_FLAG_HIDDEN);'
-            then:
-              - lvgl.label.update:
-                  id: player_score
-                  text: "0"
-              - lvgl.label.update:
-                  id: player_hit
-                  text: "0"
-              - lvgl.label.update:
-                  id: player_shot
-                  text: !lambda 'return std::to_string(id(g_max_shots));'
-              - lvgl.label.update:
-                  id: game_over_score
-                  text: ""
-              - lvgl.widget.hide: boot_screen
-              - lvgl.widget.show: game_screen
-              - lvgl.widget.show: game_shot_screen
-              - script.execute: reset_score_script
-              - homeassistant.service:
-                  service: input_boolean.turn_on
-                  data:
-                    entity_id: input_boolean.player_${id}_active
-        - sensor.template.publish:
-            id: player_${id}_shot
-            state: !lambda 'return score_value;'
-        - lvgl.label.update:
-            id: player_shot
-            text:
-              format: "%d"
-              args: [ 'std::max(0, id(g_max_shots) - (int)score_value)' ]
-        - if:
-            condition:
-              lambda: 'return score_value >= id(g_max_shots);'
-            then:
-              - homeassistant.service:
-                  service: input_boolean.turn_off
-                  data:
-                    entity_id: input_boolean.player_${id}_active
-              - globals.set:
-                  id: game_over_active
-                  value: 'true'
-              - lvgl.widget.hide: game_screen
-              - lvgl.widget.hide: game_shot_screen
-              - lvgl.label.update:
-                  id: game_over_score
-                  text:
-                    format: "%d"
-                    args: [ '(int)id(player_${id}_score).state' ]
-              - lvgl.widget.show: game_over_screen
-              - script.execute: game_over_transition_script
+        - script.execute:
+            id: apply_shot
+            value: !lambda 'return score_value;'
+
+# ==============================================================================
+# GAME STATE — player-keyed, survives a hardware swap
+# ==============================================================================
+# Home Assistant addresses this display by its PLAYER ID, never by its hostname
+# or MAC. Set the Player ID on a replacement unit and every script below keeps
+# working untouched.
+#
+# The entity_ids in the sensor block are compile-time placeholders only —
+# ESPHome's schema makes entity_id Required (cv.Required(CONF_ENTITY_ID)), so
+# something syntactically valid has to be there. on_boot rebinds them to the
+# restored player_id at priority 600: globals restore at HARDWARE (800) and the
+# homeassistant sensors subscribe at AFTER_WIFI (200), so the placeholder is
+# never actually subscribed. Changing the Player ID reboots the device, which is
+# what re-runs this binding.
+#
+# Home Assistant needs these helpers, one set per player (1-15):
+#   input_number.player_<id>_score
+#   input_number.player_<id>_hits
+#   input_number.player_<id>_shots
+#   input_boolean.player_<id>_active   (already used by the blaster gate)
+esphome:
+  on_boot:
+    - priority: 600
+      then:
+        - lambda: |-
+            // static: set_entity_id stores the pointer, not a copy, so these
+            // strings must outlive the components' setup().
+            const std::string p = "player_" + std::to_string(id(player_id)) + "_";
+            static std::string score_id = "input_number." + p + "score";
+            static std::string hits_id  = "input_number." + p + "hits";
+            static std::string shots_id = "input_number." + p + "shots";
+            static std::string active_id = "input_boolean." + p + "active";
+            static std::string credits_id = "input_number." + p + "credits";
+            id(ha_player_score).set_entity_id(score_id.c_str());
+            id(ha_player_hits).set_entity_id(hits_id.c_str());
+            id(ha_player_shots).set_entity_id(shots_id.c_str());
+            id(ha_player_active).set_entity_id(active_id.c_str());
+            id(ha_player_credits).set_entity_id(credits_id.c_str());
+            ESP_LOGI("display", "Game state bound to input_number.%s*", p.c_str());
+        - script.execute: attract_fallback
+
+# ==============================================================================
+# SCRIPTS - Shared game-state handlers
+# ==============================================================================
+# One implementation per action, called by BOTH the legacy api services and the
+# player_<id>_* helper subscriptions.
+script:
+  # ---------------------------------------------------------------------------
+  # RESET HA GAME STATE - Zero the player_<id>_* helpers in Home Assistant
+  # ---------------------------------------------------------------------------
+  # reset_score_script only clears the on-screen labels and the local template
+  # sensors. Without this the input_number helpers still hold the previous
+  # round's totals, so the next round is scored on top of the old numbers.
+  #
+  # No feedback loop: each write echoes back through the ha_player_* sensors and
+  # re-applies the same zero the labels were just set to. apply_shot's restart
+  # branch requires value > 0, so the shots=0 echo cannot re-trigger a start.
+  # ---------------------------------------------------------------------------
+  # SET PLAYER INACTIVE - Release the player_<id>_active gate in Home Assistant
+  # ---------------------------------------------------------------------------
+  # Every path that ends a round has to come through here, not just the
+  # shots-exhausted one: the blaster stays armed for as long as this boolean is
+  # on, so a round that ends any other way would leave the player able to shoot.
+  # ---------------------------------------------------------------------------
+  # THIS DEPENDS ON A HOME ASSISTANT PERMISSION - CHECK IT FIRST
+  # ---------------------------------------------------------------------------
+  # homeassistant.service calls are gated per-device by "Allow the device to
+  # perform Home Assistant actions" (allow_service_calls) in the ESPHome
+  # integration: Settings -> Devices & Services -> ESPHome -> <device> ->
+  # Configure. It DEFAULTS TO OFF, it has been seen reverting to off by itself,
+  # and while off Home Assistant discards the call SILENTLY - nothing appears in
+  # the device log, the call simply never lands. homeassistant.event is NOT
+  # gated, which is what makes this so hard to see from here.
+  #
+  # This script is the single choke point for EVERY round-end path - shots
+  # exhausted, idle timeout, attendant stop - so when the toggle is off,
+  # player_<id>_active stays on forever. The next start then writes turn_on to
+  # an already-on boolean, which is not a state change, so no on_state edge
+  # reaches this display, so the round never begins, and start_player_game has
+  # already taken the credit. The gallery still looks healthy because targets
+  # score over events. A whole session was lost to this on 2026-08-22.
+  #
+  # So: if a lane will not start, compare the log line below against the helper
+  # in Home Assistant BEFORE reading any more of this file. "END: releasing
+  # player N" proves the display asked. It does not prove anyone listened.
+  - id: set_player_inactive
+    then:
+      - logger.log:
+          level: WARN
+          format: "END: releasing player %d"
+          args: [ 'id(player_id)' ]
+      - homeassistant.service:
+          service: input_boolean.turn_off
+          data_template:
+            entity_id: "input_boolean.player_{{ pid }}_active"
+          variables:
+            pid: !lambda 'return id(player_id);'
+
+  - id: reset_ha_game_state
+    then:
+      - homeassistant.service:
+          service: input_number.set_value
+          data:
+            value: "0"
+          data_template:
+            entity_id: "input_number.player_{{ pid }}_score"
+          variables:
+            pid: !lambda 'return id(player_id);'
+      - homeassistant.service:
+          service: input_number.set_value
+          data:
+            value: "0"
+          data_template:
+            entity_id: "input_number.player_{{ pid }}_hits"
+          variables:
+            pid: !lambda 'return id(player_id);'
+      - homeassistant.service:
+          service: input_number.set_value
+          data:
+            value: "0"
+          data_template:
+            entity_id: "input_number.player_{{ pid }}_shots"
+          variables:
+            pid: !lambda 'return id(player_id);'
+
+  - id: apply_score
+    parameters:
+      value: int
+    then:
+      - sensor.template.publish:
+          id: player_score_sensor
+          state: !lambda 'return value;'
+      - lvgl.label.update:
+          id: player_score
+          text:
+            format: "%d"
+            args: [ '(int)id(player_score_sensor).state' ]
+      - if:
+          condition:
+            lambda: 'return id(game_over_active);'
+          then:
+            - lvgl.label.update:
+                id: game_over_score
+                text:
+                  format: "%d"
+                  args: [ 'value' ]
+
+  - id: apply_hit
+    parameters:
+      value: int
+    then:
+      - sensor.template.publish:
+          id: player_hit_sensor
+          state: !lambda 'return value;'
+      - lvgl.label.update:
+          id: player_hit
+          text:
+            format: "%d"
+            args: [ '(int)id(player_hit_sensor).state' ]
+
+  - id: apply_start_game
+    then:
+      - logger.log:
+          level: WARN
+          format: "START: round beginning"
+      - globals.set:
+          id: game_over_active
+          value: 'false'
+      - lvgl.widget.hide: boot_screen
+      # The lane may be parked on the game-over screen (paid sites, no credit)
+      # when the start arrives — it sits above the game screen, so hide it
+      # explicitly or the round plays behind it.
+      - lvgl.widget.hide: game_over_screen
+      - lvgl.widget.show: game_screen
+      - lvgl.widget.show: game_shot_screen
+      - script.execute: reset_score_script
+      - script.execute: reset_ha_game_state
+      - lvgl.label.update:
+          id: player_shot
+          text: !lambda 'return std::to_string(id(g_max_shots));'
+      - homeassistant.service:
+          service: input_boolean.turn_on
+          data_template:
+            entity_id: "input_boolean.player_{{ pid }}_active"
+          variables:
+            pid: !lambda 'return id(player_id);'
+
+  # ---------------------------------------------------------------------------
+  # REQUEST A GAME - the attract-screen tap asks Home Assistant, it does not
+  # start the round itself. start_player_game applies the credit gate on paid
+  # sites and, when it approves, flips input_boolean.player_<id>_active - which
+  # is what actually starts the round here (ha_player_active below). A refused
+  # start sends nothing back, so the screen stays where it is. Same request
+  # event the blaster's start button sends; the player travels in the payload,
+  # so it survives a hardware swap.
+  - id: request_start_game
+    mode: single
+    then:
+      - logger.log:
+          level: WARN
+          format: "TAP: asking HA to start player %d"
+          args: [ 'id(player_id)' ]
+      - homeassistant.event:
+          event: esphome.game_start_requested
+          data_template:
+            display_id: "{{ display_id }}"
+          variables:
+            display_id: !lambda 'return id(player_id);'
+
+  # ---------------------------------------------------------------------------
+  # BOOT SYNC GRACE - see the ha_sync_grace global
+  # ---------------------------------------------------------------------------
+  # The delay covers the gap between the API client connecting and the initial
+  # helper states arriving (sub-second in practice). If the active helper's
+  # first delivery lands earlier, the on_state handler clears the flag itself.
+  # ---------------------------------------------------------------------------
+  # ATTRACT FALLBACK - the lane must not need Home Assistant to look alive
+  # ---------------------------------------------------------------------------
+  # The lane boots parked on the game over screen and is promoted to the attract
+  # screen by refresh_idle_screen, which end_sync_grace runs. end_sync_grace
+  # fires from api.on_client_connected - so with no Home Assistant there is no
+  # connection, no sync, no promotion, and the display sits on the game over
+  # screen indefinitely. That is worse than being wrong about the credit state:
+  # a bench unit, a lane brought up before its Home Assistant entry exists, or a
+  # gallery whose server is down would all look dead.
+  #
+  # ha_sync_grace is the flag for "no client has ever connected" - end_sync_grace
+  # is the only thing that clears it on a timer. Still set here means Home
+  # Assistant never arrived, so show the attract screen on our own authority.
+  #
+  # DELIBERATELY does not clear ha_sync_grace: if Home Assistant turns up later
+  # its boot state still has to be treated as stale, or a player_<id>_active
+  # left on from before would be read as a live start and hand out a free game.
+  - id: attract_fallback
+    mode: single
+    then:
+      - delay: 30s
+      - if:
+          condition:
+            lambda: 'return id(ha_sync_grace);'
+          then:
+            - logger.log:
+                level: WARN
+                format: "BOOT: no Home Assistant after 30s - showing attract screen anyway"
+            - script.execute: show_attract_screen
+
+  - id: end_sync_grace
+    mode: restart
+    then:
+      - delay: 3s
+      - globals.set:
+          id: ha_sync_grace
+          value: 'false'
+      - logger.log:
+          level: WARN
+          format: "SYNC: boot window closed, lane is live"
+      # AUTHORITATIVE STALE SWEEP - reads .state, does not wait for a trigger.
+      # trigger_on_initial_state above should mean the on_state handler already
+      # dealt with a stale ON, but that is an event, and events can be missed,
+      # suppressed by a schema default (which is exactly what wedged this lane
+      # once already), or arrive outside the window. This reads the value
+      # directly at a moment we know Home Assistant has finished syncing, so a
+      # lane can never again come up believing it is mid-round.
+      #
+      # game_screen hidden is the "no round running" test, and it is safe here
+      # precisely because this only ever runs once, at boot, where the lane
+      # started parked: a visible game_screen at this point means a genuine
+      # start landed inside the sync window, and that must not be killed.
+      - if:
+          condition:
+            lambda: |-
+              return id(ha_player_active).state
+                  && lv_obj_has_flag(id(game_screen), LV_OBJ_FLAG_HIDDEN);
+          then:
+            - logger.log:
+                level: WARN
+                format: "SYNC: player_active was left ON with no round - releasing it"
+            - script.execute: set_player_inactive
+      # The lane boots PARKED on the game over screen (boards/rev1.yaml) because
+      # which screen an idle lane should show depends on Home Assistant state
+      # that has not arrived at on_boot time. Now it has, so decide properly.
+      # Without this kick a free site would never leave the parked screen: it
+      # has no credits helper, so no credit update ever arrives to trigger the
+      # decision.
+      - script.execute: refresh_idle_screen
+
+  # ---------------------------------------------------------------------------
+  # IDLE SCREEN - attract when the lane is playable, game over when it is not
+  # ---------------------------------------------------------------------------
+  # Paid sites: with free play off and no credits, the idle lane parks on the
+  # game over screen; the moment a credit lands (or free play turns on) it
+  # returns to the attract screen. A lane is playable when free play is on,
+  # credits > 0, or the credit helper does not exist (free sites read NAN).
+  # Runs only while idle - a running round owns the screen - and never cuts
+  # short the 10s end-of-round score display (game_over_transition_script
+  # finishes it, applying the same playable check).
+  - id: refresh_idle_screen
+    mode: queued
+    max_runs: 5
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(ha_player_active).state;'
+          then:
+            - if:
+                condition:
+                  lambda: |-
+                    return id(ha_free_play).state
+                        || isnan(id(ha_player_credits).state)
+                        || id(ha_player_credits).state > 0.5;
+                then:
+                  - if:
+                      condition:
+                        lambda: |-
+                          return id(game_over_active)
+                              && !id(game_over_transition_script).is_running();
+                      then:
+                        - script.execute: show_attract_screen
+                else:
+                  - lvgl.widget.hide: boot_screen
+                  - lvgl.widget.hide: game_screen
+                  - lvgl.widget.hide: game_shot_screen
+                  - lvgl.widget.show: game_over_screen
+                  - globals.set:
+                      id: game_over_active
+                      value: 'true'
+
+  - id: apply_shot
+    parameters:
+      value: int
+    then:
+      # A shot arriving while the attract screen is up means the round started
+      # somewhere else (blaster button, dashboard) and this display missed the
+      # arming - so it catches up. It must NOT fire on the boot sync, though:
+      # input_number.player_<id>_shots is only zeroed at the START of a round,
+      # so it still holds the LAST round's count when the display powers up,
+      # and Home Assistant pushes that value the moment we subscribe. Without
+      # these two guards the display walks into a phantom round on every boot
+      # and turns player_<id>_active ON - and then the next real start finds
+      # the helper already on, writes no state change, and the player pays a
+      # credit for a game that never begins.
+      #   ha_sync_grace       - the value is a boot-time restore, not a shot
+      #   ha_player_active    - no armed round, so nobody can be shooting
+      - if:
+          condition:
+            lambda: |-
+              return value > 0 && !id(game_over_active)
+                  && !id(ha_sync_grace) && id(ha_player_active).state
+                  && !lv_obj_has_flag(id(boot_screen), LV_OBJ_FLAG_HIDDEN);
+          then:
+            - lvgl.label.update:
+                id: player_score
+                text: "0"
+            - lvgl.label.update:
+                id: player_hit
+                text: "0"
+            - lvgl.label.update:
+                id: player_shot
+                text: !lambda 'return std::to_string(id(g_max_shots));'
+            - lvgl.label.update:
+                id: game_over_score
+                text: ""
+            - lvgl.widget.hide: boot_screen
+            - lvgl.widget.show: game_screen
+            - lvgl.widget.show: game_shot_screen
+            - script.execute: reset_score_script
+            - homeassistant.service:
+                service: input_boolean.turn_on
+                data_template:
+                  entity_id: "input_boolean.player_{{ pid }}_active"
+                variables:
+                  pid: !lambda 'return id(player_id);'
+      - sensor.template.publish:
+          id: player_shot_sensor
+          state: !lambda 'return value;'
+      - lvgl.label.update:
+          id: player_shot
+          text:
+            format: "%d"
+            args: [ 'std::max(0, id(g_max_shots) - (int)value)' ]
+      # Same boot-sync guard: a restored count of 15 is not a round that just
+      # ran out of shots, and slamming up the game over screen on power-up
+      # (then ending a round nobody is playing) is not the boot behaviour.
+      - if:
+          condition:
+            lambda: 'return value >= id(g_max_shots) && !id(ha_sync_grace);'
+          then:
+            - script.execute: set_player_inactive
+            - globals.set:
+                id: game_over_active
+                value: 'true'
+            - lvgl.widget.hide: game_screen
+            - lvgl.widget.hide: game_shot_screen
+            - lvgl.label.update:
+                id: game_over_score
+                text:
+                  format: "%d"
+                  args: [ '(int)id(player_score_sensor).state' ]
+            - lvgl.widget.show: game_over_screen
+            - script.execute: game_over_transition_script
 
 # ==============================================================================
 # SENSORS - System Monitoring & Game State from Home Assistant
@@ -161,10 +494,157 @@ sensor:
           id: g_max_shots
           value: !lambda 'return (int)x;'
 
+  # --------------------------------------------------------------------------
+  # Player-keyed game state — entity_id is rebound at boot, see the on_boot
+  # block above. The values below are placeholders and are never subscribed.
+  # --------------------------------------------------------------------------
+  - platform: homeassistant
+    id: ha_player_score
+    entity_id: input_number.player_0_score
+    internal: true
+    on_value:
+      - script.execute:
+          id: apply_score
+          value: !lambda 'return (int)x;'
+
+  - platform: homeassistant
+    id: ha_player_hits
+    entity_id: input_number.player_0_hits
+    internal: true
+    on_value:
+      - script.execute:
+          id: apply_hit
+          value: !lambda 'return (int)x;'
+
+  - platform: homeassistant
+    id: ha_player_shots
+    entity_id: input_number.player_0_shots
+    internal: true
+    on_value:
+      - script.execute:
+          id: apply_shot
+          value: !lambda 'return (int)x;'
+
+  # Paid sites only: the lane's credit balance. On free sites the helper does
+  # not exist, the state stays NAN, and refresh_idle_screen treats NAN as
+  # playable — one binary serves both site types.
+  - platform: homeassistant
+    id: ha_player_credits
+    entity_id: input_number.player_0_credits
+    internal: true
+    on_value:
+      - script.execute: refresh_idle_screen
+
+globals:
+  # True from power-up until the first player_active state lands (or shortly
+  # after Home Assistant connects — end_sync_grace). A helper that is already
+  # ON inside this window is a leftover from a round that died with the last
+  # power cycle: the display just booted, so no round of its can be running.
+  # It is ended, not silently restarted — on a paid site a restart would be a
+  # free game.
+  - id: ha_sync_grace
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
 # ==============================================================================
 # BINARY SENSORS - Status
 # ==============================================================================
 binary_sensor:
+  # --------------------------------------------------------------------------
+  # START GAME — player-keyed, replaces the esphome.<device>_start_game service.
+  # --------------------------------------------------------------------------
+  # Turning input_boolean.player_<id>_active ON starts the round, so Home
+  # Assistant routes a game start by writing a helper it can name from the
+  # player number alone — no device name, no MAC, no per-station automation.
+  # entity_id below is a placeholder, rebound at boot (see the on_boot block).
+  #
+  # No feedback loop: apply_start_game turns the same helper on, and Home
+  # Assistant emits no state change for an already-on boolean.
+  #
+  # The screen check keeps a mid-round reboot from wiping the score — the
+  # display re-subscribes on reconnect and is immediately handed the current
+  # 'on' state, which would otherwise look like a fresh start request.
+  - platform: homeassistant
+    id: ha_player_active
+    entity_id: input_boolean.player_0_active
+    internal: true
+    # NOT OPTIONAL. binary_sensor's trigger_on_initial_state defaults to FALSE
+    # (components/binary_sensor/__init__.py, setup_binary_sensor_core_), so the
+    # FIRST state Home Assistant delivers updates .state but fires no trigger.
+    # The whole on_state block below - stale-round cleanup included - was blind
+    # to the value the lane booted with. A player_<id>_active left ON therefore
+    # deadlocked the lane permanently: nothing cleaned it up, refresh_idle_screen
+    # refused to touch the screen because the lane read as active, and Home
+    # Assistant's turn_on was a no-op on an already-on boolean, so no edge ever
+    # arrived to break the tie. The lane sat parked, taking credits.
+    trigger_on_initial_state: true
+    on_state:
+      # Already ON while we are freshly booted and showing no round: a stale
+      # gate from before the power cycle. End the orphaned round (disarming
+      # the blaster) instead of walking into a game nobody started.
+      #
+      # The ONLY thing separating "stale boot state" from "start this round" is
+      # the sync window. These deliberately do NOT also test whether game_screen
+      # is hidden. That test made the start gate depend on LVGL state, and any
+      # path that left game_screen un-hidden underneath the attract screen
+      # wedged the lane for good: the display read itself as mid-round, ignored
+      # every later start, and Home Assistant took the credit anyway. Recovery
+      # needed an attendant to toggle the helper by hand.
+      #
+      # ha_sync_grace already answers the only question that matters - did this
+      # ON arrive with the boot state, or is it a live edge? - and Home
+      # Assistant only ever sends state CHANGES, so a live ON is always a real
+      # start request. apply_start_game rebuilds the round from scratch, so
+      # running it on a lane that somehow still shows a game is the right
+      # outcome, not a hazard.
+      - logger.log:
+          level: WARN
+          format: "ACTIVE: player_active -> %s  (sync_grace=%s, game_screen_hidden=%s)"
+          args:
+            - 'x ? "ON" : "off"'
+            - 'id(ha_sync_grace) ? "YES-ignoring-as-stale" : "no"'
+            - 'lv_obj_has_flag(id(game_screen), LV_OBJ_FLAG_HIDDEN) ? "yes" : "no"'
+      - if:
+          condition:
+            lambda: 'return x && id(ha_sync_grace);'
+          then:
+            # WARN, not the default DEBUG: production runs at level WARN, and a
+            # lane booting into someone else's round is worth seeing.
+            - logger.log:
+                level: WARN
+                format: "Stale player_active at boot - ending orphaned round"
+            - script.execute: set_player_inactive
+            - script.execute: show_attract_screen
+      - if:
+          condition:
+            lambda: 'return x && !id(ha_sync_grace);'
+          then:
+            - script.execute: apply_start_game
+      # Any delivery means we are synced with Home Assistant.
+      - globals.set:
+          id: ha_sync_grace
+          value: 'false'
+      # Round released (game over, attendant stop, timed end): re-evaluate
+      # whether the lane can offer another game.
+      - if:
+          condition:
+            lambda: 'return !x;'
+          then:
+            - script.execute: refresh_idle_screen
+
+  # Paid sites only: gallery-wide free play. Fixed entity name, so no
+  # rebinding; on free sites it never exists and simply stays off.
+  - platform: homeassistant
+    id: ha_free_play
+    entity_id: input_boolean.free_play
+    internal: true
+    # Same reason as ha_player_active: without this, a site that boots with free
+    # play already on never re-evaluates the idle screen for it.
+    trigger_on_initial_state: true
+    on_state:
+      - script.execute: refresh_idle_screen
+
   - platform: status
     name: "Status"
     entity_category: diagnostic

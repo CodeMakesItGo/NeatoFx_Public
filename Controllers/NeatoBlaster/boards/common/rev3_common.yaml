@@ -27,7 +27,7 @@ substitutions:
   rx_gpio: GPIO03        # UART RX
 
   # Project Information
-  project_name: "CodeMakesItGo.Blaster"
+  project_name: "NeatoFX.Blaster"
 
 # ==============================================================================
 # ESP32 FRAMEWORK - Common Settings
@@ -86,9 +86,53 @@ switch:
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
 
+  # --------------------------------------------------------------------------
+  # GAME ACTIVE - manual gate, for bench testing without Home Assistant
+  # --------------------------------------------------------------------------
+  # Both the trigger sensor and the "Fire Blaster" button refuse to do anything
+  # while game_active is false, which on a bench with no HA helper is always.
+  # That makes the whole fire path - shot sound, relay pulse, IR transmit -
+  # untestable without inventing an input_boolean first. This switch opens the
+  # gate by hand.
+  #
+  # `lambda` rather than `optimistic`, so the switch REPORTS the global instead
+  # of a private copy: when Home Assistant drives game_active through
+  # player_active_sensor, this follows along instead of drifting out of sync
+  # and lying about the state.
+  #
+  # restore_mode: DISABLED is deliberate. The other restore modes write the
+  # switch at boot, which would set game_active behind the back of whatever
+  # owns it - clobbering the standalone build's on_boot latch, or booting a
+  # networked blaster into a live game before HA has said so. DISABLED means
+  # this switch only ever acts when a human touches it.
+  #
+  # In networked mode the override lasts until Home Assistant next publishes
+  # player_<id>_active, which then wins. With no such helper defined, nothing
+  # ever publishes and the override simply sticks - which is the bench case.
+  - platform: template
+    name: "Game Active"
+    id: game_active_switch
+    icon: "mdi:gamepad-variant"
+    restore_mode: DISABLED
+    lambda: 'return id(game_active);'
+    turn_on_action:
+      - globals.set:
+          id: game_active
+          value: 'true'
+      - logger.log: "Game Active set ON manually - fire path enabled"
+    turn_off_action:
+      - globals.set:
+          id: game_active
+          value: 'false'
+      - logger.log: "Game Active set OFF manually - fire path blocked"
+
 # ==============================================================================
 # USER CONTROLS - Numbers and Selects
 # ==============================================================================
+# NOTE: the "Player ID" number and the "Blaster Name" text sensor both come
+# from _shared/runtime_id.yaml now (runtime_id / runtime_id_label /
+# runtime_name_label are set in main.yaml). Do not re-add them here — a second
+# entity with the same name on one device collides in Home Assistant.
 number:
   # Relay activation duration control
   - platform: template
@@ -154,7 +198,7 @@ globals:
     restore_value: no
     initial_value: 'false'
 
-  # Game active state - false blocks trigger (set by HA helper player_${id}_active)
+  # Game active state - false blocks trigger (set by HA helper player_<player_id>_active)
   - id: game_active
     type: bool
     restore_value: no

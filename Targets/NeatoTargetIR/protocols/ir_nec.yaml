@@ -1,6 +1,150 @@
 # ==============================================================================
 # INFRARED RECEIVER - Optimized NEC remote
 # ==============================================================================
+# PLAYER COLOR ON HIT
+# ------------------------------------------------------------------------------
+# The Blaster encodes its runtime Player ID in the low nibble of the NEC command
+# (0x70 | player). When "Player Color On Hit" is on, that player number picks the
+# color the target flashes, so a hit from the player on the yellow Display flashes
+# yellow. Players 1-5 map to the five Display colors; the defaults follow the
+# Display build order in program.sh (YLW, GRN, BLU, ORG, RED), and each player is
+# re-mappable from the web UI because the Display's artwork color is a build-time
+# choice while its Player ID is set at runtime — the two can legitimately differ.
+#
+# HOW IT DRIVES THE FLASH: this package does NOT paint the strip. It fills the
+# shared team_r/team_g/team_b + team_name globals and raises team_detected, which
+# is exactly the path target_hit_script already uses for laser-tag team colors —
+# see boards/common/common.yaml for why the color must be handed over as globals
+# instead of being written to the strip here. That means:
+#   * "Strobe Flash" and "Solid Color" hit effects flash in the player's color
+#   * animated hit effects (Rainbow, Scanner, ...) paint their own colors and are
+#     unaffected
+#   * the target's resting color is restored when the hit ends
+#   * every color name below is also an option of "Target LEDs Solid Color", so
+#     Capture Mode (if enabled) adopts the player's color correctly
+#
+# The switch drives team_color_enabled — the SAME global the laser-tag package's
+# "Team Color On Hit" switch drives — so the hit script keeps exactly one gate and
+# there is no second color path to keep in sync. It defaults OFF so an OTA cannot
+# silently change the hit color on targets already in the field.
+#
+# Player 0 (a Blaster with no Player ID assigned) and players 6-15 have no color:
+# the hit still registers, it just flashes the configured preset color.
+# ==============================================================================
+
+select:
+  - platform: template
+    name: "Player 1 Color"
+    id: player_color_1
+    icon: "mdi:palette"
+    options: &player_color_options
+      - "Yellow"
+      - "Red"
+      - "Blue"
+      - "Green"
+      - "Orange"
+    initial_option: "Yellow"
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "Player 2 Color"
+    id: player_color_2
+    icon: "mdi:palette"
+    options: *player_color_options
+    initial_option: "Green"
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "Player 3 Color"
+    id: player_color_3
+    icon: "mdi:palette"
+    options: *player_color_options
+    initial_option: "Blue"
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "Player 4 Color"
+    id: player_color_4
+    icon: "mdi:palette"
+    options: *player_color_options
+    initial_option: "Orange"
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "Player 5 Color"
+    id: player_color_5
+    icon: "mdi:palette"
+    options: *player_color_options
+    initial_option: "Red"
+    optimistic: true
+    restore_value: true
+
+switch:
+  # Flash the hit in the shooting player's color. See the header for what this
+  # does and does not affect. Drives team_color_enabled, the gate the shared hit
+  # script already reads.
+  - platform: template
+    name: "Player Color On Hit"
+    id: player_color_on_hit_switch
+    icon: "mdi:palette"
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+    turn_on_action:
+      - globals.set:
+          id: team_color_enabled
+          value: 'true'
+      - logger.log: "Player color flash on hit enabled"
+    turn_off_action:
+      - globals.set:
+          id: team_color_enabled
+          value: 'false'
+      - logger.log: "Player color flash on hit disabled"
+
+  # CAPTURE MODE — the target keeps the color of the last player to hit it, so a
+  # round is scored by counting how many targets ended it in each player's color.
+  # Mirrors the laser-tag package's "Team Color Capture" and drives the same
+  # capture_mode_enabled global.
+  #
+  # This switch MUST exist here, not just in the laser-tag package: setting
+  # team_detected above is what makes capture mode reachable under NEC at all,
+  # and capture_mode_enabled is a persisted global. Without a switch, a target
+  # OTA'd from laser-tag firmware that had capture ON would silently start
+  # adopting player colors as its resting color with no way to turn it off.
+  # RESTORE_DEFAULT_OFF also forces that stale global false on the first boot.
+  #
+  # Set "Target LEDs Idle Effect" to "Solid Color" for this to be visible at a
+  # glance — animated idle effects paint their own colors over the resting color.
+  - platform: template
+    name: "Player Color Capture"
+    id: player_color_capture_switch
+    icon: "mdi:flag-checkered"
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+    turn_on_action:
+      - globals.set:
+          id: capture_mode_enabled
+          value: 'true'
+      - logger.log: "Capture mode enabled - target will keep the last player's color"
+    turn_off_action:
+      - globals.set:
+          id: capture_mode_enabled
+          value: 'false'
+      - logger.log: "Capture mode disabled"
+
+text_sensor:
+  # Which player last hit this target, as a color name — the quickest way to
+  # confirm a Blaster's Player ID from the target's web UI. "None" when the
+  # shooting player has no color (unassigned Blaster, or player 6-15).
+  - platform: template
+    name: "Hit Player Color"
+    id: hit_player_color
+    icon: "mdi:palette-outline"
+    update_interval: never  # Only updated when a hit is decoded
+
 remote_receiver:
   pin:
     number: ${ir_gpio}
@@ -12,24 +156,63 @@ remote_receiver:
   filter: 50us           # Reduced filter for better sensitivity
   idle: 10ms             # Optimized for NEC protocol (was 40ms)
   buffer_size: 10kB      # Large buffer for complex signals
-  
+
   # Multiple dump modes for debugging (comment out in production)
   dump: nec
-    
-  # Optimized NEC support 
+
+  # Optimized NEC support
   on_nec:
     then:
       - if:
           condition:
-            - lambda: 'return id(ir_enabled);'
+            - lambda: 'return id(ir_enabled) && id(target_enabled);'
           then:
             - lambda: |-
-                ESP_LOGI("IR", "NEC - Address: 0x%04X, Command: 0x%02X", 
-                         x.address, x.command & 0xFF);
-                
-                // Store the command and set team detection
-                id(ir_command) = x.command & 0xFF;
+                // The blaster encodes the player in the low nibble of the NEC
+                // command: 0x70 | player, so 0x71..0x7F = players 1-15.
+                // Masking with 0x0F recovers the player number directly, which
+                // is what gets reported to Home Assistant as `player:`.
+                // 0 = the blaster has no Player ID assigned; the hit is still
+                // registered so HA can surface "no player 0" as the anomaly.
+                int player = x.command & 0x0F;
+                ESP_LOGI("IR", "NEC - Address: 0x%04X, Command: 0x%02X, Player: %d",
+                         x.address, x.command & 0xFF, player);
+
+                id(ir_command) = player;
+
+                // --- Player color -------------------------------------------
+                // Only players 1-5 have a color (one per Display build). Read
+                // the per-player select so a site can re-map a player whose
+                // Display artwork color does not match its runtime Player ID.
+                std::string color = "";
+                switch (player) {
+                  case 1: color = id(player_color_1).current_option(); break;
+                  case 2: color = id(player_color_2).current_option(); break;
+                  case 3: color = id(player_color_3).current_option(); break;
+                  case 4: color = id(player_color_4).current_option(); break;
+                  case 5: color = id(player_color_5).current_option(); break;
+                  default: break;
+                }
+
+                // RGB values match boards/common/color_controls.yaml so a
+                // player flash and the same-named preset look identical.
+                if      (color == "Yellow") { id(team_r) = 1.0f; id(team_g) = 1.0f; id(team_b) = 0.0f; }
+                else if (color == "Red")    { id(team_r) = 1.0f; id(team_g) = 0.0f; id(team_b) = 0.0f; }
+                else if (color == "Blue")   { id(team_r) = 0.0f; id(team_g) = 0.0f; id(team_b) = 1.0f; }
+                else if (color == "Green")  { id(team_r) = 0.0f; id(team_g) = 1.0f; id(team_b) = 0.0f; }
+                else if (color == "Orange") { id(team_r) = 1.0f; id(team_g) = 0.5f; id(team_b) = 0.0f; }
+                else                        { color = ""; }
+
+                // Hand the color to target_hit_script through the shared team
+                // globals — the same mechanism the laser-tag protocols use. The
+                // hit script gates on team_color_enabled, which the "Player
+                // Color On Hit" switch above drives.
+                id(team_detected) = !color.empty();
+                if (id(team_detected)) {
+                  id(team_name) = color;  // also a "Target LEDs Solid Color" option
+                  ESP_LOGI("IR", "Player %d color: %s", player, color.c_str());
+                }
+                id(hit_player_color).publish_state(color.empty() ? "None" : color);
             - script.execute: run_hit_script
           else:
             - lambda: 'ESP_LOGI("IR", "NEC_DISABLED");'
-            

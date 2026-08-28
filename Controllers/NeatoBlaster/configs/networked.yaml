@@ -21,8 +21,13 @@ dashboard_import:
   package_import_url: github://CodeMakesItGo/NeatoFx_Public/Controllers/NeatoBlaster/main.yaml@main
   import_full_config: true
 
-# Serial provisioning (Made for ESPHome requirement)
-improv_serial:
+# NOTE: improv_serial is NOT here — it lives in the BOARD file, because
+# whether it can exist at all is a board-level fact, not a network-mode one.
+# It requires logger baud_rate != 0, and rev 3.x sets baud_rate: 0 to hand
+# UART0 (GPIO1) to the DY-SV5W MP3 player. boards/rev1.yaml declares it; rev
+# 3.x provisions over BLE (esp32_improv, from _shared/networked_base.yaml) or
+# the setup hotspot instead. Same split _shared/networked_base.yaml already
+# documents for NeatoDisplay4.
 
 # ==============================================================================
 # SUBSTITUTIONS - Network Configuration
@@ -38,27 +43,25 @@ api:
   reboot_timeout: 0s    # Disable auto-reboot if not using a Home Assistant server
   #reboot_timeout: 5min  # Reboot the device if no connection to Home Assistant for 5 minutes
   homeassistant_services: true
+  # ---------------------------------------------------------------------------
+  # PUMP IS DEVICE-LOCAL — deliberately no Home Assistant surface.
+  # ---------------------------------------------------------------------------
+  # "Pump Required" is a per-blaster hardware/feel preference, set once from the
+  # device web UI and kept in flash (RESTORE_DEFAULT_ON). Nothing in the game
+  # loop changes it at runtime, so there is no set_pump_required service and no
+  # player_<id>_pump_required helper.
+  #
+  # There is no reset_pump service either. The blaster_pumped latch is cleared
+  # at boot, and again the instant a shot fires, so the only case a manual reset
+  # covered was a pump registered but never fired — a player pumps, the round
+  # ends, and the next player inherits a free shot. Nothing ever called the
+  # service, so removing it changed no behaviour; that case is handled the same
+  # way it always was, which is to say not at all. If it ever matters, clear the
+  # latch in the player_active_sensor on_state below when the gate goes false,
+  # rather than reintroducing a MAC-named service.
   services:
-    # Service to enable/disable pump requirement
-    - service: set_pump_required
-      variables:
-        enabled: bool
-      then:
-        - lambda: |-
-            if (enabled) {
-              id(pump_required).turn_on();
-            } else {
-              id(pump_required).turn_off();
-            }
-
-    # Service to reset pump state
-    - service: reset_pump
-      then:
-        - lambda: |-
-            id(blaster_pumped) = false;
-            ESP_LOGI("pump", "Pump state reset");
-
-    # Service to set player active state (enables/disables the blaster)
+    # Redundant: input_boolean.player_<id>_active already drives game_active and
+    # does survive a hardware swap. Kept only for older HA scripts.
     - service: set_active
       variables:
         score_value: bool
@@ -68,23 +71,78 @@ api:
             value: !lambda 'return score_value;'
 
 # ==============================================================================
-# PLAYER ACTIVE - Subscribe to HA helper input_boolean.player_${id}_active
+# PLAYER-KEYED CONTROL - survives a hardware swap
 # ==============================================================================
+# Home Assistant addresses this blaster by its PLAYER ID, never by its hostname
+# or MAC. Set the Player ID on a replacement unit and every script below keeps
+# working untouched.
+#
+# The entity_ids in the binary_sensor block are compile-time placeholders only —
+# ESPHome's schema makes entity_id Required (cv.Required(CONF_ENTITY_ID)), so
+# something syntactically valid has to be there. on_boot rebinds them to the
+# restored player_id at priority 600: globals restore at HARDWARE (800) and the
+# homeassistant sensors subscribe at AFTER_WIFI (200), so the placeholders are
+# never actually subscribed. Changing Player ID reboots the device, which is
+# what re-runs this binding.
+#
+# Home Assistant needs this helper, one per player (1-15):
+#   input_boolean.player_<id>_active
+esphome:
+  on_boot:
+    - priority: 600   # after globals restore (800), before HA subscribe (200)
+      then:
+        - lambda: |-
+            // static: set_entity_id stores the pointer, not a copy, so this
+            // string must outlive the component's setup().
+            static std::string active_eid = "input_boolean.player_" +
+                                            std::to_string(id(player_id)) + "_active";
+            id(player_active_sensor).set_entity_id(active_eid.c_str());
+            ESP_LOGI("blaster", "Player gate bound to %s", active_eid.c_str());
+
 binary_sensor:
   - platform: homeassistant
     id: player_active_sensor
     name: "Player Active"
-    entity_id: input_boolean.player_${id}_active
+    entity_id: input_boolean.player_0_active
     on_state:
       - globals.set:
           id: game_active
           value: !lambda 'return x;'
 
 # ==============================================================================
-# HOME ASSISTANT EVENT REPORTING
+# SCRIPTS - Shared control handlers
 # ==============================================================================
 script:
-  # Override the blaster_trigger_pressed script to add Home Assistant event
+  # --------------------------------------------------------------------------
+  # START GAME BUTTON (rev 3.x, serial header RX pin / GPIO3)
+  # --------------------------------------------------------------------------
+  # Asks Home Assistant to start a game. Only meaningful while the blaster is
+  # idle — once the player gate is on, game_active is true and a press is
+  # ignored so a mid-game bump cannot restart the round.
+  #
+  # The event NAME is fixed and the player travels in the payload, so this
+  # survives a hardware swap. The standalone build has its own no-op version of
+  # this script; see the note in boards/rev3.yaml.
+  - id: start_game_pressed
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(game_active);'
+          then:
+            - homeassistant.event:
+                event: esphome.game_start_requested
+                data_template:
+                  blaster_id: "{{ blaster_id }}"
+                variables:
+                  blaster_id: !lambda 'return id(player_id);'
+
+  # --------------------------------------------------------------------------
+  # HOME ASSISTANT EVENT REPORTING
+  # --------------------------------------------------------------------------
+  # Override the blaster_trigger_pressed script to add Home Assistant event.
+  # The event NAME is fixed (esphome.blaster_fired) and the player travels in
+  # the payload, so this already survives a hardware swap.
   - id: blaster_trigger_pressed
     mode: single
     then:
@@ -92,5 +150,8 @@ script:
       - homeassistant.event:
           event: esphome.blaster_fired
           data:
-            blaster_id: "${id}"
             blaster_name: "${friendly_name}"
+          data_template:
+            blaster_id: "{{ blaster_id }}"
+          variables:
+            blaster_id: !lambda 'return id(player_id);'

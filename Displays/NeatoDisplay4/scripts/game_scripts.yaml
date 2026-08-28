@@ -49,7 +49,7 @@ interval:
           // Only run idle check when game is active
           if (lv_obj_has_flag(id(game_screen), LV_OBJ_FLAG_HIDDEN)) return;
           if (id(game_over_active)) return;
-          int current = (int)id(player_${id}_shot).state;
+          int current = (int)id(player_shot_sensor).state;
           if (current != id(last_shot_count)) {
             id(last_shot_count) = current;
             id(idle_seconds) = 0;
@@ -70,20 +70,63 @@ interval:
             - globals.set:
                 id: game_over_active
                 value: 'true'
-            - logger.log: "Idle timeout — returning to boot screen"
-            - script.execute: reset_score_script
+            - logger.log: "Idle timeout — ending the round"
+            # The round is over as far as the display is concerned, so drop the
+            # HA gate too — otherwise player_<id>_active stays on and the
+            # blaster keeps firing at a station showing the start screen.
+            - script.execute: set_player_inactive
+            # End exactly like a shots-exhausted round: show the score, then
+            # game_over_transition_script decides between the attract screen
+            # and staying parked (paid sites, no credit). Labels are zeroed by
+            # apply_start_game at the next start, same as every other end.
+            - lvgl.label.update:
+                id: game_over_score
+                text:
+                  format: "%d"
+                  args: [ '(int)id(player_score_sensor).state' ]
             - lvgl.widget.hide: game_screen
             - lvgl.widget.hide: game_shot_screen
-            - lvgl.widget.show: boot_screen
+            - lvgl.widget.show: game_over_screen
+            - script.execute: game_over_transition_script
 
 script:
   # ---------------------------------------------------------------------------
-  # GAME OVER TRANSITION - Wait 10s then return to boot screen
+  # GAME OVER TRANSITION - Wait 10s then return to boot screen, if playable
   # ---------------------------------------------------------------------------
+  # Paid sites: with free play off and no credits the lane stays parked on the
+  # game over screen instead; refresh_idle_screen (configs/networked.yaml)
+  # brings the attract screen back the moment a credit arrives. Sites without
+  # the credit helper read NAN, which counts as playable.
   - id: game_over_transition_script
     mode: single
     then:
       - delay: 10s
+      - if:
+          condition:
+            lambda: |-
+              return id(ha_free_play).state
+                  || isnan(id(ha_player_credits).state)
+                  || id(ha_player_credits).state > 0.5;
+          then:
+            - script.execute: show_attract_screen
+
+  # ---------------------------------------------------------------------------
+  # SHOW ATTRACT SCREEN - the ONE way back to "waiting for a player"
+  # ---------------------------------------------------------------------------
+  # boot_screen sits ABOVE game_screen in the widget list, so simply showing it
+  # covers the game screen to the eye without clearing LV_OBJ_FLAG_HIDDEN on it.
+  # That is a trap: an attract screen laid over a still-"visible" game screen
+  # looks perfect and reads, to every lambda that asks, as a round in progress.
+  # Leave one of these paths half-done and the lane wedges - the display thinks
+  # it is mid-round, so it ignores the next start, and the player pays a credit
+  # for a game that never begins.
+  #
+  # Every return to the attract screen goes through here, and here hides all
+  # three game screens. Do not hand-roll "hide game over, show boot" again.
+  - id: show_attract_screen
+    then:
+      - lvgl.widget.hide: game_screen
+      - lvgl.widget.hide: game_shot_screen
       - lvgl.widget.hide: game_over_screen
       - lvgl.widget.show: boot_screen
       - globals.set:
@@ -100,13 +143,13 @@ script:
           id(last_shot_count) = 0;
           id(idle_timeout_triggered) = false;
       - lvgl.label.update:
-          id: player_hit
+          id: [player_hit, player_hit_shadow]
           text: "0"
       - lvgl.label.update:
-          id: player_score
+          id: [player_score, player_score_shadow]
           text: "0"
       - lvgl.label.update:
-          id: player_shot
+          id: [player_shot, player_shot_shadow]
           text: !lambda 'return std::to_string(id(g_max_shots));'
       - lvgl.label.update:
           id: game_over_score
@@ -119,7 +162,7 @@ script:
     then:
       - if:
           condition:
-            lambda: 'return (int)id(player_${id}_shot).state >= id(g_max_shots);'
+            lambda: 'return (int)id(player_shot_sensor).state >= id(g_max_shots);'
           then:
             - globals.set:
                 id: game_over_active
@@ -128,7 +171,7 @@ script:
                 id: game_over_score
                 text:
                   format: "%d"
-                  args: [ '(int)id(player_${id}_score).state' ]
+                  args: [ '(int)id(player_score_sensor).state' ]
             - lvgl.widget.hide: game_screen
             - lvgl.widget.hide: game_shot_screen
             - lvgl.widget.show: game_over_screen

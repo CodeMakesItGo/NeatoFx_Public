@@ -5,20 +5,28 @@
 # It includes hardware definitions, network configuration, IR protocols,
 # and optional integrations like FPP (Falcon Player) support.
 #
+# ONE BINARY for every target — there is no per-unit build.
+#
 # Usage:
-#   esphome -s id 1 compile main.yaml
-#   esphome -s id 1 run     main.yaml
-#   esphome -s id 1 logs    main.yaml
+#   esphome compile main.yaml
+#   esphome run     main.yaml
+#   esphome logs    main.yaml
+#   Then set the Device ID from the device web interface.
 # ==============================================================================
 
 # ==============================================================================
 # SUBSTITUTIONS - Device Identification
 # ==============================================================================
 substitutions:
-  # Default ID - override with -s id XXXX command line parameter
-  id: "1"                     # Default target ID
-  name: target-${id}             
-  friendly_name: "NeatoFx Target ${id}"
+  # ONE BINARY: there is no build-time id substitution. ESPHome appends the MAC
+  # suffix to the hostname at runtime (see _shared/esphome_base.yaml), giving
+  # each unit a unique, permanent hostname. Logical identity is the runtime
+  # Device ID, assigned from the web UI and stored in flash — swapping in a
+  # replacement target means setting that number and nothing else.
+  name: target
+  name_add_mac_suffix: "true"
+  friendly_name: "NeatoFx Target"
+  runtime_name_label: "Target Name"
   # Servo PWM effect — only used when servo_pwm_effects package is enabled below
   # Options: servo_pwm_sawzall | servo_pwm_flicker
   # servo_pwm_script: "servo_pwm_flicker"
@@ -27,6 +35,11 @@ substitutions:
 # EXTERNAL PACKAGES
 # ==============================================================================
 packages:
+  # Runtime identity — in main.yaml, not the network configs, so a
+  # standalone build gets the Device ID and Target Name too. The package is
+  # pure globals/template entities and has no api: dependency.
+  runtime_id: !include ../../_shared/runtime_id.yaml
+
   # Hardware — select one board revision:
   #board: !include boards/rev1.yaml    # Rev 1.x (legacy)
   board: !include boards/rev3.yaml     # Rev 3.x (current production)
@@ -45,9 +58,9 @@ packages:
   # team_detected, ...) live in boards/common/common.yaml, so hit_script.yaml
   # still compiles with no protocol package selected. Re-enable one of these
   # when switching back to an IR board above.
-  #ir_receiver: !include protocols/ir_nec.yaml
+  ir_receiver: !include protocols/ir_nec.yaml
   #ir_receiver: !include protocols/ir_raw.yaml
-  ir_receiver: !include protocols/ir_laser_tag.yaml
+  #ir_receiver: !include protocols/ir_laser_tag.yaml
   #ir_receiver: !include protocols/ir_custom.yaml
 
   # Falcon Player Packages (only for networked targets)
@@ -62,8 +75,10 @@ packages:
   # Also uncomment + set servo_pwm_script in substitutions below
   #servo_pwm_effects: !include scripts/servo_pwm_effects.yaml
 
-  # Hit behavior script - defines what happens when the target is hit
-  hit_script: !include scripts/hit_script.yaml
+  # Hit behavior script - defines what happens when the target is hit.
+  # Include EXACTLY ONE — both define the same script ids.
+  #hit_script: !include scripts/hit_script.yaml       # standard hit
+  hit_script: !include scripts/hit_script_fuse.yaml   # fuse burns down LED Strip 2, then explodes
 
 # ==============================================================================
 # BLE PROVISIONING — MUST BE REMOVED ON LCD BUILDS
@@ -93,9 +108,18 @@ script:
   - id: run_hit_script
     mode: parallel
     then:
-      - script.execute: target_hit_script
-      # Uncomment the next line when FPP package is enabled above
-      #- script.execute: fpp_start_playlist
+      # MASTER ENABLE GATE — every hit source funnels through this script (IR
+      # protocols, GPIO25, the external trigger, the Test Target Hit switch), so
+      # gating here is what makes a disabled target ignore all of them.
+      - if:
+          condition:
+            lambda: 'return !id(target_enabled);'
+          then:
+            - logger.log: "Target disabled - hit ignored"
+          else:
+            - script.execute: target_hit_script
+            # Uncomment the next line when FPP package is enabled above
+            #- script.execute: fpp_start_playlist
       # NOTE: esphome_hit_script (the audio / HA trigger) is intentionally NOT
       # launched here. In networked mode it makes a *blocking* http_request.post
       # to the Audio-50, which freezes the single-threaded main loop and stalls

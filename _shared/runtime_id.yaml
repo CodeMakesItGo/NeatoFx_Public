@@ -1,0 +1,98 @@
+# ==============================================================================
+# NEATO-FX SHARED PACKAGE - RUNTIME IDENTITY
+# ==============================================================================
+# Included by: EVERY product. One binary ships to every unit, so a unit's
+# logical number cannot be a build-time value — it lives here, as a restored
+# global exposed as a number entity and assigned once from the web UI.
+#
+# Why it cannot be the hostname: App.pre_setup() memcpy's a fixed 6-char MAC
+# suffix into a compile-time-sized buffer and runs before Logger::pre_setup(),
+# i.e. before preferences exist. The hostname is therefore permanently
+# <name>-<mac6>. The "<name> Name" text sensor below is where the logical name
+# lives instead.
+#
+# The value survives reboots AND firmware updates: a restoring global's flash
+# key is md5 of the global's ID STRING (components/globals/__init__.py), not the
+# config hash — unlike WiFi credentials, which key off the config version.
+#
+# THAT ALSO MEANS: renaming the global strands every deployed unit's assignment.
+# Do not change ${runtime_id} for a product that is already in the field without
+# a migration step.
+#
+# 0 = UNASSIGNED, and it is the default so a crate of freshly flashed units
+# can't all arrive claiming to be unit 1. Anything consuming the ID should treat
+# 0 as "not set up yet" rather than as a valid address.
+#
+# Read it from lambdas as:  id(player_id)  or  id(device_id)  — see below.
+# ==============================================================================
+
+# Products override these in their main.yaml substitutions:
+#   runtime_id         — the GLOBAL'S NAME. Player-facing products (Blaster,
+#                        Display) use player_id; infrastructure (Target, Motor,
+#                        Audio, Golf) uses device_id. Changing this for a
+#                        deployed product resets its assignment — see above.
+#   runtime_id_label   — number entity name ("Player ID", "Source Address")
+#   runtime_id_max     — highest assignable value (Blaster/Display: 15 because
+#                        the player rides in the low nibble of the NEC command;
+#                        Motor: 239 = 0xEF, a CAN source address)
+#   runtime_name_label — text sensor name ("Blaster Name", "Target Name")
+substitutions:
+  runtime_id: device_id
+  runtime_id_label: "Device ID"
+  runtime_id_max: "99"
+  runtime_name_label: "Device Name"
+
+globals:
+  - id: ${runtime_id}
+    type: int
+    restore_value: true
+    initial_value: '0'
+
+text_sensor:
+  # The logical, number-based name of this unit — "blaster-3", "target-7".
+  # This is NOT the hostname (see the header): the hostname keeps its MAC
+  # suffix. Use this to work out which physical unit is which.
+  - platform: template
+    name: "${runtime_name_label}"
+    id: runtime_name_display
+    icon: "mdi:tag-outline"
+    lambda: |-
+      return {"${name}-" + std::to_string(id(${runtime_id}))};
+    update_interval: 60s
+
+number:
+  - platform: template
+    name: "${runtime_id_label}"
+    id: runtime_id_number
+    icon: "mdi:identifier"
+    # Backed by the global rather than the number's own restore_value, so the
+    # value is restored at setup_priority HARDWARE (800) — early enough for
+    # on_boot hooks at 600 to use it.
+    lambda: 'return (float) id(${runtime_id});'
+    update_interval: 60s
+    min_value: 0
+    max_value: ${runtime_id_max}
+    step: 1
+    mode: box
+    set_action:
+      # Reboot on assignment: anything bound at boot (Home Assistant entity
+      # subscriptions, advertised addresses) is only re-evaluated on restart, so
+      # this keeps every consumer of the ID consistent instead of leaving some
+      # on the old value.
+      #
+      # No explicit flash sync needed: safe_reboot() runs shutdown hooks in
+      # reverse component order, so the global stores itself (on_shutdown ->
+      # store_value_) and preferences IntervalSyncer::on_shutdown then calls
+      # global_preferences->sync() before arch_restart().
+      - globals.set:
+          id: ${runtime_id}
+          value: !lambda 'return (int) x;'
+      - lambda: |-
+          int rid = (int) x;
+          if (rid == 0) {
+            ESP_LOGW("identity", "${runtime_id_label} cleared - restarting (unit is unassigned)");
+          } else {
+            ESP_LOGI("identity", "${runtime_id_label} set to %d - restarting", rid);
+          }
+      - delay: 1s          # let the web/API response and the log line get out
+      - lambda: 'App.safe_reboot();'

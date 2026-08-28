@@ -23,6 +23,11 @@ substitutions:
   default_cooldown_time: "1000"  # Time target is inactive after hit in milliseconds
   default_points: "10"           # Points awarded for hitting this target
 
+  # LED Strip 2 wire colour order. WS2812 is GRB — this was previously hard-coded
+  # to RGB, which swapped red and green on strip 2 (picking "Red" lit it green).
+  # Overridable per board for a strip that genuinely wires up differently.
+  strip_2_rgb_order: "GRB"
+
   # Common GPIO Pins (consistent across revisions)
   led_gpio: GPIO5        # Main target LED strip
   led_ignore_strapping: "true"  # GPIO5 is a strapping pin; variants override
@@ -37,8 +42,8 @@ substitutions:
   rx_gpio: GPIO03        # UART RX
 
   # Project Information
-  project_name: "CodeMakesItGo.Target"
-  project_version: "1.0.0"
+  project_name: "NeatoFX.Target"
+  project_version: "3.2.0"
   hw_version: "Rev 1"          # Hardware revision label (boards/rev3.yaml overrides)
 
 # ==============================================================================
@@ -74,6 +79,39 @@ sensor:
 # COMMON SWITCHES - System Controls
 # ==============================================================================
 switch:
+  # ── MASTER ENABLE — remote arm / disarm ────────────────────────────────────
+  # OFF: both LED strips go dark, relay + GND switch are released, and every hit
+  #      source is ignored (IR, GPIO25, external trigger, Test Target Hit).
+  # ON:  the saved idle LED look is restored and the target behaves normally.
+  # Default is ON (target_enabled initial_value below) so a fresh unit is live.
+  #
+  # State lives in the target_enabled global (persisted), NOT in this switch's
+  # own restore_mode: a lambda-backed template switch just reports that global,
+  # so no restore action can fire against the LED strips before they are set up
+  # at boot. The boot handler at the bottom of this file re-applies a disabled
+  # state once the board's startup sequence has finished.
+  - platform: template
+    name: "Target Enabled"
+    id: target_enable_switch
+    icon: "mdi:target-account"
+    restore_mode: DISABLED
+    lambda: 'return id(target_enabled);'
+    turn_on_action:
+      - globals.set:
+          id: target_enabled
+          value: 'true'
+      - logger.log: "Target ENABLED"
+      - script.execute: target_enable_apply
+    turn_off_action:
+      # Order matters: clear the flag FIRST. The strip's on_state auto-save skips
+      # while disabled, so the forced-off state below cannot overwrite the user's
+      # saved idle color / effect / brightness.
+      - globals.set:
+          id: target_enabled
+          value: 'false'
+      - logger.log: "Target DISABLED"
+      - script.execute: target_disable_apply
+
   # Main relay output control
   - platform: gpio
     pin: ${relay_gpio}
@@ -159,7 +197,26 @@ light:
 
     # Auto-save LED settings when they change
     on_state:
+      # DISABLED interlock — anything that would light the strip while the
+      # target is disabled (a color/effect select from HA, a stray light.turn_on)
+      # is immediately undone, so a disabled target is guaranteed dark. Gated on
+      # startup_complete so the board's boot-stage indicator colors still show.
+      # Turning it off re-fires this trigger once; the condition is false then,
+      # so it settles immediately.
+      - if:
+          condition:
+            lambda: 'return id(startup_complete) && !id(target_enabled) && id(led_strip).remote_values.is_on();'
+          then:
+            - light.turn_off:
+                id: led_strip
+                transition_length: 0s
       - lambda: |-
+          // Never record state while the target is disabled — the strips are
+          // forced off there, and saving that would wipe the idle look the
+          // target must come back to when it is re-enabled.
+          if (!id(target_enabled)) {
+            return;
+          }
           // Only auto-save after startup is complete and not during hit processing
           if (!id(startup_complete)) {
             ESP_LOGI("LED", "⏳ Skipping auto-save during startup initialization");
@@ -266,7 +323,7 @@ light:
   - platform: esp32_rmt_led_strip
     chipset: WS2812
     rmt_symbols: 128 
-    rgb_order: RGB
+    rgb_order: ${strip_2_rgb_order}
     pin: ${led2_gpio}
     num_leds: ${strip_2_led_count}
     name: "LED Strip 2"
@@ -275,6 +332,15 @@ light:
     color_correct: [100%, 100%, 100%]  # Full brightness restored
     restore_mode: RESTORE_DEFAULT_OFF  # Keep conservative startup
     internal: ${strip_2_internal}  # Hidden for Rev1, visible for Rev3
+    # DISABLED interlock — see the main strip above. Strip 2 has no auto-save.
+    on_state:
+      - if:
+          condition:
+            lambda: 'return id(startup_complete) && !id(target_enabled) && id(led_strip2).remote_values.is_on();'
+          then:
+            - light.turn_off:
+                id: led_strip2
+                transition_length: 0s
     effects:
       - addressable_rainbow:
           name: Rainbow Effect
@@ -562,6 +628,23 @@ esphome:
             id: firmware_version_sensor
             state: "${project_version} · ${hw_version}"
 
+        # Re-apply a DISABLED state after the board's startup sequence finishes.
+        # The boot sequence deliberately drives the strips (stage colors, then
+        # the saved-look restore), so this has to wait for startup_complete
+        # instead of running at setup — otherwise the restore would light a
+        # disabled target back up. The timeout covers Rev 1.x, which never sets
+        # startup_complete; there the strips simply go dark a bit later.
+        - wait_until:
+            condition:
+              lambda: 'return id(startup_complete);'
+            timeout: 20s
+        - if:
+            condition:
+              lambda: 'return !id(target_enabled);'
+            then:
+              - logger.log: "Booted DISABLED - holding target dark"
+              - script.execute: target_disable_apply
+
 
 # ==============================================================================
 # GLOBAL VARIABLES - Common State Management
@@ -689,6 +772,13 @@ globals:
     type: int
     restore_value: true
     initial_value: ${default_cooldown_time}
+
+  # Master enable (see the "Target Enabled" switch above). Persisted, so a
+  # target left disabled stays disabled across a power cycle. Default ON.
+  - id: target_enabled
+    type: bool
+    restore_value: yes
+    initial_value: 'true'
 
   # Prevent auto-save during hit effect processing
   - id: hit_processing

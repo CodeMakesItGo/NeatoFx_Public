@@ -10,31 +10,60 @@
 # SUBSTITUTIONS - Network Addressing Defaults
 # ==============================================================================
 # ip_base and ip_addr provide default static IP values used by the optional
-# manual_ip block below. Each device can override ip_addr with its own
-# subnet offset in its networked config substitutions.
+# manual_ip block below. Every device is on DHCP by default — that block is
+# commented out — so these only matter once you enable it.
 #
-# Override ip_addr in your device's networked config substitutions, or pass
-# it on the command line:  esphome -s ip_addr 192.168.8.5 run ...
+# The default is a fixed .1 and NOT derived from any device number: one binary
+# ships to every unit, so there is no build-time number to derive it from. If
+# you enable manual_ip you MUST give each device a distinct ip_addr, or they
+# will all claim the same address. Override it in the device's networked config
+# substitutions, or on the command line:
+#   esphome -s ip_addr 192.168.8.5 run ...
 # ==============================================================================
 substitutions:
   ip_base: "192.168.8."
-  ip_addr: "${ip_base}${id}"    # Default: 192.168.8.1, .2, .3 … matches device id
+  ip_addr: "${ip_base}1"        # Placeholder — override per device before enabling manual_ip
 
 # ==============================================================================
 # WIFI CONFIGURATION - Network Setup & Management
 # ==============================================================================
 wifi:
-  # Customer WiFi configuration
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
+  # NO compiled-in network — deliberate, do not add one back without reading this.
+  #
+  # One generic firmware ships to every customer, so we cannot know their SSID at
+  # build time. The customer supplies it once via the setup hotspot below (or
+  # improv), and ESPHome saves it to flash.
+  #
+  # The subtle part: ESPHome keys those saved credentials by a hash of the config
+  # ONLY when a network is compiled in — see wifi_component.cpp,
+  #   hash = has_sta() ? App.get_config_version_hash() : 88491487UL
+  # With no compiled network, has_sta() is false and the key is that constant, so
+  # provisioned credentials survive every firmware update and ESPHome version bump.
+  # Compile an SSID in here and the key becomes config-dependent: the next update
+  # that touches any YAML silently orphans the customer's WiFi and drops the whole
+  # site back into hotspot mode.
+  #
+  # Bench testing: provision the device once over USB (improv_serial) or the
+  # hotspot; those credentials then persist across every reflash. Per-site builds
+  # under Customers/ still compile in !secret wifi_ssid — appropriate there, since
+  # the compiled fallback is that site's own network.
 
-  # Setup WiFi hotspot for customer configuration
+  # Setup hotspot — raised when no WiFi is configured or reachable. SSID is the
+  # device name (e.g. "target-1"); the password is documented for the customer.
+  # ssid intentionally omitted. ESPHome derives the hotspot name from
+  # App.get_name() at runtime (wifi_component.cpp), which is the ONLY way it can
+  # include the MAC suffix on one-binary products — the ${name} substitution is
+  # just the generic "target"/"blaster", so hardcoding it here would name every
+  # unit's hotspot identically. For per-unit builds this resolves to the same
+  # value as before (motor-5, station-205), so the SSID always matches the
+  # .local hostname and the label.
   ap:
-    ssid: "${name}"
-    password: ""
+    password: !secret ap_password
 
   # Connection management
-  reboot_timeout: 10min     # Reboot after 10 minutes of WiFi loss
+  # NOTE: inert while an `ap:` block exists — wifi_component.cpp only reboots on
+  # WiFi loss when there is no AP to fall back to. Kept for the AP-less case.
+  reboot_timeout: 10min
   power_save_mode: light    # BLE (esp32_improv) requires modem sleep — 'none' is
                             # rejected by ESPHome when esp32_ble is present
   output_power: 20dB        # Maximum WiFi power for best range

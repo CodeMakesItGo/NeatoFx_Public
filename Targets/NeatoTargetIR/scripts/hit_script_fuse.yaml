@@ -1,0 +1,537 @@
+# ==============================================================================
+# TARGET HIT SCRIPTS - FUSE + EXPLOSION variant
+# ==============================================================================
+# Drop-in replacement for scripts/hit_script.yaml. In main.yaml swap the include:
+#
+#   packages:
+#     #hit_script: !include scripts/hit_script.yaml        # standard hit
+#     hit_script: !include scripts/hit_script_fuse.yaml    # fuse + explosion
+#
+# Include EXACTLY ONE of the two — both define the same script ids
+# (target_hit_script, gnd_pulse, target_disable_apply, target_enable_apply).
+#
+# BEHAVIOR
+#   Hit  -> main "Target LEDs" show the normal hit effect immediately (the
+#           "you hit it" acknowledgement, unchanged from the standard script)
+#        -> LED Strip 2 lights a fuse that burns from the first LED to the last
+#        -> when the flame runs off the end it detonates: relay / GND / servo
+#           fire together, and the remaining embers die out behind it
+#        -> then the usual display / cooldown / restore
+#
+#   The strip does NOT flash on detonation. It is the fuse, not the explosion —
+#   the bang belongs to the relay / audio / whatever the servo drives. See POWER.
+#
+# Ported from the Old Town Mining DMX_Lighting_Uno FastLED fuse (100 x WS2811 on
+# an Arduino Uno). Rev 3.x LED Strip 2 is set to 150 LEDs on GPIO22 — a 3 m
+# (9.8 ft) run at 50 LEDs/m. The effect is written against it.size(), so it
+# scales to whatever strip_2_led_count is set to.
+#
+# POWER
+#   Draw is bounded by design and does NOT scale with strip length: only the
+#   ~10-LED head and its decaying trail are ever lit, roughly
+#       10 x 20 mA x 2.0  +  ~30 trail LEDs averaging ~0.45  =  well under 1 A
+#   no matter whether the strip is 100 LEDs or 150. Adding more LEDs makes the
+#   fuse longer, not brighter.
+#
+#   This is why there is deliberately no full-strip detonation flash: lighting
+#   150 LEDs white at once would pull ~8 A at 5 V, far beyond the target board's
+#   regulator, and would brown out the ESP32 at the exact moment the relay fires.
+#   If you want a visible blast, drive it from the relay or a second device —
+#   not from this strip.
+#
+# LED STRIP 2 NOTE
+#   This script drives LED Strip 2 itself, so the "LED Strip 2 Hit Effect"
+#   select in the web UI is IGNORED while this package is included. Strip 2 is
+#   the fuse; that is the whole point of this variant.
+#
+# TUNING
+#   All fuse parameters are substitutions (compile-time), not number entities,
+#   deliberately: adding restore_value globals reindexes the flash preference
+#   table and corrupts other saved settings on already-deployed targets. Change
+#   the values below (or override them in main.yaml) and recompile.
+#
+#   fuse_burn_ms MUST stay the single source of truth for the burn length — the
+#   effect lambda and the script's pre-detonation delay both read it, and that
+#   is what keeps the bang aligned with the flame reaching the end.
+#
+#   fuse_burn_ms is a DURATION, not a speed: the head always covers the whole
+#   strip in that time, so a longer strip just burns faster unless you raise it.
+#   2500 ms over 3 m is a brisk ~1.2 m/s. Match it to the length of the fuse
+#   portion of your MP3 — that is what makes the bang land on the sound.
+#
+# SERVO PIN PWM EFFECT
+# By default the servo pin is unused during a hit. To drive a device on the
+# servo pin when a target is hit, add to main.yaml:
+#   packages:
+#     servo_pwm_effects: !include scripts/servo_pwm_effects.yaml
+#   substitutions:
+#     servo_pwm_script: "servo_pwm_sawzall"   # or servo_pwm_flicker
+# ------------------------------------------------------------------------------
+substitutions:
+  servo_pwm_script: "servo_pwm_none"   # no-op default
+
+  # --- Fuse tuning ------------------------------------------------------------
+  fuse_burn_ms: "2500"        # burn time, first LED to detonation (ms)
+  fuse_head_len: "10"         # LEDs in the glowing head (Uno: FUSE_LENGTH 10)
+  fuse_flicker: "30"          # +/- brightness jitter on the tip (Uno: FLICKER_INTENSITY)
+  fuse_ember_decay: "20"      # per-frame fade of the trail (Uno: EMBER_DECAY)
+  fuse_fade_ms: "600"         # how long the leftover embers keep dying (ms)
+
+# ==============================================================================
+# FUSE EFFECT - merged onto LED Strip 2 (boards/common/common.yaml)
+# ==============================================================================
+# `!extend` is required here, not a plain `id:`. ESPHome's package merge simply
+# concatenates lists — a bare `- id: led_strip2` would be appended as a SECOND,
+# platform-less light and fail validation. `!extend` is resolved after all
+# packages are merged and folds this entry into the existing led_strip2, so the
+# strip keeps Rainbow / Color Wipe / Scanner / Twinkle / Heartbeat and gains
+# "Fuse Effect".
+light:
+  - id: !extend led_strip2
+    effects:
+      - addressable_lambda:
+          name: "Fuse Effect"
+          update_interval: 16ms
+          lambda: |-
+            // Self-contained timeline, started fresh each time the effect is
+            // selected (initial_run). Two phases:
+            //   [0, BURN)        head travels the strip, embers trail behind it
+            //   [BURN, +FADE)    head is gone; leftover embers keep dying
+            // The script fires the relay at BURN, so the bang lands as the flame
+            // reaches the end of the fuse. The strip itself never flashes.
+            static uint32_t t0 = 0;
+
+            const uint32_t BURN_MS  = ${fuse_burn_ms};
+            const uint32_t FADE_MS  = ${fuse_fade_ms};
+            const int      HEAD_LEN = ${fuse_head_len};
+
+            uint32_t now = millis();
+            if (initial_run || t0 == 0) {
+              t0 = now;
+              it.all() = Color::BLACK;
+            }
+            uint32_t t = now - t0;
+            int n = it.size();
+
+            if (t < BURN_MS) {
+              // Dim everything first so the head leaves a decaying ember trail.
+              it.all().fade_to_black(${fuse_ember_decay});
+
+              // The LEADING EDGE reaches the last LED exactly at BURN_MS, which
+              // is the same instant the script fires the relay — so the bang
+              // lands as the flame arrives, with the tail still glowing on the
+              // final few LEDs. (The Uno ran the head on to n + FUSE_LENGTH and
+              // detonated once it had fully cleared; that left a visible gap
+              // between the flame vanishing and the bang.)
+              float progress = (float) t / (float) BURN_MS;
+              int head = (int)(progress * (float) n);
+
+              for (int i = 0; i < HEAD_LEN; i++) {
+                int pos = head - i;
+                if (pos < 0 || pos >= n) continue;
+
+                // Only the leading pixel flickers - that is what reads as a
+                // live flame rather than a moving gradient.
+                int flicker = 0;
+                if (i == 0) {
+                  flicker = (int)(random_uint32() % (2 * ${fuse_flicker} + 1)) - ${fuse_flicker};
+                }
+                int b = 255 - (i * (255 / HEAD_LEN)) + flicker;
+                if (b < 0)   b = 0;
+                if (b > 255) b = 255;
+
+                if (i == 0) {
+                  // Leading edge: white-hot with a warm cast
+                  it[pos] = Color((uint8_t) b, (uint8_t)(b * 0.75f), (uint8_t)(b * 0.25f));
+                } else if (i <= 3) {
+                  // Just behind the tip: white -> orange
+                  it[pos] = Color((uint8_t) b, (uint8_t)(b * 0.35f), 0);
+                } else {
+                  // Trailing embers: dark red
+                  it[pos] = Color((uint8_t) b, 0, 0);
+                }
+              }
+            } else if (t < BURN_MS + FADE_MS) {
+              // The flame has run off the end. Nothing new is drawn - the trail
+              // it left behind just keeps decaying at the same rate, so the fuse
+              // dies out the way it burned rather than being cut to black.
+              it.all().fade_to_black(${fuse_ember_decay});
+            } else {
+              // Spent - hold dark until the script turns the strip off
+              it.all() = Color::BLACK;
+            }
+
+script:
+  # GND-switch pulse — runs concurrently with the hit so the GND output can hold
+  # for its own duration, independent of the relay. Fired from target_hit_script
+  # via `script.execute: gnd_pulse`. Effective on-time = gnd_timer, or relay_timer
+  # when gnd_timer == 0 ("follow relay", the default). mode: restart re-arms the
+  # pulse cleanly if a new hit lands while one is still running. There is
+  # intentionally no "off" control — to disable GND, disconnect its load.
+  #
+  # In this variant gnd_pulse is launched at DETONATION, not at hit, so a GND
+  # load (vibration, shaker) fires with the blast rather than with the fuse.
+  - id: gnd_pulse
+    mode: restart
+    then:
+      - light.turn_on:
+          id: gnd_light
+          brightness: 100%
+          # Ramp over the GND window when enabled, else snap on instantly.
+          transition_length: !lambda |-
+            if (!id(gnd_ramp_enabled)) return 0;
+            int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);
+      - delay: !lambda 'int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);'
+      - light.turn_off:
+          id: gnd_light
+          transition_length: 0s
+
+  # Main Target Hit Script - fuse + explosion version
+  - id: target_hit_script
+    mode: single  # Prevent overlapping hits
+    then:
+      - logger.log: "Target hit detected - lighting fuse..."
+      # Disable IR during hit processing
+      - globals.set:
+          id: ir_enabled
+          value: 'false'
+
+      # Disable auto-save during hit processing to prevent overwriting saved effect
+      - globals.set:
+          id: hit_processing
+          value: 'true'
+
+      # Log hit information and increment hit counter
+      - lambda: |-
+          id(hit_count)++;
+          ESP_LOGI("target_hit", "Hit detected - Player: %d, Points: %d, Total hits: %d", id(ir_command), id(target_points), id(hit_count));
+
+      # Save current effect index
+      - lambda: |-
+          std::string current_effect = id(led_strip).get_effect_name();
+          int effect_index = 0;
+          if (current_effect == "Rainbow Effect") effect_index = 1;
+          else if (current_effect == "Color Wipe Effect") effect_index = 2;
+          else if (current_effect == "Scanner Effect") effect_index = 3;
+          else if (current_effect == "Twinkle Effect") effect_index = 4;
+          else if (current_effect == "Heartbeat Effect") effect_index = 5;
+          id(saved_effect_index) = effect_index;
+          // Capture pre-hit brightness so effects that override it (e.g. the
+          // full-brightness Strobe Flash) can restore the user's level afterward.
+          id(saved_brightness) = id(led_strip).remote_values.get_brightness();
+          ESP_LOGI("target_hit", "Saved effect index: %d, brightness: %.2f", effect_index, (float)id(saved_brightness));
+
+      # Apply hit effect to the MAIN strip — unchanged from the standard script.
+      # This is the immediate "you hit it" acknowledgement and it stays lit
+      # through the whole fuse burn.
+      - if:
+          condition:
+            lambda: 'return id(hit_effect_select).current_option() == "Strobe Flash";'
+          then:
+            # Single full-brightness strobe in the selected solid color, then dark.
+            # Stopping the running effect must be its OWN light call first (the
+            # combined set_effect+set_rgb call does not render while an effect is
+            # active — same reason the Solid Color path below uses two calls).
+            # Instant (0s) transitions make it snap on/off like a camera flash.
+            - light.turn_on:
+                id: led_strip
+                effect: "None"
+            - lambda: |-
+                std::string c = id(led_strip_color_preset).current_option();
+                float r = 1.0f, g = 1.0f, b = 1.0f;
+                if (c == "Red")         { r = 1.0f; g = 0.0f; b = 0.0f; }
+                else if (c == "Green")  { r = 0.0f; g = 1.0f; b = 0.0f; }
+                else if (c == "Blue")   { r = 0.0f; g = 0.0f; b = 1.0f; }
+                else if (c == "Yellow") { r = 1.0f; g = 1.0f; b = 0.0f; }
+                else if (c == "Purple") { r = 1.0f; g = 0.0f; b = 1.0f; }
+                else if (c == "Cyan")   { r = 0.0f; g = 1.0f; b = 1.0f; }
+                else if (c == "White")  { r = 1.0f; g = 1.0f; b = 1.0f; }
+                else if (c == "Orange") { r = 1.0f; g = 0.5f; b = 0.0f; }
+                else if (c == "Pink")   { r = 1.0f; g = 0.2f; b = 0.5f; }
+                // A detected team color takes over the flash color. The preset
+                // itself is untouched and is put back at the end of the hit.
+                if (id(team_detected) && id(team_color_enabled)) {
+                  r = id(team_r); g = id(team_g); b = id(team_b);
+                  id(team_color_applied) = true;
+                  c = "team color";
+                }
+                auto call = id(led_strip).turn_on();
+                call.set_transition_length(0);
+                call.set_brightness(1.0f);
+                call.set_rgb(r, g, b);
+                call.perform();
+                ESP_LOGI("target_hit", "Strobe flash: %s", c.c_str());
+            - delay: 150ms
+            - light.turn_off:
+                id: led_strip
+                transition_length: 0s
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(hit_effect_select).current_option() == "Solid Color";'
+                then:
+                  - light.turn_on:
+                      id: led_strip
+                      effect: "None"
+                  - if:
+                      condition:
+                        lambda: 'return id(team_detected) && id(team_color_enabled);'
+                      then:
+                        # Hold the detected team color for the hit window. The
+                        # user's preset is restored when the hit ends, so the
+                        # resting/saved color never changes.
+                        - lambda: |-
+                            auto call = id(led_strip).turn_on();
+                            call.set_rgb(id(team_r), id(team_g), id(team_b));
+                            call.perform();
+                            id(team_color_applied) = true;
+                            ESP_LOGI("target_hit", "Solid Color hit in team color");
+                      else:
+                        - select.set:
+                            id: led_strip_color_preset
+                            option: !lambda 'return id(led_strip_color_preset).current_option();'
+                else:
+                  - light.turn_on:
+                      id: led_strip
+                      effect: !lambda 'return id(hit_effect_select).current_option();'
+
+      # Trigger linked audio / HA event BEFORE the fuse is lit. This is the
+      # opposite order from the standard hit script, on purpose:
+      # esphome_hit_script does a *blocking* http_request.post to the Audio-50 in
+      # networked mode, and ESPHome's http_request freezes the main loop for the
+      # whole round-trip. The standard script hides that freeze inside the relay
+      # window; here the relay window comes AFTER a 2.5 s animation, so hiding it
+      # there would stall the fuse mid-burn and visibly stutter it. Firing the
+      # POST first means the freeze lands before the first frame, and the fuse
+      # sound and the fuse animation then start together — which is what you
+      # want anyway with a combined fuse+explosion MP3. The main strip already
+      # rendered above (20 ms yield below), so the hit still reads as instant.
+      # In standalone mode esphome_hit_script is a no-op stub and costs nothing.
+      - delay: 20ms
+      - script.execute: esphome_hit_script
+
+      # ---- LIGHT THE FUSE ----
+      # The strip is dark at this point — the explicit light.turn_off at the end
+      # of the previous hit also clears the active effect index, so selecting the
+      # effect here is always a fresh start and the lambda sees initial_run ==
+      # true, resetting the burn to LED 0. Brightness is forced to full so a
+      # dimmed idle level cannot wash the fuse out.
+      #
+      # No transition_length: it is mutually exclusive with `effect` (ESPHome
+      # rejects the pair at validation), and none is needed — LightCall skips the
+      # default 500 ms transition whenever a non-None effect is being started, so
+      # the first fuse frame lands immediately.
+      - light.turn_on:
+          id: led_strip2
+          brightness: 100%
+          effect: "Fuse Effect"
+
+      # Burn. Same constant the effect uses, so the outputs below fire on the
+      # exact frame the flame reaches the end of the fuse.
+      - delay: ${fuse_burn_ms}ms
+
+      # ---- DETONATION ----
+      - lambda: |-
+          if (id(relay_1).state) {
+            ESP_LOGW("target_hit", "Relay already active!");
+          }
+          ESP_LOGI("target_hit", "Fuse burned down - detonating");
+      - switch.turn_on: relay_1
+      # GND switch runs on its own timer via gnd_pulse, so its on-duration can
+      # differ from the relay window — e.g. relay drives a lantern's AC while GND
+      # drives a vibration for a different time. gnd_timer == 0 follows relay_timer.
+      # gnd_light is PWM-backed on Rev 3.x, a no-op on Rev 1.x.
+      - script.execute: gnd_pulse
+      # Start configured servo PWM effect (see servo_pwm_script substitution)
+      - script.execute: ${servo_pwm_script}
+      - script.execute: servo_go_hit
+
+      # Hold relay for configured time while the embers die out
+      - delay: !lambda 'return id(relay_timer);'
+
+      # Deactivate outputs
+      - switch.turn_off: relay_1
+      # GND switch is owned by gnd_pulse (its own timer) and is deliberately NOT
+      # turned off here — that lets the GND window run longer or shorter than the
+      # relay. In follow mode (gnd_timer == 0) gnd_pulse releases at ~relay_timer.
+      # Stop servo PWM effect and zero the output (no-op on servo-less boards)
+      - script.stop: ${servo_pwm_script}
+      - script.execute: servo_pwm_zero
+
+      # Continue displaying the hit effect until total hit_display_time is
+      # reached. NOTE: total hit length is now fuse_burn_ms + hit_display_time —
+      # the burn is added in front of the normal display window, not carved out
+      # of it, so hit_display_time still means "how long the aftermath shows".
+      - delay: !lambda |-
+          int remaining_display = ${hit_display_time} - id(relay_timer);
+          return std::max(0, remaining_display);
+
+      # LEDs off during cooldown; start servo return
+      - light.turn_off: led_strip
+      - light.turn_off: led_strip2
+      - script.execute: servo_go_idle
+
+      # Final cooldown period
+      - delay: !lambda 'return id(cooldown_timer);'
+
+      # Restore original effect (index 0 = solid color, i.e. no effect)
+      - lambda: |-
+          std::string effect_name = "Scanner Effect";  // Default fallback
+          switch (id(saved_effect_index)) {
+            case 0: effect_name = "None"; break;
+            case 1: effect_name = "Rainbow Effect"; break;
+            case 2: effect_name = "Color Wipe Effect"; break;
+            case 3: effect_name = "Scanner Effect"; break;
+            case 4: effect_name = "Twinkle Effect"; break;
+            case 5: effect_name = "Heartbeat Effect"; break;
+            default:
+              ESP_LOGW("target_hit", "Unknown effect index: %d, using default", id(saved_effect_index));
+              break;
+          }
+          float brightness = id(saved_brightness);
+          if (brightness <= 0.0f) brightness = 0.5f;  // never restore fully dark
+          auto call = id(led_strip).turn_on();
+          call.set_effect(effect_name);
+          call.set_brightness(brightness);
+          call.perform();
+          ESP_LOGI("target_hit", "Restored effect: %s, brightness: %.2f", effect_name.c_str(), brightness);
+
+      # If the flash used a team color, put the user's "Target LEDs Solid Color"
+      # preset back. Re-selecting the preset re-runs its set_action, which
+      # re-applies the RGB — no second copy of the color table needed. Skipped
+      # when Capture Mode is about to adopt the team color below (restoring the
+      # old color first would only be overwritten a moment later).
+      #
+      # This runs while hit_processing is still true, so the strip's on_state
+      # auto-save is skipped for the team color and only ever records the preset;
+      # that is what keeps a plain team hit from changing the resting/boot color.
+      - if:
+          condition:
+            lambda: 'return id(team_color_applied) && !(id(team_detected) && id(capture_mode_enabled));'
+          then:
+            - select.set:
+                id: led_strip_color_preset
+                option: !lambda 'return id(led_strip_color_preset).current_option();'
+      - lambda: 'id(team_color_applied) = false;'
+
+      # Re-enable auto-save and IR
+      - globals.set:
+          id: hit_processing
+          value: 'false'
+
+      # CAPTURE MODE - adopt the team's color as the new resting color.
+      # Runs AFTER hit_processing is cleared, deliberately: the strip's auto-save
+      # is live again, so the captured color is persisted and survives a reboot
+      # (that is the whole point — the round is scored by what color each target
+      # is holding at the end).
+      - if:
+          condition:
+            lambda: 'return id(team_detected) && id(capture_mode_enabled);'
+          then:
+            - select.set:
+                id: led_strip_color_preset
+                option: !lambda 'return id(team_name);'
+            - logger.log:
+                format: "Capture mode: target taken by %s"
+                args: ['id(team_name).c_str()']
+
+      # Consume the team flag so a later non-IR trigger (GPIO25, Test Hit) cannot
+      # reuse a stale team from a previous hit.
+      - lambda: 'id(team_detected) = false;'
+
+      - globals.set:
+          id: ir_enabled
+          value: 'true'
+      - logger.log: "Target hit processing complete"
+
+
+  # ==========================================================================
+  # MASTER ENABLE / DISABLE — driven by the "Target Enabled" switch
+  # (boards/common/common.yaml) and by the boot handler in that same file.
+  # ==========================================================================
+
+  # Apply the DISABLED state: abort any hit in flight, release every output and
+  # take both strips dark. mode: restart so repeated toggles are harmless.
+  - id: target_disable_apply
+    mode: restart
+    then:
+      # Kill a hit mid-flight — otherwise its pending delays would re-light the
+      # strips and drop the relay seconds after the target was disabled. With the
+      # fuse variant this also matters mid-burn: without the stop, a target
+      # disabled while the fuse is travelling would still detonate.
+      - script.stop: target_hit_script
+      - script.stop: gnd_pulse
+      - script.stop: ${servo_pwm_script}
+      - script.execute: servo_pwm_zero
+      # Clear the hit's latched flags. ir_enabled is restored on re-enable, not
+      # here: leaving it false is a second, harmless layer of "ignore IR".
+      - globals.set:
+          id: hit_processing
+          value: 'false'
+      - globals.set:
+          id: team_detected
+          value: 'false'
+      - globals.set:
+          id: team_color_applied
+          value: 'false'
+      # Outputs off. 0s transitions so a disable is immediate, not a fade.
+      - switch.turn_off: relay_1
+      - light.turn_off:
+          id: gnd_light
+          transition_length: 0s
+      - light.turn_off:
+          id: led_strip
+          transition_length: 0s
+      - light.turn_off:
+          id: led_strip2
+          transition_length: 0s
+      - script.execute: servo_go_idle
+      - logger.log: "Target disabled - outputs released, LEDs dark"
+
+  # Apply the ENABLED state: re-arm IR and restore the saved idle look — the
+  # same brightness / color / effect the board's boot sequence restores, so an
+  # enable and a reboot leave the target looking identical. LED Strip 2 stays
+  # off on purpose: it only lights during a hit.
+  - id: target_enable_apply
+    mode: restart
+    then:
+      - globals.set:
+          id: hit_processing
+          value: 'false'
+      - globals.set:
+          id: team_detected
+          value: 'false'
+      - globals.set:
+          id: team_color_applied
+          value: 'false'
+      # A hit killed by target_disable_apply may have left IR gated off — it is
+      # normally re-armed at the end of target_hit_script, which never ran.
+      - globals.set:
+          id: ir_enabled
+          value: 'true'
+      - lambda: |-
+          std::string effect_name = "None";
+          switch (id(saved_effect_index)) {
+            case 1: effect_name = "Rainbow Effect"; break;
+            case 2: effect_name = "Color Wipe Effect"; break;
+            case 3: effect_name = "Scanner Effect"; break;
+            case 4: effect_name = "Twinkle Effect"; break;
+            case 5: effect_name = "Heartbeat Effect"; break;
+            default: break;  // 0 (or unknown) = solid color, no effect
+          }
+          float brightness = id(saved_brightness);
+          if (brightness <= 0.0f) brightness = 0.5f;  // never restore fully dark
+          auto call = id(led_strip).turn_on();
+          call.set_brightness(brightness);
+          call.set_rgb(id(saved_red), id(saved_green), id(saved_blue));
+          call.set_effect(effect_name);
+          call.perform();
+          ESP_LOGI("target_enable", "Enabled - restored effect: %s, brightness: %.2f",
+                   effect_name.c_str(), brightness);
+      - script.execute: servo_go_idle
+
+
+  # No-op stub — active when no servo PWM effect is configured (default)
+  - id: servo_pwm_none
+    mode: single
+    then: []
