@@ -12,6 +12,44 @@
 substitutions:
   servo_pwm_script: "servo_pwm_none"   # no-op default
 
+# ==============================================================================
+# LED STRIP 2 HIT EFFECT
+# ==============================================================================
+# Owned by this file, not boards/common/common.yaml, because this is the only
+# hit script that reads it (target_hit_script below). hit_script_fuse.yaml and
+# hit_script_lightning.yaml drive LED Strip 2 themselves — the fuse burn and the
+# lightning sequence ARE the strip-2 hit effect — so on those builds the entity
+# is simply never created and the custom UI drops the row (pruneMissing in
+# boards/common/custom_ui.js hides any control that reports no state).
+#
+# It cannot be shared from common.yaml and narrowed per variant: ESPHome package
+# merge CONCATENATES lists, so an `options:` under `!extend` is appended to the
+# shared list rather than replacing it. Owning the whole entity here is what
+# makes "no dropdown at all" possible.
+#
+# Moving it does not disturb saved settings on deployed targets: a template
+# select stores its value under make_entity_preference<size_t>(), keyed on a hash
+# of the entity NAME, so removing or adding one never reindexes the others.
+#
+# "Solid Color"/"Strobe Flash" fall back to the LED Strip 2 Solid Color preset
+# (boards/common/color_controls.yaml); every other option is a native effect name
+# on led_strip2.
+select:
+  - platform: template
+    name: "LED Strip 2 Hit Effect"
+    id: led_strip2_hit_effect
+    options:
+      - "Rainbow Effect"
+      - "Color Wipe Effect"
+      - "Scanner Effect"
+      - "Twinkle Effect"
+      - "Heartbeat Effect"
+      - "Strobe Flash"
+      - "Solid Color"
+    initial_option: "Color Wipe Effect"
+    restore_value: true
+    optimistic: true
+
 script:
   # GND-switch pulse — runs concurrently with the hit so the GND output can hold
   # for its own duration, independent of the relay. Fired from target_hit_script
@@ -25,10 +63,14 @@ script:
       - light.turn_on:
           id: gnd_light
           brightness: 100%
-          # Ramp over the GND window when enabled, else snap on instantly.
+          # Ramp 0→100% over gnd_ramp_percent of the GND window, then hold at
+          # full for the remainder. 0% = snap on instantly.
           transition_length: !lambda |-
-            if (!id(gnd_ramp_enabled)) return 0;
-            int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);
+            int p = id(gnd_ramp_percent);
+            if (p <= 0) return 0;
+            if (p > 100) p = 100;
+            int t = id(gnd_timer); if (t <= 0) t = id(relay_timer);
+            return t * p / 100;
       - delay: !lambda 'int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);'
       - light.turn_off:
           id: gnd_light

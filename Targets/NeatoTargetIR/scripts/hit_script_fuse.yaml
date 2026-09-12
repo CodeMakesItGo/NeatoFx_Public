@@ -177,10 +177,14 @@ script:
       - light.turn_on:
           id: gnd_light
           brightness: 100%
-          # Ramp over the GND window when enabled, else snap on instantly.
+          # Ramp 0→100% over gnd_ramp_percent of the GND window, then hold at
+          # full for the remainder. 0% = snap on instantly.
           transition_length: !lambda |-
-            if (!id(gnd_ramp_enabled)) return 0;
-            int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);
+            int p = id(gnd_ramp_percent);
+            if (p <= 0) return 0;
+            if (p > 100) p = 100;
+            int t = id(gnd_timer); if (t <= 0) t = id(relay_timer);
+            return t * p / 100;
       - delay: !lambda 'int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);'
       - light.turn_off:
           id: gnd_light
