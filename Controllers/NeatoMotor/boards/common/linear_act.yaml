@@ -1,0 +1,356 @@
+# ==============================================================================
+# NEATO MOTOR - DRIVE PACKAGE: LINEAR ACTUATOR (TIMED EXTEND / RETRACT CYCLE)
+# ==============================================================================
+# One-shot timed cycle for a linear actuator on the BTN8962TA H-bridge. A single
+# trigger on TGL1 runs the whole move — the operator does NOT hold the input:
+#
+#   TGL1 triggered -> ramp up forward (extend) and run for "Extend Time"
+#                  -> switch to reverse (retract) and run for "Retract Time"
+#                  -> motor output off
+#
+#   SW1 (open / extend end)   -> kills the FORWARD output for the rest of the
+#                                extend phase. The timer keeps running.
+#   SW2 (closed / retract end)-> kills the REVERSE output for the rest of the
+#                                retract phase. The timer keeps running.
+#
+# The limits are latched ("if ever triggered"), so a bouncing or momentarily
+# released end-stop does not re-energise the actuator mid-phase. Each latch is
+# cleared when its phase begins, so the extend limit never blocks the retract.
+#
+# WHY THIS DRIVE OWNS THE OUTPUTS ON A TICK
+# -----------------------------------------
+# The board file (rev3.yaml / rev3_12v.yaml) fires motor_stop_script on TGL1
+# RELEASE and on either limit switch — that is correct hold-to-run behavior for
+# drive_dc/drive_ac, but here the cycle must survive the release and must
+# survive a limit hit. So linear_cycle re-asserts the outputs every 20 ms from a
+# single "what should the actuator be doing at t?" function. Anything that pokes
+# the H-bridge from outside the cycle is overridden on the next tick, and the
+# cycle only ever relinquishes the outputs when it ends (or is cancelled).
+#
+# To CANCEL a running cycle: the "Cancel Cycle" button (web UI / HA) or TGL2.
+# The cover's Stop does NOT cancel it — motor_stop_script cannot tell the
+# difference between a limit switch and an operator, and stopping on the limit
+# switch is exactly what this drive must ignore.
+#
+# Select in the main file:
+#   drive: !include boards/common/linear_act.yaml
+#
+# Consumed IDs (from board + common):
+#   Outputs : motor_rpwm, motor_lpwm, motor_r_en, motor_l_en
+#   Numbers : motor_speed_control, motor_ramp_ms
+#   Globals : current_direction, motor_running, motor_ramp_step, limits_nc_mode
+#   Binary  : limit_open (SW1), limit_closed (SW2)
+# ==============================================================================
+
+# ==============================================================================
+# GLOBAL VARIABLES
+# ==============================================================================
+globals:
+  # millis() at the moment the cycle started — the whole cycle is derived from
+  # elapsed time against this, so a missed tick never accumulates drift.
+  - id: la_cycle_start
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
+  # Phase durations snapshotted at cycle start, so editing the numbers in the
+  # web UI mid-move cannot stretch or truncate a cycle already in flight.
+  - id: la_extend_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
+  - id: la_total_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
+  # Latched end-stops. Set when the phase's limit trips, cleared at phase start.
+  - id: la_fwd_blocked
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: la_rev_blocked
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # 0 = idle, 1 = extending, 2 = extend limit hit, 3 = retracting,
+  # 4 = retract limit hit. Drives the "Cycle Phase" text sensor and the
+  # transition logging.
+  - id: la_phase
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+# ==============================================================================
+# NUMBER CONTROLS - Cycle Timing
+# ==============================================================================
+# Ramp and speed are NOT duplicated here: the cycle uses "Motor Speed" and
+# "Ramp to Speed" from common.yaml, same as the other drives.
+number:
+  # Forward / extend run time. Counted from the start of the ramp, so very short
+  # times with a long ramp simply never reach full speed.
+  - platform: template
+    name: "Extend Time"
+    id: la_extend_time
+    min_value: 1
+    max_value: 10
+    step: 1
+    initial_value: 10
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "s"
+    icon: "mdi:arrow-expand-right"
+
+  # Reverse / retract run time, counted from the moment the extend phase ends.
+  - platform: template
+    name: "Retract Time"
+    id: la_retract_time
+    min_value: 1
+    max_value: 10
+    step: 1
+    initial_value: 10
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "s"
+    icon: "mdi:arrow-collapse-left"
+
+# ==============================================================================
+# BUTTONS
+# ==============================================================================
+button:
+  # Fire the cycle from the web UI / Home Assistant, same as triggering TGL1.
+  - platform: template
+    name: "Run Cycle"
+    id: la_run_button
+    icon: "mdi:play-circle"
+    on_press:
+      - script.execute: motor_forward_start
+
+  # The only clean way out of a running cycle besides TGL2 — see the header.
+  - platform: template
+    name: "Cancel Cycle"
+    id: la_cancel_button
+    icon: "mdi:stop-circle"
+    on_press:
+      - script.execute: linear_cycle_cancel
+
+# ==============================================================================
+# TEXT SENSORS - Cycle Phase
+# ==============================================================================
+# common.yaml's "Motor Status" reports the commanded direction; this reports
+# where the cycle is, including "blocked at a limit but still timing".
+text_sensor:
+  - platform: template
+    name: "Cycle Phase"
+    id: la_phase_text
+    update_interval: 200ms
+    icon: "mdi:timeline-clock"
+    lambda: |-
+      switch (id(la_phase)) {
+        case 1:  return {"Extending"};
+        case 2:  return {"Extend limit (timing)"};
+        case 3:  return {"Retracting"};
+        case 4:  return {"Retract limit (timing)"};
+        default: return {"Idle"};
+      }
+
+# ==============================================================================
+# SCRIPTS
+# ==============================================================================
+script:
+  # ---------------------------------------------------------------------------
+  # motor_forward_start  (TGL1 press / cover open / "Run Cycle")
+  # Thin launcher only. It must finish instantly, because motor_stop_script
+  # does script.stop on it — and motor_stop_script is what TGL1's RELEASE calls
+  # a few hundred milliseconds later. The cycle itself lives in linear_cycle,
+  # which motor_stop_script does not know about and therefore cannot kill.
+  # ---------------------------------------------------------------------------
+  - id: motor_forward_start
+    mode: restart
+    then:
+      - logger.log:
+          level: INFO
+          format: "Linear: cycle triggered (extend %.1fs, retract %.1fs, ramp %.0f ms, speed %.0f%%)"
+          args:
+            - 'id(la_extend_time).state'
+            - 'id(la_retract_time).state'
+            - 'id(motor_ramp_ms).state'
+            - 'id(motor_speed_control).state'
+      - script.execute: linear_cycle
+
+  # ---------------------------------------------------------------------------
+  # linear_cycle
+  # The timed move. mode:restart — re-triggering TGL1 mid-cycle restarts the
+  # extend phase from zero rather than queuing a second cycle.
+  #
+  # Every 20 ms it recomputes the commanded output purely from elapsed time and
+  # re-applies it, which is what makes the cycle immune to the board's
+  # motor_stop_script (see header).
+  # ---------------------------------------------------------------------------
+  - id: linear_cycle
+    mode: restart
+    then:
+      # --- Prologue: snapshot the timing, park the bridge safe -----------------
+      - lambda: |-
+          id(la_cycle_start) = millis();
+          id(la_extend_ms)   = (uint32_t)(id(la_extend_time).state  * 1000.0f);
+          id(la_total_ms)    = id(la_extend_ms) +
+                               (uint32_t)(id(la_retract_time).state * 1000.0f);
+          id(la_fwd_blocked)    = false;
+          id(la_rev_blocked)    = false;
+          id(la_phase)          = 0;
+          id(motor_ramp_step)   = 0;
+          id(current_direction) = true;
+          // Held true for the whole cycle — including while a limit has the
+          // output cut — so "Motor Idle" fires once, at the end of the move.
+          id(motor_running)     = true;
+      - output.turn_off: motor_r_en
+      - output.turn_off: motor_l_en
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+
+      # --- The cycle ----------------------------------------------------------
+      - while:
+          condition:
+            lambda: 'return (millis() - id(la_cycle_start)) < id(la_total_ms);'
+          then:
+            - lambda: |-
+                uint32_t elapsed = millis() - id(la_cycle_start);
+                bool forward     = elapsed < id(la_extend_ms);
+
+                // Elapsed within the current phase — the ramp restarts on the
+                // direction change, so the actuator never slams into reverse.
+                uint32_t phase_ms = forward ? elapsed : (elapsed - id(la_extend_ms));
+
+                // Latch this phase's end-stop. "If ever triggered": once it
+                // trips, the output stays dead until the phase changes.
+                bool raw = forward ? id(limit_open).state : id(limit_closed).state;
+                bool hit = id(limits_nc_mode) ? !raw : raw;
+                if (hit) {
+                  if (forward) id(la_fwd_blocked) = true;
+                  else         id(la_rev_blocked) = true;
+                }
+                bool blocked = forward ? id(la_fwd_blocked) : id(la_rev_blocked);
+
+                // Phase transition logging (edge-triggered, not every tick).
+                int phase = forward ? (blocked ? 2 : 1) : (blocked ? 4 : 3);
+                if (phase != id(la_phase)) {
+                  switch (phase) {
+                    case 1: ESP_LOGI("linear_act", "Linear: extending (forward)"); break;
+                    case 2: ESP_LOGI("linear_act", "Linear: SW1 hit — forward output off, timer still running"); break;
+                    case 3: ESP_LOGI("linear_act", "Linear: retracting (reverse)"); break;
+                    case 4: ESP_LOGI("linear_act", "Linear: SW2 hit — reverse output off, timer still running"); break;
+                  }
+                  id(la_phase) = phase;
+                  // Restart the ramp counter on the direction change so the
+                  // reverse leg ramps up from 0 like the forward leg did.
+                  if (phase == 3) id(motor_ramp_step) = 0;
+                }
+
+                id(current_direction) = forward;
+
+                if (blocked) {
+                  // Limit reached: float both halves of the bridge. The clock
+                  // keeps running — that is the whole point of this drive.
+                  id(motor_rpwm)->set_level(0.0f);
+                  id(motor_lpwm)->set_level(0.0f);
+                  id(motor_r_en)->turn_off();
+                  id(motor_l_en)->turn_off();
+                  return;
+                }
+
+                // Ramp 0 -> speed over motor_ramp_ms from the phase start.
+                float speed = id(motor_speed_control).state / 100.0f;
+                uint32_t ramp = (uint32_t)id(motor_ramp_ms).state;
+                float level = (ramp > 0 && phase_ms < ramp)
+                                ? speed * (float)phase_ms / (float)ramp
+                                : speed;
+
+                // Idle half first, then the driven half — never both at once.
+                if (forward) {
+                  id(motor_lpwm)->set_level(0.0f);
+                  id(motor_rpwm)->set_level(level);
+                } else {
+                  id(motor_rpwm)->set_level(0.0f);
+                  id(motor_lpwm)->set_level(level);
+                }
+                id(motor_r_en)->turn_on();
+                id(motor_l_en)->turn_on();
+            - delay: 20ms
+
+      # --- Timer at 0: motor output off ---------------------------------------
+      - lambda: 'id(la_phase) = 0;'
+      - logger.log:
+          level: INFO
+          format: "Linear: cycle complete — motor off"
+      - script.execute: motor_stop_script
+
+  # ---------------------------------------------------------------------------
+  # linear_cycle_cancel  ("Cancel Cycle" button, and TGL2 below)
+  # Stops the cycle FIRST, then the motor — the other order would let the next
+  # tick re-energise the bridge 20 ms later.
+  # ---------------------------------------------------------------------------
+  - id: linear_cycle_cancel
+    mode: single
+    then:
+      - script.stop: linear_cycle
+      - lambda: 'id(la_phase) = 0;'
+      - script.execute: motor_stop_script
+
+  # ---------------------------------------------------------------------------
+  # motor_reverse_start  (TGL2 held / cover close)
+  # Manual retract jog, hold-to-run exactly like drive_dc — and the operator's
+  # escape hatch from a running cycle. Blocked if the closed limit (SW2) is
+  # active. Release of TGL2 stops it via the board's motor_stop_script.
+  # ---------------------------------------------------------------------------
+  - id: motor_reverse_start
+    mode: restart
+    then:
+      - script.stop: linear_cycle
+      - lambda: 'id(la_phase) = 0;'
+      - if:
+          condition:
+            lambda: |-
+              bool open_hit   = id(limits_nc_mode) ? !id(limit_open).state   : id(limit_open).state;
+              bool closed_hit = id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;
+              return open_hit && closed_hit;
+          then:
+            - logger.log: "Manual: both limits active — motor disabled"
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;'
+                then:
+                  - logger.log: "Manual: retract blocked — closed limit (SW2) active"
+                else:
+                  - logger.log:
+                      level: INFO
+                      format: "Manual: ramping retract (ramp=%.0f ms, speed=%.0f%%)"
+                      args:
+                        - 'id(motor_ramp_ms).state'
+                        - 'id(motor_speed_control).state'
+                  - lambda: |-
+                      id(current_direction) = false;
+                      id(motor_running)     = true;
+                      id(motor_ramp_step)   = 0;
+                  - output.turn_on: motor_r_en
+                  - output.turn_on: motor_l_en
+                  - output.set_level:
+                      id: motor_rpwm
+                      level: 0%
+                  - repeat:
+                      count: 10
+                      then:
+                        - lambda: |-
+                            float speed = id(motor_speed_control).state / 100.0f;
+                            float level = speed * (float)(id(motor_ramp_step) + 1) / 10.0f;
+                            id(motor_lpwm)->set_level(level);
+                            id(motor_ramp_step)++;
+                        - delay: !lambda 'return (uint32_t)std::max(10.0f, id(motor_ramp_ms).state / 10.0f);'
