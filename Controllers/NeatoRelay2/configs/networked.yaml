@@ -1,0 +1,102 @@
+# ==============================================================================
+# NEATO RELAY 2 - NETWORKED CONFIGURATION (HOME ASSISTANT)
+# ==============================================================================
+# Joins a WiFi router and exposes the native ESPHome API, so Home Assistant can
+# switch, pulse and monitor both channels. Works without a Home Assistant server
+# too — the web UI at http://relay2-<mac>.local/ is fully functional on its own,
+# which is why the api: reboot timer is disabled below.
+#
+# Use configs/standalone.yaml instead when the board runs its own AP (no router).
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  networked_base: !include ../../../_shared/networked_base.yaml
+  network_sensors: !include ../../../_shared/network_sensors.yaml
+  # OTA update checks are added when this product publishes its first firmware
+  # manifest at firmware/relay2/manifest.json (tools/release.py writes it). Both
+  # this include and the update: block at the bottom are enabled together —
+  # tools/lint_repo.py checks that the manifest actually exists.
+  #firmware_update: !include ../../../_shared/firmware_update.yaml
+
+# ==============================================================================
+# DASHBOARD IMPORT - Made for ESPHome
+# ==============================================================================
+dashboard_import:
+  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Controllers/NeatoRelay2/main.yaml@main
+  import_full_config: true
+
+# ==============================================================================
+# SUBSTITUTIONS - Configuration Variables
+# ==============================================================================
+substitutions:
+  # ip_base and ip_addr defaults are set in _shared/networked_base.yaml. The
+  # default is a placeholder, not a per-unit address — override ip_addr here
+  # before enabling manual_ip.
+
+# ==============================================================================
+# API & REMOTE ACCESS - Home Assistant Integration
+# ==============================================================================
+# _shared/networked_base.yaml provides api: with a 5-minute reboot timer, which
+# would reboot the board every 5 minutes on a LAN with no Home Assistant server.
+# The relay board is useful with or without one, so the timer is disabled here.
+api:
+  reboot_timeout: 0s     # Never reboot for want of a Home Assistant connection
+  #reboot_timeout: 5min  # Uncomment if a Home Assistant server IS always present
+
+  # ---------------------------------------------------------------------------
+  # HOME ASSISTANT ACTIONS - address channels by number, not by entity name
+  # ---------------------------------------------------------------------------
+  # HA entity ids are derived from the device name, which carries the MAC suffix
+  # (relay2-a1b2c3), so an automation written against switch.relay2_a1b2c3_relay_2
+  # breaks the moment the board is swapped. These take a plain 1-based channel
+  # number instead, so a replacement board only needs its Device ID set.
+  #
+  # Deliberately the SAME action names and signatures as NeatoRelay8, so an
+  # automation written for an 8-channel board works unchanged against a
+  # 2-channel one for relays 1-2 (3-8 are rejected by relay_set's bounds check
+  # with a warning, not silently ignored).
+  #
+  # These are HA -> device calls, which are always delivered. (The gated
+  # direction is device -> HA `homeassistant.service`, which needs the per-device
+  # "Allow the device to perform Home Assistant actions" option; nothing here
+  # depends on it.)
+  services:
+    # Latch a channel on or off.
+    - service: set_relay
+      variables:
+        relay: int
+        state: bool
+      then:
+        - script.execute:
+            id: relay_set
+            index: !lambda 'return relay;'
+            state: !lambda 'return state;'
+
+    # Fire a channel for the configured "Pulse Time".
+    - service: pulse_relay
+      variables:
+        relay: int
+      then:
+        - script.execute:
+            id: relay_pulse
+            index: !lambda 'return relay;'
+
+    # Panic / show-reset: drop every channel.
+    - service: all_relays_off
+      then:
+        - script.execute: relay_all_off
+
+# Serial-based WiFi provisioning (requires logger baud_rate != 0)
+improv_serial:
+
+# ==============================================================================
+# FIRMWARE UPDATES - OTA via HTTP
+# ==============================================================================
+# Enable together with the firmware_update package above, once
+# firmware/relay2/manifest.json is published by tools/release.py.
+#update:
+#  - platform: http_request
+#    id: firmware_update_check
+#    name: "Firmware Update"
+#    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/relay2/manifest.json

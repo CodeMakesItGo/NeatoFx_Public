@@ -1,0 +1,312 @@
+# ==============================================================================
+# NEATO RELAY 8 - COMMON COMPONENTS
+# ==============================================================================
+# Board-agnostic control logic for the 8-channel relay controller. Everything
+# here addresses relays through their IDs (relay_1 … relay_8), so a future board
+# revision only has to re-map pins in its own boards/rev<N>.yaml.
+#
+# Included by: boards/rev1.yaml
+#
+# Hardware IDs consumed from the board file:
+#   Switches : relay_1 … relay_8   (gpio switches, ALWAYS_OFF at boot)
+#
+# Behaviour
+# ---------
+#   "Relay N" switch        -> latch the channel on/off (web UI, HA, API)
+#   "Pulse Relay N" button  -> energise the channel for "Pulse Time" ms, then off
+#   "All Relays Off/On"     -> every channel at once
+#   "Pulse Time" number     -> the pulse on-time shared by all eight channels
+#
+# Indexes are 1-based everywhere (relay 1 … relay 8), matching the silkscreen
+# and the entity names. The scripts below reject anything outside that range
+# rather than running off the end of the array.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  esphome_base: !include ../../../../_shared/esphome_base.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS - Shared Configuration Variables
+# ==============================================================================
+substitutions:
+  # Project Information
+  project_name: "NeatoFX.Relay8"
+  project_version: "3.2.0"
+  # hw_version is set by the board file (boards/rev1.yaml).
+
+# ==============================================================================
+# NUMBER CONTROLS
+# ==============================================================================
+number:
+  # Pulse on-time in milliseconds, shared by all eight channels — the same
+  # single-knob approach the Motor's pulse board uses for its two valves.
+  # Persisted, so a board set up for 50 ms solenoid taps stays that way.
+  - platform: template
+    name: "Pulse Time"
+    id: pulse_ms
+    min_value: 10
+    max_value: 10000
+    step: 10
+    initial_value: 250
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "ms"
+    icon: "mdi:timer-outline"
+
+# ==============================================================================
+# SCRIPTS - Relay Control
+# ==============================================================================
+script:
+  # ---------------------------------------------------------------------------
+  # relay_set — drive one channel by 1-based index.
+  # The dispatcher every other entry point goes through, so the index bounds
+  # check lives in exactly one place.
+  # ---------------------------------------------------------------------------
+  - id: relay_set
+    mode: parallel
+    max_runs: 8
+    parameters:
+      index: int
+      state: bool
+    then:
+      - lambda: |-
+          switch_::Switch *relays[8] = {id(relay_1), id(relay_2), id(relay_3), id(relay_4),
+                                        id(relay_5), id(relay_6), id(relay_7), id(relay_8)};
+          if (index < 1 || index > 8) {
+            ESP_LOGW("relay8", "Ignoring relay index %d - valid range is 1-8", index);
+            return;
+          }
+          if (state) {
+            relays[index - 1]->turn_on();
+          } else {
+            relays[index - 1]->turn_off();
+          }
+
+  # ---------------------------------------------------------------------------
+  # relay_pulse — energise one channel for "Pulse Time" ms, then release it.
+  #
+  # mode: parallel with max_runs: 8 so all eight channels can be pulsing at
+  # once. A channel re-pulsed while its own window is still open therefore gets
+  # a SECOND run rather than a restarted window: it stays on until the first
+  # run's delay expires, so the relay is released early (at the first pulse's
+  # deadline) instead of late. Both runs finish with the relay off, which is the
+  # state that matters — a load is never left energised.
+  # ---------------------------------------------------------------------------
+  - id: relay_pulse
+    mode: parallel
+    max_runs: 8
+    parameters:
+      index: int
+    then:
+      - script.execute:
+          id: relay_set
+          index: !lambda 'return index;'
+          state: true
+      - delay: !lambda 'return (uint32_t) id(pulse_ms).state;'
+      - script.execute:
+          id: relay_set
+          index: !lambda 'return index;'
+          state: false
+      - logger.log:
+          format: "Relay %d pulse complete"
+          args: ['index']
+
+  # ---------------------------------------------------------------------------
+  # relay_all_off — de-energise every channel. Also the priority-700 boot hook.
+  # ---------------------------------------------------------------------------
+  - id: relay_all_off
+    mode: restart
+    then:
+      - lambda: |-
+          switch_::Switch *relays[8] = {id(relay_1), id(relay_2), id(relay_3), id(relay_4),
+                                        id(relay_5), id(relay_6), id(relay_7), id(relay_8)};
+          for (auto *relay : relays) {
+            relay->turn_off();
+          }
+
+  # ---------------------------------------------------------------------------
+  # relay_all_on — energise every channel (bench testing / continuity checks).
+  # ---------------------------------------------------------------------------
+  - id: relay_all_on
+    mode: restart
+    then:
+      - lambda: |-
+          switch_::Switch *relays[8] = {id(relay_1), id(relay_2), id(relay_3), id(relay_4),
+                                        id(relay_5), id(relay_6), id(relay_7), id(relay_8)};
+          for (auto *relay : relays) {
+            relay->turn_on();
+          }
+
+  # ---------------------------------------------------------------------------
+  # publish_relay_state — refresh the summary entities.
+  # Driven from every relay's on_turn_on / on_turn_off in the board file rather
+  # than polled, so the summary is immediate and costs nothing while idle.
+  # ---------------------------------------------------------------------------
+  - id: publish_relay_state
+    mode: restart
+    then:
+      - text_sensor.template.publish:
+          id: relay_state_display
+          state: !lambda |-
+            switch_::Switch *relays[8] = {id(relay_1), id(relay_2), id(relay_3), id(relay_4),
+                                          id(relay_5), id(relay_6), id(relay_7), id(relay_8)};
+            // One character per channel, in silkscreen order: the channel
+            // number when it is energised, '-' when it is not. "12--5---" reads
+            // at a glance in the web UI and in a log line.
+            std::string state;
+            for (int i = 0; i < 8; i++) {
+              state += relays[i]->state ? (char) ('1' + i) : '-';
+            }
+            return {state};
+      - sensor.template.publish:
+          id: relays_on_count
+          state: !lambda |-
+            switch_::Switch *relays[8] = {id(relay_1), id(relay_2), id(relay_3), id(relay_4),
+                                          id(relay_5), id(relay_6), id(relay_7), id(relay_8)};
+            int on = 0;
+            for (auto *relay : relays) {
+              if (relay->state) on++;
+            }
+            return (float) on;
+
+# ==============================================================================
+# BUTTONS - Pulse & Bulk Control
+# ==============================================================================
+button:
+  - platform: template
+    name: "Pulse Relay 1"
+    id: pulse_relay_1_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute:
+          id: relay_pulse
+          index: 1
+
+  - platform: template
+    name: "Pulse Relay 2"
+    id: pulse_relay_2_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute:
+          id: relay_pulse
+          index: 2
+
+  - platform: template
+    name: "Pulse Relay 3"
+    id: pulse_relay_3_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute:
+          id: relay_pulse
+          index: 3
+
+  - platform: template
+    name: "Pulse Relay 4"
+    id: pulse_relay_4_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute:
+          id: relay_pulse
+          index: 4
+
+  - platform: template
+    name: "Pulse Relay 5"
+    id: pulse_relay_5_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute:
+          id: relay_pulse
+          index: 5
+
+  - platform: template
+    name: "Pulse Relay 6"
+    id: pulse_relay_6_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute:
+          id: relay_pulse
+          index: 6
+
+  - platform: template
+    name: "Pulse Relay 7"
+    id: pulse_relay_7_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute:
+          id: relay_pulse
+          index: 7
+
+  - platform: template
+    name: "Pulse Relay 8"
+    id: pulse_relay_8_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute:
+          id: relay_pulse
+          index: 8
+
+  - platform: template
+    name: "All Relays Off"
+    id: all_relays_off_button
+    icon: "mdi:power-plug-off"
+    on_press:
+      - script.execute: relay_all_off
+
+  - platform: template
+    name: "All Relays On"
+    id: all_relays_on_button
+    icon: "mdi:power-plug"
+    on_press:
+      - script.execute: relay_all_on
+
+# ==============================================================================
+# BINARY SENSORS - Board Activity
+# ==============================================================================
+binary_sensor:
+  # True while ANY channel is energised. A template binary_sensor evaluates its
+  # lambda in loop(), so this tracks the relays without a polling interval.
+  - platform: template
+    name: "Any Relay On"
+    id: any_relay_on
+    device_class: power
+    lambda: |-
+      return id(relay_1).state || id(relay_2).state || id(relay_3).state || id(relay_4).state ||
+             id(relay_5).state || id(relay_6).state || id(relay_7).state || id(relay_8).state;
+
+# ==============================================================================
+# SENSORS - Diagnostics
+# ==============================================================================
+sensor:
+  # How many channels are currently energised. Published by publish_relay_state
+  # (never polled), so update_interval is deliberately absent.
+  - platform: template
+    name: "Relays On"
+    id: relays_on_count
+    icon: "mdi:counter"
+    accuracy_decimals: 0
+    update_interval: never
+
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 60s
+
+# ==============================================================================
+# TEXT SENSORS - Board Status & Device Information
+# ==============================================================================
+text_sensor:
+  # Channel map, e.g. "12--5---" = relays 1, 2 and 5 energised.
+  - platform: template
+    name: "Relay States"
+    id: relay_state_display
+    icon: "mdi:toggle-switch-outline"
+    update_interval: never
+
+  # Firmware / hardware version. Published once at boot by the board file from
+  # the compile-time project_version + hw_version substitutions.
+  - platform: template
+    name: "Firmware Version"
+    id: firmware_version_sensor
+    icon: "mdi:chip"
+    update_interval: never
