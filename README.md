@@ -12,6 +12,7 @@ Modular WiFi-enabled devices built on [ESPHome](https://esphome.io/) for interac
 | [NEATO Display 7](Displays/NeatoDisplay7/) | LVGL touch-screen game display station (7") |
 | [NEATO Motor](Controllers/NeatoMotor/) | AC/DC motor controller — limit switches, stall detection, winch/pulse/manual variants |
 | [NEATO Blaster](Controllers/NeatoBlaster/) | IR blaster gun controller — pump action, relay trigger, Home Assistant scoring |
+| [NEATO Relay 8](Controllers/NeatoRelay8/) | 8-channel relay controller — latch or timed-pulse each channel, Home Assistant actions by channel number |
 | [NEATO Golf](Golf/NeatoGolf/) | Golf hit target — LED effects, servo movement, FPP integration |
 
 ## Requirements
@@ -58,6 +59,7 @@ Displays/NeatoDisplay4/     # LVGL touch-screen display (4")
 Displays/NeatoDisplay7/     # LVGL touch-screen display (7")
 Controllers/NeatoMotor/     # AC/DC motor controller
 Controllers/NeatoBlaster/   # IR blaster gun controller
+Controllers/NeatoRelay8/    # 8-channel relay controller
 Golf/NeatoGolf/             # Golf hit target
 _shared/                    # Shared ESPHome base packages
 ```

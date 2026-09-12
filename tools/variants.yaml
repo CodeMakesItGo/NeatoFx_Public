@@ -68,6 +68,22 @@ devices:
         board: boards/rev1.yaml
         config: configs/standalone.yaml
 
+  relay8:
+    path: Controllers/NeatoRelay8/main.yaml
+    label: "Neato Relay 8"
+    variants:
+      default: {}   # rev1 + networked
+      standalone:
+        config: configs/standalone.yaml
+
+  relay2:
+    path: Controllers/NeatoRelay2/main.yaml
+    label: "Neato Relay 2"
+    variants:
+      default: {}   # rev1 + networked
+      standalone:
+        config: configs/standalone.yaml
+
   golf:
     path: Golf/NeatoGolf/main.yaml
     label: "Neato Golf"

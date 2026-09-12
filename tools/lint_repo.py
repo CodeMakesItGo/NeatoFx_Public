@@ -45,6 +45,8 @@ DEVICES = [
     "Targets/NeatoTargetIR",
     "Controllers/NeatoMotor",
     "Controllers/NeatoBlaster",
+    "Controllers/NeatoRelay8",
+    "Controllers/NeatoRelay2",
     "Displays/NeatoDisplay4",
     "Displays/NeatoDisplay7",
     "Audio/NeatoAudio50",
