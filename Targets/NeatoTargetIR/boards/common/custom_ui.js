@@ -66,7 +66,7 @@
 
     // ── Aux Triggers ──
     gpio25_trigger: { type: SW, name: 'GPIO25 Hit Trigger', label: 'GPIO25 Trigger', section: 'aux' },
-    gnd_ramp:       { type: SW, name: 'GND Ramp',           label: 'GND Ramp',       section: 'aux' },
+    gnd_ramp:       { type: NUM, name: 'GND Ramp', label: 'GND Ramp (% of GND window, 0 = instant)', min: 0, max: 100, step: 1, unit: '%', section: 'aux' },
 
     // ── LED Strip 2 ──
     led2:            { type: LT,  name: 'LED Strip 2',            label: 'LED Strip 2',     section: 'led2' },
@@ -96,7 +96,14 @@
 
     // ── Test (collapsible) ──
     aux_pwr:     { type: SW, name: 'Aux Pwr',    label: 'Aux Power',   section: 'test' },
-    gnd_switch:  { type: LT, name: 'Gnd Switch', label: 'GND Switch',  section: 'test' },
+    // gnd_light is a monochromatic (PWM) light, not a plain switch, so that the
+    // hit scripts can ramp or dim it. A bare turn_on would replay whatever
+    // brightness it was left at — the lightning hit script, for one, parks it at
+    // 15% — and the test toggle would then quietly bench-test the GND output at
+    // partial duty. brightness=255 pins the test toggle to full on, hard-switch
+    // behaviour, whatever ran before it.
+    gnd_switch:  { type: LT, name: 'Gnd Switch', label: 'GND Switch',  section: 'test',
+                   onQuery: 'brightness=255' },
     relay_1:     { type: SW, name: 'Relay 1',    label: 'Relay',       section: 'test' },
     target_leds: { type: LT, name: 'Target LEDs', label: 'Target LEDs', section: 'test' },
     test_servo_hit: { type: BTN, name: 'Test Servo Hit', label: 'Test Servo Hit', btnText: 'Swing', section: 'test' },
@@ -127,7 +134,12 @@
   const api = {
     switchOn:  (id)    => post(path(SW, id) + '/turn_on'),
     switchOff: (id)    => post(path(SW, id) + '/turn_off'),
-    lightOn:   (id)    => post(path(LT, id) + '/turn_on'),
+    // An entity may pin the state it turns on with via ENTITIES[id].onQuery
+    // (e.g. GND Switch forces full duty — see the note on that entry). Without
+    // it a bare turn_on restores the light's LAST brightness, which for a
+    // PWM-backed output is not necessarily full.
+    lightOn:   (id)    => post(path(LT, id) + '/turn_on' +
+                               (ENTITIES[id].onQuery ? '?' + ENTITIES[id].onQuery : '')),
     lightOff:  (id)    => post(path(LT, id) + '/turn_off'),
     numSet:    (id, v) => post(path(NUM, id) + '/set?value=' + encodeURIComponent(v)),
     textSet:   (id, v) => post(path(TXTIN, id) + '/set?value=' + encodeURIComponent(v)),

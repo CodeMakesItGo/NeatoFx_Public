@@ -124,26 +124,6 @@ switch:
     on_turn_off:
       - logger.log: "Relay 1 deactivated"
 
-  # GND switch ramp enable — when on, the GND switch ramps 0→100% over the
-  # relay window on hit (soft start); when off it snaps on instantly (legacy).
-  # Ramp logic lives in scripts/hit_script.yaml; the pin is PWM-backed on Rev 3.x.
-  - platform: template
-    name: "GND Ramp"
-    id: gnd_ramp_switch
-    icon: "mdi:transfer-up"
-    restore_mode: RESTORE_DEFAULT_OFF
-    optimistic: true
-    turn_on_action:
-      - globals.set:
-          id: gnd_ramp_enabled
-          value: 'true'
-      - logger.log: "GND switch ramp enabled"
-    turn_off_action:
-      - globals.set:
-          id: gnd_ramp_enabled
-          value: 'false'
-      - logger.log: "GND switch ramp disabled"
-
   # GPIO25 hit trigger enable/disable
   - platform: template
     name: "GPIO25 Hit Trigger"
@@ -445,6 +425,29 @@ number:
           id(gnd_timer) = value;
           ESP_LOGI("config", "GND timer set to: %d ms (0 = follow relay)", value);
 
+  # GND switch soft-start ramp, as a percentage of the GND on-window.
+  # The GND output ramps 0→100% duty over (window * percent / 100), then holds
+  # at 100% for the remainder of the window. 0 % = instant on (legacy hard
+  # switch); 100 % = a linear ramp across the whole window. The window is
+  # gnd_timer, or relay_timer when gnd_timer == 0 ("follow relay").
+  # Ramp logic lives in scripts/hit_script.yaml; the pin is PWM-backed on Rev 3.x.
+  - platform: template
+    name: "GND Ramp"
+    id: gnd_ramp_control
+    min_value: 0
+    max_value: 100
+    step: 1
+    restore_value: true
+    optimistic: true
+    initial_value: 0
+    icon: "mdi:transfer-up"
+    unit_of_measurement: "%"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          id(gnd_ramp_percent) = value;
+          ESP_LOGI("config", "GND ramp set to: %d %% of the GND window (0 = instant)", value);
+
   # Points awarded per hit
   - platform: template
     name: "Hit Points"
@@ -589,23 +592,11 @@ select:
                 id: led_strip
                 effect: !lambda 'return x;'
 
-  # Secondary strip (LED Strip 2) hit effect — applied to led_strip2 on hit.
-  # "Solid Color"/"Strobe Flash" fall back to the LED Strip 2 Solid Color preset;
-  # every other option is a native effect name on led_strip2. See hit_script.yaml.
-  - platform: template
-    name: "LED Strip 2 Hit Effect"
-    id: led_strip2_hit_effect
-    options:
-      - "Rainbow Effect"
-      - "Color Wipe Effect"
-      - "Scanner Effect"
-      - "Twinkle Effect"
-      - "Heartbeat Effect"
-      - "Strobe Flash"
-      - "Solid Color"
-    initial_option: "Color Wipe Effect"
-    restore_value: true
-    optimistic: true
+  # NOTE: the "LED Strip 2 Hit Effect" select used to live here. It moved to
+  # scripts/hit_script.yaml — the only file that ever read it. The fuse and
+  # lightning variants drive LED Strip 2 themselves, so on those builds the
+  # control does not exist at all rather than sitting in the UI doing nothing.
+  # Add it back here only if a control is needed on EVERY hit-script variant.
 
 
 # ==============================================================================
@@ -725,11 +716,12 @@ globals:
     restore_value: yes
     initial_value: 'false'
 
-  # GND switch ramp enable — soft-start the GND switch 0→100% on hit (persisted)
-  - id: gnd_ramp_enabled
-    type: bool
+  # GND switch soft-start ramp, in percent of the GND on-window (persisted).
+  # 0 = instant on; 100 = linear ramp across the entire window.
+  - id: gnd_ramp_percent
+    type: int
     restore_value: yes
-    initial_value: 'false'
+    initial_value: '0'
 
   # IR receiver enable/disable state
   - id: ir_enabled
