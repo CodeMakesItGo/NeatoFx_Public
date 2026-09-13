@@ -40,12 +40,18 @@ devices:
         board: boards/rev3_hit_1_0.yaml
       rev3_lcd_1_1:             # Rev 3.x + LCD face 1.1 (GC9A01 LCD)
         board: boards/rev3_lcd_1_1.yaml
+      hit_fuse:                 # fuse burns down LED Strip 2, then explodes
+        hit_script: scripts/hit_script_fuse.yaml
+      hit_lightning:            # xLights lightning-storm port (left cloud)
+        hit_script: scripts/hit_script_lightning.yaml
 
   motor:
     path: Controllers/NeatoMotor/main.yaml
     label: "Neato Motor"
     variants:
-      default: {}   # rev3 + drive_dc + home_assistant
+      default: {}   # rev3_12v + linear_act + home_assistant
+      dc:                      # 24V DC motor via PWM ramp
+        drive: boards/common/drive_dc.yaml
       ac_standalone:
         drive: boards/common/drive_ac.yaml
         config: configs/standalone.yaml
