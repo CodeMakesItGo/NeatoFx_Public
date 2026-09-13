@@ -48,6 +48,18 @@ globals:
     restore_value: true
     initial_value: '0'
 
+# The ID can only change through set_action, which reboots — so the two
+# entities below are published exactly once, here, instead of being polled.
+# Home Assistant re-reads every entity state when it connects, so a one-time
+# publish is all it needs. Priority 250 = after all DATA-level components
+# (the template entities) have finished setup.
+esphome:
+  on_boot:
+    - priority: 250
+      then:
+        - component.update: runtime_name_display
+        - component.update: runtime_id_number
+
 text_sensor:
   # The logical, number-based name of this unit — "blaster-3", "target-7".
   # This is NOT the hostname (see the header): the hostname keeps its MAC
@@ -58,7 +70,7 @@ text_sensor:
     icon: "mdi:tag-outline"
     lambda: |-
       return {"${name}-" + std::to_string(id(${runtime_id}))};
-    update_interval: 60s
+    update_interval: never   # published once at boot (on_boot below); it only changes via reboot
 
 number:
   - platform: template
@@ -69,7 +81,7 @@ number:
     # value is restored at setup_priority HARDWARE (800) — early enough for
     # on_boot hooks at 600 to use it.
     lambda: 'return (float) id(${runtime_id});'
-    update_interval: 60s
+    update_interval: never   # published once at boot (on_boot below); it only changes via reboot
     min_value: 0
     max_value: ${runtime_id_max}
     step: 1

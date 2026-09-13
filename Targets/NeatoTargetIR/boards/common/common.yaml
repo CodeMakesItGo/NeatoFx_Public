@@ -66,12 +66,16 @@ sensor:
     name: "Uptime Sensor"
     update_interval: 60s
 
-  # Hit counter — exposed to web UI and Home Assistant
+  # Hit counter — exposed to web UI and Home Assistant.
+  # Event-driven, not polled: the hit scripts call component.update on this
+  # sensor right after incrementing hit_count, so HA sees the new count
+  # immediately and nothing is sent while the count is unchanged. HA re-reads
+  # every entity state when it (re)connects, so a value can't be missed.
   - platform: template
     name: "Hit Count"
     id: hit_count_sensor
     lambda: 'return (float)id(hit_count);'
-    update_interval: 1s
+    update_interval: never
     accuracy_decimals: 0
     icon: "mdi:target"
 
@@ -177,6 +181,10 @@ light:
 
     # Auto-save LED settings when they change
     on_state:
+      # Push the current brightness to the HA slider (event-driven, no polling).
+      # The number's lambda returns no value during hit processing, so this is
+      # silent while effects run.
+      - component.update: led_strip_brightness_control
       # DISABLED interlock — anything that would light the strip while the
       # target is disabled (a color/effect select from HA, a stray light.turn_on)
       # is immediately undone, so a disabled target is guaranteed dark. Gated on
@@ -314,6 +322,7 @@ light:
     internal: ${strip_2_internal}  # Hidden for Rev1, visible for Rev3
     # DISABLED interlock — see the main strip above. Strip 2 has no auto-save.
     on_state:
+      - component.update: led_strip2_brightness_control
       - if:
           condition:
             lambda: 'return id(startup_complete) && !id(target_enabled) && id(led_strip2).remote_values.is_on();'
@@ -497,7 +506,7 @@ number:
     mode: slider
     icon: "mdi:brightness-6"
     unit_of_measurement: "%"
-    update_interval: 2s
+    update_interval: never   # refreshed from the strip's on_state, not polled
     lambda: |-
       if (id(hit_processing)) return {};   // hold value during hit effects
       return id(led_strip).remote_values.get_brightness() * 100.0f;
@@ -516,7 +525,7 @@ number:
     mode: slider
     icon: "mdi:brightness-6"
     unit_of_measurement: "%"
-    update_interval: 2s
+    update_interval: never   # refreshed from the strip's on_state, not polled
     lambda: |-
       if (id(hit_processing)) return {};
       return id(led_strip2).remote_values.get_brightness() * 100.0f;

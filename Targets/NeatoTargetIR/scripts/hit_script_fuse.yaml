@@ -209,6 +209,8 @@ script:
       - lambda: |-
           id(hit_count)++;
           ESP_LOGI("target_hit", "Hit detected - Player: %d, Points: %d, Total hits: %d", id(ir_command), id(target_points), id(hit_count));
+      # Push the new count to HA / web UI immediately (sensor is not polled)
+      - component.update: hit_count_sensor
 
       # Save current effect index
       - lambda: |-
