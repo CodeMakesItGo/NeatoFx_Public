@@ -123,7 +123,12 @@ canbus:
     id: can_bus
     tx_pin: GPIO5
     rx_pin: GPIO4
-    can_id: ${id}            # This node's address = -s id <N>
+    # Inert in this config, kept only because the schema requires it: every
+    # transmission below calls send_data() with an explicit ID, and the on_frame
+    # filter below is match-all (can_id 0 / mask 0), so this default sender ID is
+    # never used. The real address is the runtime `device_id` global
+    # ("Source Address" in the web UI, 0x00-0xEF).
+    can_id: 0
     bit_rate: 250kbps        # Must match every node on the bus (display = 250k)
     on_frame:
       # Match every frame, then dispatch on this node's command/config IDs.
@@ -132,7 +137,7 @@ canbus:
         then:
           - lambda: |-
               const uint32_t EN_ID  = 0x100;          // broadcast update (gate + settings)
-              const uint32_t CMD_ID = 0x400 + ${id};
+              const uint32_t CMD_ID = 0x400 + id(device_id);
 
               // ---------------- 0x100 : update broadcast (game gate + settings) ----------------
               // 8-byte frame from the display @ 5Hz for the whole bus:
@@ -281,7 +286,10 @@ script:
           if (id(board_active)) status |= 0x08;
           st[4] = status;
           // st[5..7] stay 0xFF (unused)
-          id(can_bus).send_data(0x200 + ${id}, false, st);
+          // Silent while unassigned: two un-addressed motors would otherwise
+          // both transmit 0x200 and collide on a shared bus.
+          if (id(device_id) == 0) return;
+          id(can_bus).send_data(0x200 + id(device_id), false, st);
 
           // ---- 0x300+id : telemetry (little-endian uint16) ----
           int ca = (int) lroundf(id(motor_current_forward_raw).state * 10.0f);
@@ -312,7 +320,8 @@ script:
           tm[2] = ca & 0xFF; tm[3] = (ca >> 8) & 0xFF;   // A current x10
           tm[4] = b  & 0xFF; tm[5] = (b  >> 8) & 0xFF;   // B pwm
           tm[6] = cb & 0xFF; tm[7] = (cb >> 8) & 0xFF;   // B current x10
-          id(can_bus).send_data(0x300 + ${id}, false, tm);
+          if (id(device_id) == 0) return;
+          id(can_bus).send_data(0x300 + id(device_id), false, tm);
 
 # ==============================================================================
 # INTERVAL - Periodic status + telemetry broadcast

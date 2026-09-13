@@ -18,7 +18,7 @@
 # SUBSTITUTIONS - Rev 1.x Specific Configuration Variables
 # ==============================================================================
 substitutions:
-  project_version: "1.0.0"
+  project_version: "3.2.0"
 
 # ==============================================================================
 # EXTERNAL PACKAGES
@@ -32,14 +32,35 @@ packages:
 # ==============================================================================
 esphome:
   min_version: 2025.8.2
+  # MUST stay a LIST (leading "-"). configs/networked.yaml adds its own on_boot
+  # trigger; ESPHome only concatenates on_boot across packages when both sides
+  # are lists — as a bare dict this block silently overwrites, or is overwritten
+  # by, the other package's trigger.
   on_boot:
-    priority: 300   # Let LVGL and the display initialize first
-    then:
-      - logger.log: "Booting up..."
-      - lvgl.widget.show: boot_screen
-      - lvgl.widget.hide: game_screen
-      - lvgl.widget.hide: game_shot_screen
-      - lvgl.widget.hide: game_over_screen
+    - priority: 300   # Let LVGL and the display initialize first
+      then:
+        - logger.log: "Booting up..."
+        # Boot PARKED on the game over screen, not on the attract screen.
+        # Which screen an idle lane should show is a function of Home Assistant
+        # state - credits, free play - and none of that has arrived yet at
+        # priority 300. The game over screen is the honest answer at this point:
+        # it is exactly the state a paid lane sits in between players, and
+        # refresh_idle_screen promotes it to the attract screen the moment the
+        # lane is known to be playable, over the SAME path a mid-session credit
+        # takes. That means the boot screen is reached by one code path instead
+        # of two, and the lane can never boot into an attract screen that Home
+        # Assistant would not have offered.
+        #
+        # end_sync_grace runs refresh_idle_screen once the sync window closes,
+        # so a free site - no credits helper, so no credit update to react to -
+        # still gets promoted.
+        - lvgl.widget.hide: boot_screen
+        - lvgl.widget.hide: game_screen
+        - lvgl.widget.hide: game_shot_screen
+        - lvgl.widget.show: game_over_screen
+        - globals.set:
+            id: game_over_active
+            value: 'true'
 
 # ==============================================================================
 # ESP32-S3 FRAMEWORK
@@ -88,18 +109,27 @@ light:
 # ==============================================================================
 # FONTS
 # ==============================================================================
+# Sizes are dictated by the artwork's value plates, so they come from the
+# image_layout package selected in main.yaml (boards/common/image_layout_*.yaml)
+# alongside the plate coordinates — change them there, not here. Roboto's line
+# height is size * 2400/2048, which is what has to fit inside a plate.
+# small_font is UI chrome, not artwork, so it stays a literal.
 font:
   - file: "fonts/Roboto-Bold.ttf"
     id: shot_font
-    size: 100
+    size: ${shots_font_size}
 
   - file: "fonts/Roboto-Bold.ttf"
     id: hit_font
-    size: 100
+    size: ${hits_font_size}
 
   - file: "fonts/Roboto-Bold.ttf"
     id: score_font
-    size: 100
+    size: ${score_font_size}
+
+  - file: "fonts/Roboto-Bold.ttf"
+    id: final_score_font
+    size: ${final_score_font_size}
 
   - file: "fonts/Roboto-Regular.ttf"
     id: small_font

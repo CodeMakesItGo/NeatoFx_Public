@@ -9,10 +9,10 @@ substitutions:
   # Default ID - override with -s id XXXX command line parameter
   id: "0000"                     # Default speaker ID
   # name / friendly_name intentionally NOT set here — they are defined in
-  # main.yaml (audio-${id}) and main-file substitutions override packages.
+  # main.yaml (audio + MAC suffix) and main-file substitutions override packages.
   # Setting them here too created a confusing speaker-* vs audio-* ambiguity.
-  project_name: "CodeMakesItGo.Speaker"
-  project_version: "1.0.0"
+  project_name: "NeatoFX.Speaker"
+  project_version: "3.2.0"
   hw_version: "Rev 2.4"
 
 # ==============================================================================

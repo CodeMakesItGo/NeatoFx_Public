@@ -69,7 +69,7 @@ substitutions:
   ir_pullup: "false"
 
   # Project Information
-  project_version: "3.0.0"
+  project_version: "3.2.0"
   hw_version: "Rev 3 LCD 1.1"    # Overrides common.yaml default for the version readout
 
 # ==============================================================================
@@ -339,7 +339,7 @@ switch:
 # ==============================================================================
 # GPIO33 is driven by LEDC PWM (not a plain GPIO switch) so the GND switch can
 # be ramped 0→100% via the light transition engine. See scripts/hit_script.yaml
-# (gnd_ramp_enabled) and boards/common/common.yaml (GND Ramp switch).
+# (gnd_ramp_percent) and boards/common/common.yaml (GND Ramp number).
 light:
   - platform: monochromatic
     name: "Gnd Switch"

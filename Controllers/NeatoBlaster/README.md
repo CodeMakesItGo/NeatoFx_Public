@@ -59,7 +59,7 @@ NeatoBlaster comes in two distinct hardware revisions optimized for different us
 **Best for**: Professional installations, complex games, advanced features
 
 **Features:**
-- Full MP3 audio with DFPlayer Mini integration
+- Full MP3 audio via a DY-SV5W player on the serial port
 - Relay output for prize dispensers and game devices
 - Game start button for interactive gameplay
 - Game state management (active/inactive)
@@ -67,15 +67,22 @@ NeatoBlaster comes in two distinct hardware revisions optimized for different us
 - Auxiliary power control for external devices
 
 **Audio Control:**
-- Individual MP3 file pins for each sound:
-  - Sound 1 (GPIO17): Empty trigger (pump not engaged)
-  - Sound 2 (GPIO25): Pump action sound
-  - Sound 3 (GPIO16): Fire shot sound
-  - Sounds 4-255: Additional game audio
-- Full volume control and playback management
+- DY-SV5W MP3 player driven over the serial header (UART0):
+  - GPIO1 (TX) -> DY-SV5W RX (commands out)
+  - 9600 baud, 8N1
+  - Playback is one-way, so the player's TX line is not wired back and
+    GPIO3 (RX) stays free for the start game button
+- Tracks are selected by number, so any track is reachable:
+  - Track 1: Empty trigger (pump not engaged, or game inactive)
+  - Track 2: Pump action sound
+  - Track 3: Fire shot sound
+  - Tracks 4+: Additional game audio
+- Full volume control (0-30), restored from flash across reboots
+- GPIO16/GPIO17 are now free — earlier firmware used them as one-shot trigger
+  lines. GPIO25 was the third, and now carries the pump sensor
 
 **Advanced Features:**
-- Start game button (GPIO3 - RX pin when serial disabled)
+- Start game button (GPIO3 - the serial header's RX pin)
 - Relay output (GPIO23) for prize dispensers
 - Auxiliary power control (GPIO26) for external equipment
 - Game active/inactive state tracking
@@ -98,7 +105,7 @@ NeatoBlaster comes in two distinct hardware revisions optimized for different us
 - Multiple shot sound cycling
 
 ### Rev 3.x Audio + Control
-- DFPlayer Mini MP3 playback
+- DY-SV5W MP3 playback over serial
 - Volume control (30 levels)
 - Game state management
 - Start game button input
@@ -163,11 +170,25 @@ Check your blaster PCB or documentation:
    esphome -s id 1 -s board boards/rev3.yaml run Controllers/NeatoBlaster/main.yaml
    ```
 
-### Step 3: Rev 3.x Only - Prepare SD Card
+### Step 3: Rev 3.x Only - Prepare the DY-SV5W
 
-1. Format micro SD card as FAT32
-2. Create folder structure for MP3 files
-3. Place sound files:
+1. **Strap the module for UART mode.** Out of the box a DY-SV5W is in one-key
+   trigger mode and ignores its serial port entirely — nothing will play. Set
+   the CON1/CON2/CON3 config pads to the UART combination from the module's
+   datasheet before wiring it up.
+
+2. **Wire the serial link** to the serial header:
+
+   | ESP32 | DY-SV5W | Note |
+   |-------|---------|------|
+   | GPIO1 (TX) | RX | commands out — the only line playback needs |
+   | GPIO3 (RX) | — | leave unwired; this is the start game button |
+   | GND | GND | common ground is required |
+
+   The player runs off aux power (GPIO26), which the firmware switches on at
+   boot and then waits 1.5 s before sending the first frame.
+
+3. Format the micro SD card as FAT32 and place the sound files:
    ```
    SD Card/
    ├── 0001.mp3 (Empty trigger sound)
@@ -176,7 +197,13 @@ Check your blaster PCB or documentation:
    ├── 0004.mp3 (Game ready)
    └── ...
    ```
-4. Insert SD card into DFPlayer Mini module
+   Track numbers are the DY-SV5W's own index, which follows the order files
+   were written to the card. Copy them in numeric order onto a freshly
+   formatted card so index 3 really is `0003.mp3`.
+
+4. Insert the SD card into the DY-SV5W. To play from the module's onboard
+   flash or a USB stick instead, change `mp3_drive` in
+   [boards/rev3.yaml](boards/rev3.yaml) (0 = USB, 1 = SD, 2 = flash).
 
 ### Step 4: Initial Configuration
 
@@ -187,10 +214,19 @@ Check your blaster PCB or documentation:
    - Open: `http://192.168.4.1`
 
 3. **First Fire Test**:
+   - Turn ON the **"Game Active"** switch in the web UI. Both the trigger and
+     the "Fire Blaster" button are gated on it, so a blaster with no Home
+     Assistant helper behind it will play only the empty sound and transmit
+     nothing until this is on.
    - Point blaster toward Neato Target IR
    - Pull trigger
    - Verify IR signal received (target should flash)
    - Check audio feedback
+
+   In networked mode this override holds until Home Assistant next publishes
+   `input_boolean.player_<id>_active`, which then takes over. Standalone
+   builds latch the gate on at boot and need no switch. Use **"Test Sound"**
+   to check audio alone — it ignores the gate entirely.
 
 ## Configuration
 
@@ -204,10 +240,29 @@ Check your blaster PCB or documentation:
 ### Rev 3.x Only - Advanced Settings
 
 #### Audio Configuration
-- **Volume**: 0-30 (default: 15) - MP3 playback volume
+- **MP3 Volume**: 0-30 (default: 20) - DY-SV5W playback volume, saved to flash
+  and re-sent to the player on every boot
+- **Test Sound**: plays the fire track without transmitting IR — use it to
+  separate a dead serial link from a dead speaker
+- Track numbers and the source drive are set by the `track_*` / `mp3_drive`
+  substitutions in [boards/rev3.yaml](boards/rev3.yaml)
 - **Game Active**: Toggle whether blaster responds to trigger
   - ON: Trigger fires normally
   - OFF: Start button must activate game first
+
+#### No USB Serial Console on Rev 3.x
+
+The DY-SV5W occupies GPIO1, which is also the USB console's TX line, so Rev
+3.x sets `logger: baud_rate: 0`. Consequences:
+
+- `esphome logs` over USB shows nothing. Use `esphome logs --device <host>`
+  over WiFi, the API, or the web server — all logging is unaffected there.
+- `improv_serial` (USB provisioning) is not available. Rev 3.x provisions over
+  BLE Improv (`esp32_improv`) or the setup hotspot instead. Rev 1.x has
+  nothing on UART0 and keeps serial provisioning, which is why the component
+  is declared in [boards/rev1.yaml](boards/rev1.yaml) rather than in
+  [configs/networked.yaml](configs/networked.yaml).
+- Flashing over USB is unaffected — that uses the bootloader, not the logger.
 
 #### Output Configuration
 - **Relay on Trigger**: Enable/disable relay pulse when firing
@@ -371,8 +426,8 @@ data:
 - `switch.blaster_1_game_active` - Game state toggle
 - `switch.blaster_1_relay_1` - Relay output control
 - `switch.blaster_1_aux_pwr` - Auxiliary power control
-- `number.blaster_1_dfplayer_volume` - Volume (0-30)
-- `button.blaster_1_test_play_random_mp3` - Play random sound
+- `number.blaster_1_mp3_volume` - Volume (0-30)
+- `button.blaster_1_test_sound` - Play the fire track (serial link checkout)
 
 #### Events
 
@@ -417,13 +472,13 @@ data:
 
 **Causes & Solutions:**
 1. **SD Card Not Detected**
-   - Verify SD card inserted in DFPlayer
+   - Verify SD card inserted in the DY-SV5W
    - Check FAT32 format
    - Try different SD card
    - Check micro SD contacts for corrosion
 
 2. **Volume Set to 0**
-   - Set "DFPlayer Volume" to 15+ in web interface
+   - Set "MP3 Volume" to 15+ in web interface
    - Check amplifier volume separately
    - Test with full 30 volume
 
@@ -432,8 +487,16 @@ data:
    - Check file names match configuration
    - Ensure files actually exist on card
 
-4. **DFPlayer Not Responding**
-   - Check UART wiring (RX/TX to GPIO16/17)
+4. **DY-SV5W Not Responding**
+   - Confirm the module is strapped for UART mode, not one-key trigger mode —
+     this is the most common cause of total silence on a new player
+   - Check UART wiring (GPIO1 -> DY RX) and that the ESP32 and the player
+     share a ground
+   - Confirm aux power (GPIO26) is on — the "Aux Pwr" switch in the web UI
+   - Set the logger to DEBUG and watch for `DY-SV5W play track N` lines: if
+     they appear, the firmware is sending and the fault is downstream. Note
+     that Rev 3.x has no USB serial console (see below) — read the logs over
+     WiFi with `esphome logs`, or in the device web UI
    - Power cycle device
    - Check for loose connections
 
@@ -443,7 +506,8 @@ data:
 
 **Causes & Solutions:**
 1. **Pump Sensor Wiring**
-   - Verify pump switch wired to GPIO23 (Rev 1) or GPIO34 (Rev 3)
+   - Verify pump switch wired to GPIO23 (Rev 1) or GPIO25 (Rev 3)
+   - Rev 3.x firmware before this change used GPIO34 — see below
    - Check switch makes contact when pumped
    - Test continuity with multimeter
 
@@ -456,6 +520,29 @@ data:
    - Manually work pump action
    - Clean sensor contacts
    - Replace pump switch if faulty
+
+### Pump Moved from GPIO34 to GPIO25 (Rev 3.x) — REWIRE REQUIRED
+
+**The pump switch must be moved from the GPIO34 pin to GPIO25 on the
+right-side connector.** Flashing this firmware without rewiring leaves the
+pump permanently unpressed — GPIO25 idles high on its internal pull-up with
+nothing attached, which reads as "not pumped".
+
+**Why it moved**: GPIO34 is one of the ESP32's input-only pins (GPIO34-39).
+Unlike every other input on the board, these have **no internal pull-up or
+pull-down** — ESPHome rejects `pullup: true` on them outright. The switch
+depended on an external pull-up on the PCB, and where that resistor was
+missing or open the pin floated and fired pump events at random. GPIO25 has a
+real internal pull-up and came free when the MP3 player moved to serial.
+
+**Symptom this fixes**: "Pump Sensor" toggling on its own, pump sounds playing
+untouched, or the blaster reporting itself pumped with nobody near it.
+
+To keep the old GPIO34 wiring instead, set `pump_gpio: GPIO34` and change the
+pump sensor's `mode: INPUT_PULLUP` back to `mode: INPUT` in
+[boards/rev3.yaml](boards/rev3.yaml) — and fit a ~10 kΩ pull-up from GPIO34 to
+3V3, because nothing in firmware can un-float that pin. GPIO16 and GPIO17 are
+also free and support internal pull-ups if GPIO25 is inconvenient.
 
 ### WiFi Connection Issues
 

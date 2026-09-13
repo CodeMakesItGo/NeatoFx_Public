@@ -5,25 +5,35 @@
 # It includes hardware definitions, network configuration, IR protocols,
 # and optional integrations like FPP (Falcon Player) support.
 #
+# ONE BINARY for every unit — there is no per-unit build.
+#
 # Usage:
-#   esphome run main.yaml                    (starts with ID 0000)
-#   esphome -s id 0001 run main.yaml        (starts with ID 0001)
-#   Then adjust Golf ID via web interface number control
+#   esphome compile main.yaml
+#   esphome run     main.yaml
+#   esphome logs    main.yaml
+#   Then set the Device ID from the device web interface.
 # ==============================================================================
 
 # ==============================================================================
 # SUBSTITUTIONS - Device Identification
 # ==============================================================================
 substitutions:
-  # Default ID - override with -s id XXXX command line parameter
-  id: "1"                        # Default golf ID
-  name: golf-${id}
-  friendly_name: "NeatoFx Golf ${id}"
+  # ONE BINARY: there is no build-time id substitution. ESPHome appends the MAC
+  # suffix to the hostname at runtime (see _shared/esphome_base.yaml), giving
+  # each unit a unique, permanent hostname. Logical identity is the runtime
+  # Device ID, assigned from the web UI and stored in flash.
+  name: golf
+  name_add_mac_suffix: "true"
+  friendly_name: "NeatoFx Golf"
+  runtime_name_label: "Golf Name"
 
 # ==============================================================================
 # EXTERNAL PACKAGES
 # ==============================================================================
 packages:
+  # Runtime identity — in main.yaml so standalone builds get it too.
+  runtime_id: !include ../../_shared/runtime_id.yaml
+
   # - For Rev 3.x targets uncomment the next line
   board: !include boards/rev3.yaml
 

@@ -1,0 +1,54 @@
+# ==============================================================================
+# NEATO RELAY 8 - MAIN CONFIGURATION FILE
+# ==============================================================================
+# Single entry point. Eight independently controlled relays on one ESP32
+# WROOM-32E board: latch each channel on/off, or fire it as a timed pulse for
+# props, solenoids, air valves, lights and show cues.
+#
+# ONE BINARY for every unit — there is no per-unit build.
+#
+# Usage:
+#   esphome run     Controllers/NeatoRelay8/main.yaml
+#   esphome compile Controllers/NeatoRelay8/main.yaml
+#   esphome logs    Controllers/NeatoRelay8/main.yaml
+#   Then set the Device ID from the device web interface.
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  # ONE BINARY: there is no build-time id substitution — ESPHome appends the MAC
+  # suffix to the hostname at runtime (see _shared/esphome_base.yaml), giving
+  # each unit a unique, permanent hostname. Logical identity is the runtime
+  # Device ID, assigned from the web UI and stored in flash — swapping in a
+  # replacement board means setting that number and nothing else.
+  name: relay8
+  name_add_mac_suffix: "true"
+  friendly_name: "NeatoFx Relay 8"
+  # Infrastructure product (not player-facing), so the identity global is
+  # device_id — same as Target, Audio and Golf. See _shared/runtime_id.yaml.
+  runtime_id: device_id
+  runtime_id_label: "Device ID"
+  runtime_id_max: "99"
+  runtime_name_label: "Relay Board Name"
+
+# ==============================================================================
+# PACKAGES
+# ==============================================================================
+packages:
+  # Runtime identity — the shared device_id global + number entity.
+  runtime_id: !include ../../_shared/runtime_id.yaml
+
+  # ---- BOARD / BEHAVIOR — select exactly ONE ----
+  board: !include boards/rev1.yaml            # Rev 1.x: 8 relays on an ESP32 WROOM-32E
+
+  # ---- NETWORK — select ONE ----
+  config: !include configs/networked.yaml      # Router + Home Assistant: API + web UI + OTA
+  #config: !include configs/standalone.yaml     # AP-only: local web UI, no router, no Home Assistant
+
+# ==============================================================================
+# DEBUGGING
+# ==============================================================================
+logger:
+  level: WARN  # INFO or DEBUG for troubleshooting

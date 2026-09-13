@@ -31,7 +31,7 @@ substitutions:
   rx_gpio: GPIO03        # UART RX
 
   # Project Information
-  project_name: "CodeMakesItGo.Golf"
+  project_name: "NeatoFX.Golf"
 
 # ==============================================================================
 # ESP32 FRAMEWORK - Common Settings

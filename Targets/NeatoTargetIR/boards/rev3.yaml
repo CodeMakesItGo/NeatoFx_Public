@@ -24,11 +24,11 @@ substitutions:
   switch_12v: GPIO33     # 12V switch control
   led2_gpio: GPIO22      # Secondary LED strip
   servo_gpio: GPIO04     # Servo control
-  strip_2_led_count: "100" # Configurable LED count
+  strip_2_led_count: "150" # 3 m (9.8 ft) @ 50 LEDs/m — the fuse strip
   strip_2_internal: "false" # Visible in UI for Rev3
 
   # Project Information (Rev 3.x specific)
-  project_version: "3.0.0"
+  project_version: "3.2.0"
   hw_version: "Rev 3"            # Overrides common.yaml default for the version readout
 
 # ==============================================================================
@@ -302,9 +302,9 @@ switch:
 # ==============================================================================
 # GPIO33 is driven by LEDC PWM (not a plain GPIO switch) so the GND switch can
 # be ramped 0→100% via the light transition engine. See scripts/hit_script.yaml
-# (gnd_ramp_enabled) and boards/common/common.yaml (GND Ramp switch).
-#   - Ramp OFF (default): light turns on at 100% instantly = legacy hard switch.
-#   - Ramp ON: brightness 0→100% over relay_timer (the GND-active window).
+# (gnd_ramp_percent) and boards/common/common.yaml (GND Ramp number).
+#   - Ramp 0% (default): light turns on at 100% instantly = legacy hard switch.
+#   - Ramp N%: brightness 0→100% over N% of the GND-active window, then holds.
 # gamma_correct: 0 keeps the sweep LINEAR in PWM duty (0→100%), not perceptual.
 # frequency: tune per load (motor soft-start / lamp dimming / solenoid pull-in).
 light:

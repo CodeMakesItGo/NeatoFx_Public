@@ -1,0 +1,204 @@
+# ==============================================================================
+# NEATO RELAY 2 - HARDWARE DEFINITION (REV 1.0)
+# ==============================================================================
+# Hardware: ESP32-WROOM-32E + 2 relay driver channels
+#
+# Relay outputs (one GPIO per relay, both output-capable):
+#   GPIO16 - Relay 1
+#   GPIO17 - Relay 2
+#
+# Status LED:
+#   GPIO23 - COM LED (active LOW)
+#
+# ---------------------------------------------------------------------------
+# WHY GPIO16 / GPIO17 — AND THE ONE MODULE THEY DO NOT WORK ON
+# ---------------------------------------------------------------------------
+# Neither pin is a strapping pin. The ESP32 samples GPIO0, GPIO2, GPIO5, GPIO12
+# (MTDI) and GPIO15 (MTDO) at reset to choose boot mode and flash voltage;
+# GPIO16 and GPIO17 are outside that set, so a relay driver on either one cannot
+# affect boot. The GPIO12 flash-voltage hazard documented on NeatoRelay8 (where
+# Relay 7 lands on MTDI) therefore does NOT apply to this board — there is no
+# pin here that must idle LOW for the module to come out of reset.
+#
+# Neither pin is input-only either (that is GPIO34-39), and neither is used by
+# the internal SPI flash (GPIO6-11), so both drive a relay coil driver directly.
+#
+# THE EXCEPTION: on ESP32-WROVER modules GPIO16 and GPIO17 are wired to the
+# on-package PSRAM and are NOT available. This board is specified as WROOM-32E
+# (no PSRAM), where both pins are brought out and free. Do not substitute a
+# WROVER module — the relays would fight the PSRAM bus.
+#
+# ---------------------------------------------------------------------------
+# RELAY POLARITY
+# ---------------------------------------------------------------------------
+# ${relay_inverted} matches the firmware's idea of "on" to the driver hardware:
+#   "false" — active HIGH: GPIO high energises the relay coil (transistor /
+#             MOSFET low-side driver — the default for this board)
+#   "true"  — active LOW: GPIO low energises the relay coil (most off-the-shelf
+#             opto-isolated relay modules work this way)
+# Set it ONCE here to match the board. It is a hardware fact, not a per-unit
+# setting, so it stays a build-time substitution rather than a web UI control.
+# Unlike NeatoRelay8, flipping this to "true" is safe on every channel: no relay
+# on this board sits on a strapping pin, so an inverted boot state cannot brick
+# the module.
+# ==============================================================================
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  common: !include common/common.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS - Hardware Pin Assignments
+# ==============================================================================
+substitutions:
+  relay_1_gpio: GPIO16
+  relay_2_gpio: GPIO17
+
+  status_led_gpio: GPIO23        # COM LED (see STATUS LED section below)
+
+  relay_inverted: "false"        # "true" for active-LOW relay boards (see above)
+
+  hw_version: "Rev 1"            # Hardware revision label for the version readout
+
+# ==============================================================================
+# CORE CONFIGURATION
+# ==============================================================================
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  # Driven by the main.yaml substitution (default "false" in
+  # _shared/esphome_base.yaml). Hardcoding it here would silently override the
+  # shared default, because a board package's own esphome: block wins over the
+  # esphome_base it includes.
+  name_add_mac_suffix: ${name_add_mac_suffix}
+  # Both come from substitutions so project_version (boards/common/common.yaml)
+  # is the single source of truth. A literal here silently overrides the bump.
+  project:
+    name: ${project_name}
+    version: ${project_version}
+  # MUST stay a LIST (leading "-"). Package merging only concatenates on_boot
+  # when both sides are lists; as a bare dict this block would silently clobber,
+  # or be clobbered by, another package's trigger with no error.
+  on_boot:
+    - priority: 900   # Earliest hook — before any relay switch is set up
+      then:
+        # Nothing to drive here on purpose. Relay switches are gpio switches,
+        # which set up at HARDWARE (800) — i.e. AFTER this hook — so calling
+        # switch.turn_off now would write to a pin that has not been configured.
+        # The real safe state comes from restore_mode: ALWAYS_OFF below, which
+        # writes the pin off both before and after pin setup.
+        - logger.log: "Boot: relays start de-energised (ALWAYS_OFF)"
+
+    - priority: 700   # After globals (800) and relay switch setup, before 600 hooks
+      then:
+        # Belt and braces: re-assert every relay off once the switches exist, so
+        # a board that latched a coil through a brownout reset lets go here.
+        - script.execute: relay_all_off
+
+    - priority: -100  # After all components are initialised
+      then:
+        - text_sensor.template.publish:
+            id: firmware_version_sensor
+            state: "${project_version} · ${hw_version}"
+        - script.execute: publish_relay_state
+        - logger.log: "Boot: Relay 2 ready — 2 channels, all off"
+
+esp32:
+  board: esp32dev            # Generic ESP32-WROOM-32 / 32E module
+  framework:
+    type: arduino
+    version: recommended
+
+# ==============================================================================
+# RELAY OUTPUTS
+# ==============================================================================
+# Plain gpio switches rather than template switches over outputs: the relay IS
+# the pin, so there is no separate logical state to keep in sync.
+#
+# restore_mode: ALWAYS_OFF — the board NEVER wakes up energised. A relay
+# controller drives real loads (motors, valves, mains contactors), and restoring
+# a saved ON state after a power cut means a prop starts moving the moment power
+# returns with nobody expecting it. Change this to RESTORE_DEFAULT_OFF only if a
+# specific install genuinely needs the relays to come back on by themselves.
+#
+# on_turn_on / on_turn_off refresh the summary entities (see common.yaml) the
+# instant a channel changes, instead of polling them on a timer.
+# ==============================================================================
+switch:
+  - platform: gpio
+    name: "Relay 1"
+    id: relay_1
+    icon: "mdi:electric-switch"
+    pin:
+      number: ${relay_1_gpio}
+      inverted: ${relay_inverted}
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - script.execute: publish_relay_state
+    on_turn_off:
+      - script.execute: publish_relay_state
+
+  - platform: gpio
+    name: "Relay 2"
+    id: relay_2
+    icon: "mdi:electric-switch"
+    pin:
+      number: ${relay_2_gpio}
+      inverted: ${relay_inverted}
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - script.execute: publish_relay_state
+    on_turn_off:
+      - script.execute: publish_relay_state
+
+# ==============================================================================
+# STATUS LED
+# ==============================================================================
+# The COM LED on GPIO23, driven by the status_led LIGHT platform rather than the
+# bare status_led component, so that a lit LED means "alive and connected":
+#
+#   solid on           healthy — powered, on WiFi, API up
+#   slow blink         warning — 250 ms on every 1500 ms (no WiFi, no API)
+#   fast blink         error   — 150 ms on every 250 ms  (failed component)
+#   dark               no power, or crashed before setup
+#
+# The bare status_led component is the other way round — it drives the pin LOW
+# when healthy and only blinks on a fault, which makes "dark" mean BOTH "fine"
+# and "dead board". On a controller that ships to a site and drives real loads,
+# those two must not look identical from the doorway. The light platform blinks
+# on warning/error exactly like the bare component, but restores the light's own
+# state once the fault clears (see status_led_light.cpp), so healthy reads solid.
+#
+# restore_mode: ALWAYS_ON — the LED is an indicator, not a scene: it comes up lit
+# on every boot regardless of what was saved. It is still a real light entity, so
+# an install in a darkened room can turn it off from the web UI or Home
+# Assistant; a fault will still blink it, because warning/error override the
+# light state.
+#
+# NOTE: NeatoAudio50's COM LED and NeatoBlaster's status LED still use the bare
+# status_led component and therefore read inverted to this one (dark = healthy).
+# Bring them over to this pattern when either is next revised.
+#
+# GPIO23 is safe here for the same reason GPIO16/17 are: it is not a strapping
+# pin, not input-only (GPIO34-39) and not part of the internal flash bus
+# (GPIO6-11). Unlike GPIO16/17 it is also present on WROVER modules, but this
+# board stays WROOM-32E regardless (see above).
+#
+# inverted: no — the LED is wired active HIGH (anode to the pin, cathode to
+# ground through its resistor), so driving GPIO23 HIGH lights it. Verified on
+# hardware: with inverted: yes, commanding the light OFF lit the LED and vice
+# versa. NOTE this is the OPPOSITE of NeatoAudio50, whose COM LED sits on the
+# same GPIO23 but is wired active LOW — do not copy that pin block over to this
+# board, or the indication inverts again.
+# ==============================================================================
+light:
+  - platform: status_led
+    name: "COM LED"
+    id: com_led
+    icon: "mdi:led-on"
+    restore_mode: ALWAYS_ON
+    pin:
+      number: ${status_led_gpio}
+      inverted: no

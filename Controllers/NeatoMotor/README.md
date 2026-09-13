@@ -49,6 +49,7 @@ For the standard board, also select exactly one **drive**:
 |---|---|
 | `boards/common/drive_dc.yaml` | 24V DC motor via PWM with configurable start ramp (default) |
 | `boards/common/drive_ac.yaml` | 240VAC controller: grounds one logic input (M1/M2), leaves the other open — no PWM, dry-contact style |
+| `boards/common/linear_act.yaml` | Linear actuator: one trigger on Input 1 runs a timed extend → retract cycle. The limit switches cut their phase's output but never stop the clock |
 
 Optional **add-ons** (uncomment in `main.yaml`):
 
@@ -143,6 +144,8 @@ Web UI settings:
 - **Limit Switches NC Mode** — invert both end-stops for normally-closed wiring
 
 With the CAN add-on, the joystick inputs are armed only while the game is active (0x100 broadcast). Boot state is inactive — the joysticks do nothing until a game-active frame arrives. CAN remote drive commands work regardless.
+
+The **linear-actuator drive** replaces hold-to-run with a one-shot timed cycle. A single trigger on Input 1 ramps the actuator out for **Extend Time**, then reverses (ramping again) for **Retract Time**, then drops the output. SW1 kills the forward output for the rest of the extend phase and SW2 kills the reverse output for the rest of the retract phase — in both cases the clock keeps running, so the cycle always takes the same wall time no matter where the actuator bottoms out. Each limit is latched for its phase and cleared when the next phase starts. Input 2 is still a plain hold-to-run retract jog, and it cancels a running cycle; the web UI adds **Run Cycle** / **Cancel Cycle** buttons and a **Cycle Phase** readout.
 
 The **AC drive** variant turns the two H-bridge halves into dry contacts for an external 240VAC motor controller: holding Input 1 grounds output A (M1) and floats output B (M2); holding Input 2 does the opposite; release floats both.
 

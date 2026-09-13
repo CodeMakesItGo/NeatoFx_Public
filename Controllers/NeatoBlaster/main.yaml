@@ -5,26 +5,41 @@
 # It includes hardware definitions, network configuration, IR transmitter,
 # pump functionality, and optional integrations with Home Assistant.
 #
+# ONE BINARY for every blaster — there is no per-unit build.
+#
 # Usage:
-#   esphome run main.yaml                    (starts with ID 0001)
-#   esphome -s id 0001 run main.yaml        (starts with ID 0001)
-#   esphome -s id 0002 run main.yaml        (starts with ID 0002)
-#   Then adjust Blaster ID via web interface number control
+#   esphome run     main.yaml
+#   esphome compile main.yaml
+#   esphome logs    main.yaml
+#   Then set the Player ID (1-15) from the device web interface.
 # ==============================================================================
 
 # ==============================================================================
 # SUBSTITUTIONS - Device Identification
 # ==============================================================================
 substitutions:
-  # Default ID - override with -s id XXXX command line parameter
-  id: "1"                     # Default blaster ID
-  name: blaster-${id}
-  friendly_name: "NeatoFx PumpBlaster ${id}"
+  # ONE BINARY: there is no build-time id substitution. ESPHome appends the MAC
+  # suffix to the hostname at runtime (see _shared/esphome_base.yaml), giving
+  # each unit a unique, permanent hostname. Logical identity is the runtime
+  # Player ID, assigned from the web UI and stored in flash — swapping in a
+  # replacement blaster means setting that number and nothing else.
+  name: blaster
+  name_add_mac_suffix: "true"
+  friendly_name: "NeatoFx PumpBlaster"
+  # Player-facing product: the identity global is player_id (see
+  # _shared/runtime_id.yaml), matching the Display.
+  runtime_id: player_id
+  runtime_id_label: "Player ID"
+  runtime_id_max: "15"        # player rides in the low nibble of the NEC command
+  runtime_name_label: "Blaster Name"
 
 # ==============================================================================
 # EXTERNAL PACKAGES
 # ==============================================================================
 packages:
+  # Runtime identity — the shared player_id global + number entity.
+  runtime_id: !include ../../_shared/runtime_id.yaml
+
   # - For Rev 1.x blasters uncomment the next line
   #board: !include boards/rev1.yaml
   # - For Rev 3.x blasters uncomment the next line

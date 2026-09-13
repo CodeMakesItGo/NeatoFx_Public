@@ -2,23 +2,34 @@
 # NEATO AUDIO 50 - MAIN CONFIGURATION FILE
 # ==============================================================================
 # Usage:
-#   esphome -s id 1 compile main.yaml
-#   esphome -s id 1 run     main.yaml
-#   esphome -s id 1 logs    main.yaml
+# ONE BINARY for every unit — there is no per-unit build.
+#
+#   esphome compile main.yaml
+#   esphome run     main.yaml
+#   esphome logs    main.yaml
+#   Then set the Device ID from the device web interface.
 # ==============================================================================
 
 # ==============================================================================
 # SUBSTITUTIONS - Device Identification
 # ==============================================================================
 substitutions:
-  id: "1"
-  name: audio-${id}
-  friendly_name: "NeatoFx Audio ${id}"
+  # ONE BINARY: there is no build-time id substitution. ESPHome appends the MAC
+  # suffix to the hostname at runtime (see _shared/esphome_base.yaml), giving
+  # each unit a unique, permanent hostname. Logical identity is the runtime
+  # Device ID, assigned from the web UI and stored in flash.
+  name: audio
+  name_add_mac_suffix: "true"
+  friendly_name: "NeatoFx Audio"
+  runtime_name_label: "Audio Name"
 
 # ==============================================================================
 # PACKAGES
 # ==============================================================================
 packages:
+  # Runtime identity — in main.yaml so standalone builds get it too.
+  runtime_id: !include ../../_shared/runtime_id.yaml
+
   # Hardware — select one board revision:
   board:          !include boards/rev2_4.yaml    # Rev 2.4 / 2.5 / 2.6 (current production)
   #board:         !include boards/rev2_3.yaml    # Rev 2.3 (mp3_power on GPIO21)
@@ -30,9 +41,9 @@ packages:
   # always runs run_rf_*_script — but rftx_none marks those controls internal and
   # pins each RF MP3 # to 0 (None), so the UI shows nothing and a remote press
   # plays nothing. Use outputs or inputs to get the RF Receiver card back.
-  rftx:           !include boards/common/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
+  #rftx:           !include boards/common/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
   #rftx:          !include boards/common/rftx_inputs.yaml    # RFTX as 4 trigger inputs
-  #rftx:          !include boards/common/rftx_none.yaml      # RFTX unused (hides all RF controls from UI)
+  rftx:          !include boards/common/rftx_none.yaml      # RFTX unused (hides all RF controls from UI)
 
   # Network mode — select one:
   #config:        !include configs/standalone.yaml       # Device's own AP, no router

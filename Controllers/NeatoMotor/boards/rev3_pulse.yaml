@@ -30,7 +30,7 @@ packages:
 # SUBSTITUTIONS - Hardware Pin Assignments
 # ==============================================================================
 substitutions:
-  project_name: "CodeMakesItGo.PulseMotor"
+  project_name: "NeatoFX.PulseMotor"
 
 # ==============================================================================
 # CORE CONFIGURATION
@@ -38,10 +38,17 @@ substitutions:
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
-  name_add_mac_suffix: false
+  # Driven by the main.yaml substitution (default "false" in
+  # _shared/esphome_base.yaml). Hardcoding it here silently overrode the
+  # shared default, because a board package's own esphome: block wins over
+  # the esphome_base it includes.
+  name_add_mac_suffix: ${name_add_mac_suffix}
+  # Both come from substitutions so project_version is the single source
+  # of truth. Hardcoding version here silently overrides the bump in
+  # boards/common/common.yaml, which is exactly what used to happen.
   project:
     name: ${project_name}
-    version: "1.0.0"
+    version: ${project_version}
   on_boot:
     - priority: 900   # Earliest — disable H-bridge before GPIO init completes
       then:

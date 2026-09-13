@@ -1,0 +1,160 @@
+# ==============================================================================
+# NEATO-FX RELEASE — build shippable firmware, publish it, write back the MD5
+# ==============================================================================
+# Manual (workflow_dispatch) because a release both publishes binaries and
+# commits to main. Nothing here runs on a push.
+#
+# What it does:
+#   1. builds the default variant of every product that has an OTA manifest
+#   2. computes each binary's MD5 (tools/release.py)
+#   3. uploads the binaries to a GitHub Release tagged v<project_version>
+#   4. commits the updated firmware/*/manifest.json back to main
+#
+# Step 4 is the point of the whole thing: the manifest MD5 must match the
+# binary that was actually published, and it cannot be known until that binary
+# exists.
+#
+# REQUIRED repository secrets — a release built without these would ship the
+# published placeholder passwords from _shared/secrets.template.yaml to every
+# customer unit, so tools/release.py hard-fails if it sees them:
+#   AP_PASSWORD    setup-hotspot password (min 8 chars, goes in the manual)
+#   OTA_PASSWORD   compiled into every unit; gates LAN firmware pushes
+# ==============================================================================
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      products:
+        description: "Space-separated subset (blank = all with a manifest)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Build and print MD5s without publishing or committing"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # create the release and push the manifest commit
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache PlatformIO + ESPHome build deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-release-${{ runner.os }}-${{ hashFiles('**/main.yaml') }}
+          restore-keys: |
+            pio-release-${{ runner.os }}-
+            pio-${{ runner.os }}-
+
+      - name: Install ESPHome
+        run: |
+          pip install pyyaml esphome
+          esphome version
+
+      # Your real _shared/secrets.yaml, verbatim. That file is gitignored (it
+      # must never be committed to a public repo), so CI cannot read it from
+      # the checkout — it is supplied as a single repository secret holding the
+      # file's contents. Paste the whole file into NEATOFX_SECRETS_YAML.
+      #
+      # Written via env rather than inline expansion so the value is never
+      # interpolated into the shell command line.
+      - name: Restore _shared/secrets.yaml
+        env:
+          SECRETS_YAML: ${{ secrets.NEATOFX_SECRETS_YAML }}
+        run: |
+          if [ -z "$SECRETS_YAML" ]; then
+            echo "::error::NEATOFX_SECRETS_YAML repository secret is required."
+            echo "::error::Paste the contents of _shared/secrets.yaml into it."
+            exit 1
+          fi
+          printf '%s\n' "$SECRETS_YAML" > _shared/secrets.yaml
+          python - <<'EOF'
+          import sys, yaml
+          d = yaml.safe_load(open("_shared/secrets.yaml")) or {}
+          missing = [k for k in ("ap_password", "ota_password") if not d.get(k)]
+          if missing:
+              sys.exit(f"::error::NEATOFX_SECRETS_YAML is missing: {', '.join(missing)}")
+          print(f"secrets.yaml restored with keys: {', '.join(sorted(d))}")
+          EOF
+
+      - name: Build firmware and compute MD5s
+        id: build
+        run: |
+          python tools/release.py \
+            ${{ inputs.products != '' && format('--products {0}', inputs.products) || '' }} \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      # secrets.yaml is gitignored, but remove it before anything can archive
+      # the workspace.
+      - name: Scrub secrets
+        if: always()
+        run: rm -f _shared/secrets.yaml
+
+      - name: Summary
+        run: |
+          {
+            echo "### Release ${{ steps.build.outputs.tag }}"
+            echo
+            echo '| product | md5 |'
+            echo '|---|---|'
+            python - <<'EOF'
+          import json, pathlib
+          for m in sorted(pathlib.Path("firmware").glob("*/manifest.json")):
+              d = json.loads(m.read_text())
+              print(f"| {m.parent.name} | `{d['builds'][0]['ota']['md5']}` |")
+          EOF
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish GitHub Release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.build.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.bin --clobber
+          else
+            gh release create "$TAG" dist/*.bin \
+              --title "NEATO-FX $TAG" \
+              --notes "Firmware $TAG. Manifest MD5s in firmware/*/manifest.json were generated from these exact binaries."
+          fi
+
+      # Must come AFTER the release exists: the manifest URLs point at assets
+      # that would otherwise 404 for any device that checks in between.
+      - name: Commit updated manifests
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- firmware; then
+            echo "manifests unchanged"
+            exit 0
+          fi
+          git add firmware
+          git commit -m "Release ${{ steps.build.outputs.tag }}: manifest MD5s from published binaries"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: firmware-${{ steps.build.outputs.tag }}
+          path: dist/*.bin
+          retention-days: 90
