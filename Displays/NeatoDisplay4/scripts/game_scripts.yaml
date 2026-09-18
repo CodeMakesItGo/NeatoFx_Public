@@ -39,6 +39,63 @@ globals:
     restore_value: true
     initial_value: '15'
 
+  # Seconds a round may sit with no new shot before the lane ends it by itself.
+  # A player who puts the blaster down and walks off otherwise leaves the lane
+  # parked mid-round - showing a game screen no one is playing and, on a paid
+  # site, still holding the credit that started it.
+  #
+  # 0 disables the timeout: the round then only ends on shots exhausted, on the
+  # Timed-mode timer, or when Home Assistant clears player_<id>_active.
+  #
+  # Set it at runtime from the "Idle Timeout" number below, or gallery-wide from
+  # input_number.idle_timeout (configs/networked.yaml) - the value here is only
+  # what a never-configured unit starts at. A restoring global keys off its ID
+  # STRING, so the setting survives reboots and OTA updates alike.
+  - id: g_idle_timeout
+    type: int
+    restore_value: true
+    initial_value: '30'
+
+# ==============================================================================
+# NUMBER - Idle Timeout (runtime setting)
+# ==============================================================================
+# Exposed as an entity rather than left as a compile-time constant so one binary
+# serves every site: a gallery with no Home Assistant can still set this from the
+# device web UI, and a gallery with one gets it as a normal number entity too.
+#
+# Backed by the restoring global rather than the number's own restore_value, so
+# the 1-second game tick reads a plain int instead of going through preferences.
+number:
+  - platform: template
+    name: "Idle Timeout"
+    id: idle_timeout_number
+    icon: "mdi:timer-sand"
+    entity_category: config
+    unit_of_measurement: s
+    lambda: 'return (float) id(g_idle_timeout);'
+    update_interval: never   # published at boot and after every write, below
+    min_value: 0             # 0 = never time a round out
+    max_value: 600
+    step: 5
+    mode: box
+    set_action:
+      - globals.set:
+          id: g_idle_timeout
+          value: !lambda 'return (int) x;'
+      - component.update: idle_timeout_number
+      - logger.log:
+          format: "Idle timeout set to %ds (0 = off)"
+          args: [ 'id(g_idle_timeout)' ]
+
+# Publish the restored value once at boot so the web UI and Home Assistant show
+# what the unit is actually using. Priority 250 = after the template entity has
+# finished setup, matching _shared/runtime_id.yaml.
+esphome:
+  on_boot:
+    - priority: 250
+      then:
+        - component.update: idle_timeout_number
+
 # ==============================================================================
 # INTERVAL - 1-Second Game Tick
 # ==============================================================================
@@ -55,7 +112,8 @@ interval:
             id(idle_seconds) = 0;
           } else {
             id(idle_seconds) += 1;
-            if (id(idle_seconds) >= 30) {
+            int idle_limit = id(g_idle_timeout);
+            if (idle_limit > 0 && id(idle_seconds) >= idle_limit) {
               id(idle_seconds) = 0;
               id(idle_timeout_triggered) = true;
             }

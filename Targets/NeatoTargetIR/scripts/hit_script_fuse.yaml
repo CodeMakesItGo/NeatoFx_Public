@@ -9,9 +9,13 @@
 #
 # Include EXACTLY ONE of the two — both define the same script ids
 # (target_hit_script, gnd_pulse, target_disable_apply, target_enable_apply).
+# This variant additionally claims GPIO17 as an output — see HIT PULSE OUTPUT.
 #
 # BEHAVIOR
-#   Hit  -> main "Target LEDs" show the normal hit effect immediately (the
+#   Hit  -> GPIO17 ("Hit Pulse Out") pulses for hit_pulse_ms, after an optional
+#           hit_pulse_delay_ms lead-in (0 = immediate) — the trigger that does
+#           not have to wait for the fuse, unlike the relay
+#        -> main "Target LEDs" show the normal hit effect immediately (the
 #           "you hit it" acknowledgement, unchanged from the standard script)
 #        -> LED Strip 2 lights a fuse that burns from the first LED to the last
 #        -> when the flame runs off the end it detonates: relay / GND / servo
@@ -45,17 +49,34 @@
 #   the fuse; that is the whole point of this variant.
 #
 # TUNING
-#   All fuse parameters are substitutions (compile-time), not number entities,
-#   deliberately: adding restore_value globals reindexes the flash preference
-#   table and corrupts other saved settings on already-deployed targets. Change
-#   the values below (or override them in main.yaml) and recompile.
+#   Three parameters are LIVE in the web UI, backed by restore_value globals and
+#   persisted across reboots (same pattern as the stock Relay Timer):
 #
-#   fuse_burn_ms MUST stay the single source of truth for the burn length — the
-#   effect lambda and the script's pre-detonation delay both read it, and that
-#   is what keeps the bang aligned with the flame reaching the end.
+#     Fuse Burn Time    -> fuse_burn         (was the fuse_burn_ms substitution)
+#     Hit Pulse Delay   -> hit_pulse_delay   (GPIO17 lead-in)
+#     Hit Pulse Width   -> hit_pulse_width   (GPIO17 on-time)
 #
-#   fuse_burn_ms is a DURATION, not a speed: the head always covers the whole
-#   strip in that time, so a longer strip just burns faster unless you raise it.
+#   The substitutions of the same name are now only the INITIAL values used on a
+#   fresh device — once a number has been set in the UI, the stored value wins
+#   and editing the substitution changes nothing on that unit.
+#
+#   The remaining fuse_* parameters (head length, flicker, ember decay, fade)
+#   stay compile-time: they are read per-frame inside the effect lambda, where a
+#   global lookup buys nothing and the values are appearance, not timing.
+#
+#   An earlier version of this file claimed number entities could not be added
+#   because restore_value globals "reindex the flash preference table". That is
+#   not how this ESPHome version works — globals_component.h keys each stored
+#   global as 1944399030U ^ md5(the global's own id string), so adding or
+#   removing one cannot move another's saved value.
+#
+#   fuse_burn MUST stay the single source of truth for the burn length — the
+#   effect lambda and the script's pre-detonation delay both read that same
+#   global, and that is what keeps the bang aligned with the flame reaching the
+#   end. Changing it mid-burn will visibly shift the animation for that one hit.
+#
+#   fuse_burn is a DURATION, not a speed: the head always covers the whole strip
+#   in that time, so a longer strip just burns faster unless you raise it.
 #   2500 ms over 3 m is a brisk ~1.2 m/s. Match it to the length of the fuse
 #   portion of your MP3 — that is what makes the bang land on the sound.
 #
@@ -71,11 +92,151 @@ substitutions:
   servo_pwm_script: "servo_pwm_none"   # no-op default
 
   # --- Fuse tuning ------------------------------------------------------------
+  # fuse_burn_ms is the INITIAL value for the "Fuse Burn Time" number; after that
+  # the stored/UI value wins. The rest are compile-time appearance settings.
   fuse_burn_ms: "2500"        # burn time, first LED to detonation (ms)
   fuse_head_len: "10"         # LEDs in the glowing head (Uno: FUSE_LENGTH 10)
   fuse_flicker: "30"          # +/- brightness jitter on the tip (Uno: FLICKER_INTENSITY)
   fuse_ember_decay: "20"      # per-frame fade of the trail (Uno: EMBER_DECAY)
   fuse_fade_ms: "600"         # how long the leftover embers keep dying (ms)
+
+  # --- Instant hit pulse ------------------------------------------------------
+  # GPIO17 goes HIGH on the hit, with none of the fuse delay that the relay now
+  # carries. See the HIT PULSE OUTPUT block below.
+  # Both are INITIAL values for the "Hit Pulse Delay" / "Hit Pulse Width" numbers.
+  hit_pulse_delay_ms: "0"     # lead-in: wait this long AFTER the hit before GPIO17
+                              # goes high. 0 = fire in the same main-loop
+                              # iteration as the hit (no scheduler round-trip).
+  hit_pulse_ms: "200"         # how long GPIO17 then stays high (ms)
+
+# ==============================================================================
+# LIVE TUNING - globals + web UI numbers
+# ==============================================================================
+# Everything in this file is scoped to the fuse variant: these globals, the
+# numbers below, the GPIO17 switch and the removal of the GPIO17 input all exist
+# ONLY while `hit_script: !include scripts/hit_script_fuse.yaml` is selected in
+# main.yaml. Nothing here touches boards/common/common.yaml, so the standard and
+# lightning hit scripts are unaffected and keep GPIO17 as an input.
+#
+# restore_value: these survive a reboot, which is the point — a target retuned in
+# the field stays retuned. Each global's stored slot is keyed by md5 of its own
+# id string (globals_component.h), so these three cannot disturb the target's
+# existing saved settings.
+globals:
+  - id: fuse_burn
+    type: int
+    restore_value: true
+    initial_value: ${fuse_burn_ms}
+
+  - id: hit_pulse_delay
+    type: int
+    restore_value: true
+    initial_value: ${hit_pulse_delay_ms}
+
+  - id: hit_pulse_width
+    type: int
+    restore_value: true
+    initial_value: ${hit_pulse_ms}
+
+number:
+  # Fuse burn length. Read by BOTH the effect lambda and target_hit_script's
+  # pre-detonation delay, so the flame and the bang stay aligned at any setting.
+  - platform: template
+    name: "Fuse Burn Time"
+    id: fuse_burn_control
+    min_value: 250
+    max_value: 20000
+    step: 50
+    restore_value: true
+    optimistic: true
+    initial_value: ${fuse_burn_ms}
+    icon: "mdi:fire"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          if (value < 1) value = 1;   // effect divides by this
+          id(fuse_burn) = value;
+          ESP_LOGI("config", "Fuse burn time set to: %d ms", value);
+
+  # GPIO17 lead-in. 0 keeps the pulse inline with the hit (see hit_pulse).
+  - platform: template
+    name: "Hit Pulse Delay"
+    id: hit_pulse_delay_control
+    min_value: 0
+    max_value: 20000
+    step: 10
+    restore_value: true
+    optimistic: true
+    initial_value: ${hit_pulse_delay_ms}
+    icon: "mdi:timer-sand"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          id(hit_pulse_delay) = value;
+          ESP_LOGI("config", "Hit pulse delay set to: %d ms", value);
+
+  # GPIO17 on-time.
+  - platform: template
+    name: "Hit Pulse Width"
+    id: hit_pulse_width_control
+    min_value: 10
+    max_value: 10000
+    step: 10
+    restore_value: true
+    optimistic: true
+    initial_value: ${hit_pulse_ms}
+    icon: "mdi:flash-outline"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          id(hit_pulse_width) = value;
+          ESP_LOGI("config", "Hit pulse width set to: %d ms", value);
+
+# ==============================================================================
+# HIT PULSE OUTPUT - GPIO17, fires the instant the target is hit
+# ==============================================================================
+# In this variant relay_1 fires at DETONATION, i.e. fuse_burn_ms after the hit.
+# That is the point of the fuse, but it makes the relay useless for anything
+# that has to react immediately (audio trigger, an external controller, a
+# scoreboard input). This output is that immediate signal: it goes HIGH in the
+# same main-loop iteration the hit is detected — before the LED work, before the
+# blocking audio POST — and releases on its own timer (hit_pulse_ms), completely
+# independent of fuse_burn_ms and relay_timer.
+#
+# TIMING  (both live in the web UI — "Hit Pulse Delay" / "Hit Pulse Width")
+#   hit  --[hit_pulse_delay]--> GPIO17 HIGH --[hit_pulse_width]--> GPIO17 LOW
+#
+#   Both are independent of the fuse: set the delay anywhere from 0 to past the
+#   Fuse Burn Time to land the pulse before, on, or after the bang. It is NOT
+#   clamped to the fuse length — a lead-in longer than the whole hit window will
+#   be cut short by target_disable_apply or the next hit, since the pulse is a
+#   plain script.
+#
+# GPIO17 is the right-side connector's general I/O. All three Rev 3.x boards
+# declare it as a log-only binary_sensor input; `id: !remove` drops that input so
+# the pin is free to be an output. (Rev 1.x defines no io17_gpio at all, but it
+# also has no LED Strip 2, so it cannot run this variant regardless.)
+#
+# The removal and the switch live HERE, not in the board files, so the standard
+# and lightning hit scripts keep GPIO17 as an input and this file stays a
+# drop-in: swap the include in main.yaml and nothing else changes.
+binary_sensor:
+  - id: !remove gpio17_digital
+
+switch:
+  - platform: gpio
+    pin: ${io17_gpio}
+    name: "Hit Pulse Out"
+    id: hit_pulse_out
+    icon: "mdi:flash"
+    # ALWAYS_OFF deliberately: RESTORE_* modes claim a slot in the flash
+    # preference table, and adding a slot reindexes every other saved setting on
+    # already-deployed targets (saved color / brightness / effect / Device ID).
+    # A momentary output has nothing worth restoring anyway.
+    restore_mode: ALWAYS_OFF
 
 # ==============================================================================
 # FUSE EFFECT - merged onto LED Strip 2 (boards/common/common.yaml)
@@ -101,7 +262,12 @@ light:
             // reaches the end of the fuse. The strip itself never flashes.
             static uint32_t t0 = 0;
 
-            const uint32_t BURN_MS  = ${fuse_burn_ms};
+            // Live from the "Fuse Burn Time" number, not a compile-time
+            // constant — the same global target_hit_script waits on, so the
+            // detonation still lands exactly as the head reaches the last LED.
+            // Guarded because it is the divisor for `progress` below.
+            uint32_t BURN_MS = (uint32_t) id(fuse_burn);
+            if (BURN_MS < 1) BURN_MS = 1;
             const uint32_t FADE_MS  = ${fuse_fade_ms};
             const int      HEAD_LEN = ${fuse_head_len};
 
@@ -162,6 +328,31 @@ light:
             }
 
 script:
+  # Hit pulse — optional lead-in, then GPIO17 high for hit_pulse_ms.
+  # mode: restart so a fresh hit re-arms a pulse that is still running rather
+  # than being swallowed (target_hit_script is mode: single, so in practice this
+  # only matters when hit_pulse is fired from somewhere else).
+  #
+  # The lead-in sits behind an `if` rather than being an unconditional
+  # `delay: !lambda 'return id(hit_pulse_delay);'` on purpose. ESPHome's delay
+  # action always goes through the scheduler, so even a 0 ms delay hands control
+  # back to the main loop and the turn-on lands a loop iteration (or more) later.
+  # An `if` whose condition is false runs its way through inline, so with the
+  # delay set to 0 the turn-on still happens in the hit's own iteration — which
+  # is the whole reason this output exists. Set it above 0 and you are opting
+  # into the scheduler round-trip, which is fine at that point.
+  - id: hit_pulse
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(hit_pulse_delay) > 0;'
+          then:
+            - delay: !lambda 'return id(hit_pulse_delay);'
+      - switch.turn_on: hit_pulse_out
+      - delay: !lambda 'return id(hit_pulse_width);'
+      - switch.turn_off: hit_pulse_out
+
   # GND-switch pulse — runs concurrently with the hit so the GND output can hold
   # for its own duration, independent of the relay. Fired from target_hit_script
   # via `script.execute: gnd_pulse`. Effective on-time = gnd_timer, or relay_timer
@@ -194,6 +385,11 @@ script:
   - id: target_hit_script
     mode: single  # Prevent overlapping hits
     then:
+      # FIRST action, before the logging and the LED work: script.execute runs
+      # inline up to its first delay, so with "Hit Pulse Delay" at 0 GPIO17 is
+      # already high by the time the next line runs. Anything added above this
+      # line adds latency to the pulse; the lead-in, if any, is timed from here.
+      - script.execute: hit_pulse
       - logger.log: "Target hit detected - lighting fuse..."
       # Disable IR during hit processing
       - globals.set:
@@ -332,9 +528,9 @@ script:
           brightness: 100%
           effect: "Fuse Effect"
 
-      # Burn. Same constant the effect uses, so the outputs below fire on the
-      # exact frame the flame reaches the end of the fuse.
-      - delay: ${fuse_burn_ms}ms
+      # Burn. Same global the effect lambda reads, so the outputs below fire on
+      # the exact frame the flame reaches the end of the fuse.
+      - delay: !lambda 'return id(fuse_burn);'
 
       # ---- DETONATION ----
       - lambda: |-
@@ -365,7 +561,7 @@ script:
       - script.execute: servo_pwm_zero
 
       # Continue displaying the hit effect until total hit_display_time is
-      # reached. NOTE: total hit length is now fuse_burn_ms + hit_display_time —
+      # reached. NOTE: total hit length is now fuse_burn + hit_display_time —
       # the burn is added in front of the normal display window, not carved out
       # of it, so hit_display_time still means "how long the aftermath shows".
       - delay: !lambda |-
@@ -466,6 +662,7 @@ script:
       # fuse variant this also matters mid-burn: without the stop, a target
       # disabled while the fuse is travelling would still detonate.
       - script.stop: target_hit_script
+      - script.stop: hit_pulse
       - script.stop: gnd_pulse
       - script.stop: ${servo_pwm_script}
       - script.execute: servo_pwm_zero
@@ -482,6 +679,7 @@ script:
           value: 'false'
       # Outputs off. 0s transitions so a disable is immediate, not a fade.
       - switch.turn_off: relay_1
+      - switch.turn_off: hit_pulse_out
       - light.turn_off:
           id: gnd_light
           transition_length: 0s

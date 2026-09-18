@@ -494,6 +494,24 @@ sensor:
           id: g_max_shots
           value: !lambda 'return (int)x;'
 
+  # Gallery-wide idle timeout, when Home Assistant supplies one. The helper is
+  # OPTIONAL: without it this state stays NAN, on_value never fires, and the lane
+  # keeps whatever its own "Idle Timeout" number entity was set to - one binary
+  # serves both a site with Home Assistant and a site without.
+  #
+  # Where the helper does exist, Home Assistant wins: it re-pushes the value at
+  # every connect, so a per-lane edit made in the device web UI is overwritten
+  # the next time the lane reconnects. Change it on the dashboard, not per lane.
+  - platform: homeassistant
+    id: idle_timeout_ha
+    entity_id: input_number.idle_timeout
+    internal: true
+    on_value:
+      - globals.set:
+          id: g_idle_timeout
+          value: !lambda 'return (int)x;'
+      - component.update: idle_timeout_number
+
   # --------------------------------------------------------------------------
   # Player-keyed game state — entity_id is rebound at boot, see the on_boot
   # block above. The values below are placeholders and are never subscribed.

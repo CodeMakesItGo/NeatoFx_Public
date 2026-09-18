@@ -67,6 +67,9 @@
     // ── Aux Triggers ──
     gpio25_trigger: { type: SW, name: 'GPIO25 Hit Trigger', label: 'GPIO25 Trigger', section: 'aux' },
     gnd_ramp:       { type: NUM, name: 'GND Ramp', label: 'GND Ramp (% of GND window, 0 = instant)', min: 0, max: 100, step: 1, unit: '%', section: 'aux' },
+    aux_pwr_mode:   { type: SEL, name: 'Aux Power Mode', label: 'Aux Power', options: ['On', 'Off', 'Follow Relay'],
+                      note: 'On = aux rail always powered. Off = never powered. Follow Relay = powered only while Relay 1 is on (the Relay Timer window on each hit). The servo, LED Strip 2 and the LCD face all run off this rail — leave it On if the target uses them.',
+                      section: 'aux' },
 
     // ── LED Strip 2 ──
     led2:            { type: LT,  name: 'LED Strip 2',            label: 'LED Strip 2',     section: 'led2' },
@@ -432,9 +435,11 @@
     var sel = document.createElement('select');
     cfg.options.forEach(function (opt) { sel.add(new Option(opt, opt)); });
     sel.addEventListener('change', function () { api.selSet(id, sel.value); });
+    // Label, plus the optional explanatory note (same markup as makeToggle)
     var lbl = document.createElement('span');
-    lbl.className   = 'lbl';
-    lbl.textContent = cfg.label;
+    lbl.className = 'lbl-wrap';
+    lbl.innerHTML = '<span class="lbl">' + cfg.label + '</span>' +
+      (cfg.note ? '<span class="note">' + cfg.note + '</span>' : '');
     div.appendChild(lbl);
     div.appendChild(sel);
     return div;

@@ -1,0 +1,100 @@
+# ==============================================================================
+# NEATO TARGET IR - AUX POWER MODE (Rev 3.x only)
+# ==============================================================================
+# Rev 3.x has an auxiliary power rail on ${aux_pwr_gpio}, exposed as the plain
+# "Aux Pwr" switch. This package adds a three-way MODE on top of that switch:
+#
+#   On            Rail powered continuously. Default, and what every build did
+#                 before this package existed.
+#   Off           Rail stays unpowered after startup.
+#   Follow Relay  Rail is unpowered at idle and is switched ON with Relay 1 for
+#                 exactly the relay window (Relay Timer), then released again.
+#
+# WHY IT HOOKS THE RELAY AND NOT THE HIT SCRIPTS
+# "Follow Relay" is wired to relay_1's own on_turn_on / on_turn_off triggers, so
+# it follows the relay from EVERY source with no per-script code: all three hit
+# scripts (standard / fuse / lightning — each fires the relay at a different
+# point in its timeline), the manual Relay toggle in the Test card, and the
+# output release in target_disable_apply when the target is disabled.
+#
+# The "Aux Pwr" switch itself stays in the UI as a manual bench-test toggle. It
+# does NOT change the mode: in Follow Relay the next relay edge takes the rail
+# back over, and in On/Off the rail is re-asserted the next time the mode is
+# applied (a mode change or a reboot).
+#
+# STARTUP: the board's boot sequence powers the rail in stage 3 regardless of
+# mode — LED restoration and servo homing need it — and calls
+# aux_pwr_apply_mode at the end of the sequence to settle it. So a target in
+# Off or Follow Relay mode still shows its full boot sequence, then drops the
+# rail.
+#
+# CAUTION: the servo, LED Strip 2 and (on the LCD face) the display all hang off
+# this rail. Off / Follow Relay leave them unpowered between hits — that is the
+# point for a solenoid or lamp load, but it makes the servo and strip 2 useless.
+#
+# Rev 1.x has no aux rail, so this package is included by the Rev 3.x board
+# files only, NOT by common/common.yaml.
+# ==============================================================================
+
+select:
+  # Aux power mode. Persisted (restore_value), so a rail left in Follow Relay
+  # comes back in Follow Relay. This select is the single source of truth for
+  # the mode — there is no separate global to keep in sync.
+  - platform: template
+    name: "Aux Power Mode"
+    id: aux_pwr_mode_select
+    icon: "mdi:power-plug-outline"
+    options:
+      - "On"
+      - "Off"
+      - "Follow Relay"
+    initial_option: "On"
+    optimistic: true
+    restore_value: true
+    set_action:
+      - logger.log:
+          format: "Aux power mode set to: %s"
+          args: ['x.c_str()']
+      - script.execute: aux_pwr_apply_mode
+
+script:
+  # Drive the rail to the state the current mode calls for at IDLE.
+  # On           -> powered.
+  # Off          -> unpowered.
+  # Follow Relay -> unpowered until the relay fires (triggers below).
+  # Called on every mode change and once at the end of the board boot sequence.
+  - id: aux_pwr_apply_mode
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(aux_pwr_mode_select).state == "On";'
+          then:
+            - switch.turn_on: aux_pwr
+          else:
+            - switch.turn_off: aux_pwr
+
+switch:
+  # FOLLOW-RELAY HOOK — extends the relay_1 defined in common/common.yaml.
+  # These triggers are appended to the ones already on that switch (package
+  # lists concatenate), so its existing logging is untouched.
+  #
+  # Both branches are gated on the mode, which means On / Off modes see no
+  # behaviour change at all: the rail is left exactly where the mode put it.
+  # At boot relay_1 publishes its restore_mode ALWAYS_OFF state before the
+  # select has been set up; state is "" then, so neither branch fires.
+  - id: !extend relay_1
+    on_turn_on:
+      - if:
+          condition:
+            lambda: 'return id(aux_pwr_mode_select).state == "Follow Relay";'
+          then:
+            - switch.turn_on: aux_pwr
+            - logger.log: "Aux power ON (following relay)"
+    on_turn_off:
+      - if:
+          condition:
+            lambda: 'return id(aux_pwr_mode_select).state == "Follow Relay";'
+          then:
+            - switch.turn_off: aux_pwr
+            - logger.log: "Aux power OFF (following relay)"

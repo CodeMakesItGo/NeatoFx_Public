@@ -79,6 +79,10 @@ substitutions:
 # ==============================================================================
 packages:
   common_components: !include common/common.yaml
+  # Aux Power Mode — turns the Aux Pwr switch into On / Off / Follow Relay.
+  # Rev 3.x only (Rev 1.x has no aux rail), and declared AFTER common.yaml
+  # because it extends the relay_1 switch defined there.
+  aux_power: !include common/aux_power.yaml
 
 # ==============================================================================
 # CORE CONFIGURATION - Rev 3.x Boot Sequence (identical to boards/rev3.yaml)
@@ -260,6 +264,13 @@ esphome:
               - delay: 1s
               # startup_complete must still be set or the LED auto-save never arms
               - lambda: 'id(startup_complete) = true;'
+
+        # === FINAL: settle the aux rail on its configured mode ===
+        # Stage 3 powered the rail unconditionally so LED restoration and servo
+        # homing could run. Now hand it to the "Aux Power Mode" select: On keeps
+        # it powered, Off and Follow Relay drop it (Follow Relay then raises it
+        # with Relay 1 on each hit). See boards/common/aux_power.yaml.
+        - script.execute: aux_pwr_apply_mode
 
 # ==============================================================================
 # BINARY SENSORS - Digital Inputs
