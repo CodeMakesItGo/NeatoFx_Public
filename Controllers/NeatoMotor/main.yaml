@@ -40,7 +40,8 @@ packages:
   runtime_id: !include ../../_shared/runtime_id.yaml
 
   # ---- BOARD / BEHAVIOR — select exactly ONE ----
-  board: !include boards/rev3_12v.yaml             # Standard: hold-to-run joystick (pick a DRIVE below)
+  board: !include boards/rev3_12v.yaml             # Standard, no CAN: hold-to-run joystick, SW1 on GPIO4 (pick a DRIVE below)
+  #board: !include boards/rev3.yaml            # Standard + CAN: SW1 on GPIO25, GPIO4/5 free for the CAN add-on
   #board: !include boards/rev3_winch.yaml      # Winch: hall-encoder, auto-homing, soft limits
 
   # ---- DRIVE — standard board only; select ONE (leave commented for winch) ----

@@ -58,7 +58,8 @@ devices:
       ac_standalone:
         drive: boards/common/drive_ac.yaml
         config: configs/standalone.yaml
-      dc_can_sound:            # CAN/sound add-ons pair with the STANDARD board
+      dc_can_sound:            # CAN/sound add-ons need rev3.yaml (SW1 on GPIO25; GPIO4 is CAN RX)
+        board: boards/rev3.yaml
         can: boards/common/can.yaml
         sound: boards/common/sound.yaml
       winch:

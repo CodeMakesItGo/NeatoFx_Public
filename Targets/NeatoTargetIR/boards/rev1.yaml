@@ -94,7 +94,9 @@ sensor:
     on_value_range:
       - below: 0.5
         then:
-          - logger.log: "WARNING: Low voltage detected on GPIO34"
+          - logger.log:
+              format: "Low voltage detected on GPIO34"
+              level: WARN
           
   # Analog voltage measurement on GPIO35 
   - platform: adc
@@ -114,7 +116,9 @@ sensor:
     on_value_range:
       - below: 0.5
         then:
-          - logger.log: "WARNING: Low voltage detected on GPIO35"
+          - logger.log:
+              format: "Low voltage detected on GPIO35"
+              level: WARN
 
 # ==============================================================================
 # SWITCHES - Standard board interface

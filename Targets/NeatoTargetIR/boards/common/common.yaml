@@ -26,7 +26,7 @@ substitutions:
   # LED Strip 2 wire colour order. WS2812 is GRB — this was previously hard-coded
   # to RGB, which swapped red and green on strip 2 (picking "Red" lit it green).
   # Overridable per board for a strip that genuinely wires up differently.
-  strip_2_rgb_order: "GRB"
+  strip_2_channel_colors: "GRB"
 
   # Common GPIO Pins (consistent across revisions)
   led_gpio: GPIO5        # Main target LED strip
@@ -168,7 +168,7 @@ light:
   - platform: esp32_rmt_led_strip
     chipset: WS2812
     rmt_symbols: 64
-    rgb_order: GRB
+    channel_colors: GRB
     pin: 
       number: ${led_gpio}
       ignore_strapping_warning: ${led_ignore_strapping}
@@ -311,7 +311,7 @@ light:
   - platform: esp32_rmt_led_strip
     chipset: WS2812
     rmt_symbols: 128 
-    rgb_order: ${strip_2_rgb_order}
+    channel_colors: ${strip_2_channel_colors}
     pin: ${led2_gpio}
     num_leds: ${strip_2_led_count}
     name: "LED Strip 2"

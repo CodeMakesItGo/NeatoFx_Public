@@ -16,3 +16,8 @@
 # Tolerated for now — both components still work.
 ^WARNING The 'ili9xxx' component is deprecated
 ^WARNING The 'rpi_dpi_rgb' component is deprecated
+
+# ESPHome 2026.9 mis-flags LVGL's internal 'transparency_key' default (the name
+# contains "key") with its legacy secret-redaction heuristic. Upstream noise, not
+# our config. The heuristic is removed in 2026.12.0 — drop this entry then.
+^WARNING Field 'transparency_key' is being redacted by a legacy substring heuristic
