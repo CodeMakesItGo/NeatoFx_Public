@@ -44,9 +44,9 @@ packages:
   #board: !include boards/rev3_winch.yaml      # Winch: hall-encoder, auto-homing, soft limits
 
   # ---- DRIVE — standard board only; select ONE (leave commented for winch) ----
-  #drive: !include boards/common/drive_dc.yaml    # 24V DC motor via PWM ramp (default)
+  drive: !include boards/common/drive_dc.yaml    # 24V DC motor via PWM ramp (default)
   #drive: !include boards/common/drive_ac.yaml   # 240VAC controller: ground one input, open the other
-  drive: !include boards/common/linear_act.yaml # Linear actuator: TGL1 fires a timed extend -> retract cycle
+  #drive: !include boards/common/linear_act.yaml # Linear actuator: TGL1 fires a timed extend -> retract cycle
 
   # ---- NETWORK — select ONE ----
   #config: !include configs/networked.yaml          # Router, no HA server (No-HA LAN): web UI only
