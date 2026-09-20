@@ -18,12 +18,13 @@ devices:
     path: Targets/NeatoTargetIR/main.yaml
     label: "Neato Target IR"
     variants:
-      default: {}   # rev3 + home_assistant + ir_laser_tag + servo
+      default: {}   # rev3 + home_assistant + ir_laser_tag + servo + hit_fuse
       rev1_standalone:
         board: boards/rev1.yaml
         config: configs/standalone.yaml
         ir_receiver: protocols/ir_raw.yaml
         servo_scripts: scripts/servo_stubs.yaml
+        hit_script: scripts/hit_script.yaml
       lcd_lasertag_fpp:
         board: boards/rev3_lcd_1_1.yaml
         ir_receiver: protocols/ir_laser_tag.yaml
@@ -40,6 +41,8 @@ devices:
         board: boards/rev3_hit_1_0.yaml
       rev3_lcd_1_1:             # Rev 3.x + LCD face 1.1 (GC9A01 LCD)
         board: boards/rev3_lcd_1_1.yaml
+      hit_standard:             # standard hit effect (no fuse / lightning)
+        hit_script: scripts/hit_script.yaml
       hit_fuse:                 # fuse burns down LED Strip 2, then explodes
         hit_script: scripts/hit_script_fuse.yaml
       hit_lightning:            # xLights lightning-storm port (left cloud)
