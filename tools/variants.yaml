@@ -52,9 +52,9 @@ devices:
     path: Controllers/NeatoMotor/main.yaml
     label: "Neato Motor"
     variants:
-      default: {}   # rev3_12v + linear_act + home_assistant
-      dc:                      # 24V DC motor via PWM ramp
-        drive: boards/common/drive_dc.yaml
+      default: {}   # rev3_12v + drive_dc + home_assistant
+      linear_act:              # Linear actuator: timed extend -> retract cycle
+        drive: boards/common/linear_act.yaml
       ac_standalone:
         drive: boards/common/drive_ac.yaml
         config: configs/standalone.yaml
