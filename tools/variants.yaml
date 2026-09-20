@@ -18,12 +18,13 @@ devices:
     path: Targets/NeatoTargetIR/main.yaml
     label: "Neato Target IR"
     variants:
-      default: {}   # rev3 + home_assistant + ir_laser_tag + servo
+      default: {}   # rev3 + home_assistant + ir_laser_tag + servo + hit_fuse
       rev1_standalone:
         board: boards/rev1.yaml
         config: configs/standalone.yaml
         ir_receiver: protocols/ir_raw.yaml
         servo_scripts: scripts/servo_stubs.yaml
+        hit_script: scripts/hit_script.yaml
       lcd_lasertag_fpp:
         board: boards/rev3_lcd_1_1.yaml
         ir_receiver: protocols/ir_laser_tag.yaml
@@ -40,16 +41,25 @@ devices:
         board: boards/rev3_hit_1_0.yaml
       rev3_lcd_1_1:             # Rev 3.x + LCD face 1.1 (GC9A01 LCD)
         board: boards/rev3_lcd_1_1.yaml
+      hit_standard:             # standard hit effect (no fuse / lightning)
+        hit_script: scripts/hit_script.yaml
+      hit_fuse:                 # fuse burns down LED Strip 2, then explodes
+        hit_script: scripts/hit_script_fuse.yaml
+      hit_lightning:            # xLights lightning-storm port (left cloud)
+        hit_script: scripts/hit_script_lightning.yaml
 
   motor:
     path: Controllers/NeatoMotor/main.yaml
     label: "Neato Motor"
     variants:
-      default: {}   # rev3 + drive_dc + home_assistant
+      default: {}   # rev3_12v + drive_dc + home_assistant
+      linear_act:              # Linear actuator: timed extend -> retract cycle
+        drive: boards/common/linear_act.yaml
       ac_standalone:
         drive: boards/common/drive_ac.yaml
         config: configs/standalone.yaml
-      dc_can_sound:            # CAN/sound add-ons pair with the STANDARD board
+      dc_can_sound:            # CAN/sound add-ons need rev3.yaml (SW1 on GPIO25; GPIO4 is CAN RX)
+        board: boards/rev3.yaml
         can: boards/common/can.yaml
         sound: boards/common/sound.yaml
       winch:
@@ -66,6 +76,22 @@ devices:
       default: {}   # rev3 + networked
       rev1_standalone:
         board: boards/rev1.yaml
+        config: configs/standalone.yaml
+
+  relay8:
+    path: Controllers/NeatoRelay8/main.yaml
+    label: "Neato Relay 8"
+    variants:
+      default: {}   # rev1 + networked
+      standalone:
+        config: configs/standalone.yaml
+
+  relay2:
+    path: Controllers/NeatoRelay2/main.yaml
+    label: "Neato Relay 2"
+    variants:
+      default: {}   # rev1 + networked
+      standalone:
         config: configs/standalone.yaml
 
   golf:
@@ -102,7 +128,9 @@ devices:
     label: "Neato Display 4"
     substitutions: { color: "YLW", font_color: "0xFFE000" }
     variants:
-      default: {}
+      default: {}   # "Gunslinger Jacks" artwork geometry (matches images/)
+      shootout_art:            # stock "Target Shootout" geometry (images_bak/)
+        image_layout: boards/common/image_layout_shootout.yaml
 
   display7:
     path: Displays/NeatoDisplay7/main.yaml

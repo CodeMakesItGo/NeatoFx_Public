@@ -20,43 +20,50 @@
 sensor:
   - platform: template
     name: "Player Score"
-    id: player_${id}_score
+    id: player_score_sensor
     update_interval: never
 
   - platform: template
     name: "Player Hit"
-    id: player_${id}_hit
+    id: player_hit_sensor
     update_interval: never
 
   - platform: template
     name: "Player Shots"
-    id: player_${id}_shot
+    id: player_shot_sensor
     update_interval: never
 
 # ==============================================================================
 # IMAGES - Screen Backgrounds
 # ==============================================================================
+# `platform: file` is required: the bare `image:` list is the legacy format,
+# deprecated in 2026.7 and removed in ESPHome 2027.1.0. Images are platforms of
+# the image component now.
+# Artwork lives in images/ as 1024x1024 PNGs and is downscaled to the panel's
+# 480x480 at compile time. `transparency: opaque` (not alpha_channel): these are
+# full-bleed backgrounds with no alpha channel, and opaque halves the flash cost
+# per image (460 KB vs 691 KB) and skips per-pixel blending.
 image:
   - platform: file
-    file: "images/GAME_START_${color}_BTN.png"
+    file: "images/GAME_START_${color}.png"
     id: boot_logo
     type: RGB565
     resize: 480x480
-    transparency: alpha_channel
+    transparency: opaque
 
   - platform: file
-    file: "images/GAME_SHOTS_${color}.png"
+    file: "images/GAME_PLAY_${color}.png"
     id: shots_background
     type: RGB565
     resize: 480x480
-    transparency: alpha_channel
+    transparency: opaque
 
   - platform: file
     file: "images/GAME_OVER.png"
     id: game_over_background
     type: RGB565
     resize: 480x480
-    transparency: alpha_channel
+    transparency: opaque
 
 # ==============================================================================
 # LVGL - Touch UI
@@ -98,16 +105,43 @@ lvgl:
                   width: 100%
                   height: 100%
                   src: shots_background
+              # Geometry tracks the artwork and lives in the image_layout
+              # package selected in main.yaml — see
+              # boards/common/image_layout_gunslinger.yaml. Re-measure there,
+              # not here, when the artwork is redrawn.
+              #
+              # DROP SHADOW: LVGL has no text outline, so each value is TWO
+              # labels — a shadow underneath, nudged by translate_x/y, then the
+              # real one on top. Widgets draw in list order, so the shadow MUST
+              # stay above its partner here. Both carry the same text: every
+              # lvgl.label.update in configs/networked.yaml and
+              # scripts/game_scripts.yaml lists both ids. Add a value, add both.
+              # play_value_shadow_opa: TRANSP disables the shadow layer.
               - label:
-                  id: player_shot
-                  x: 180
-                  y: 110
-                  width: 300
-                  height: 160
+                  id: player_shot_shadow
+                  x: ${shots_x}
+                  y: ${shots_y}
+                  width: ${shots_w}
+                  height: ${shots_h}
+                  translate_x: ${play_value_shadow_offset}
+                  translate_y: ${play_value_shadow_offset}
                   text_font: shot_font
                   text_align: CENTER
                   align: TOP_LEFT
-                  text_color: ${font_color}
+                  text_color: ${play_value_shadow_color}
+                  text_opa: ${play_value_shadow_opa}
+                  text: ""
+                  bg_opa: TRANSP
+              - label:
+                  id: player_shot
+                  x: ${shots_x}
+                  y: ${shots_y}
+                  width: ${shots_w}
+                  height: ${shots_h}
+                  text_font: shot_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${play_value_color}
                   text: ""
                   bg_opa: TRANSP
 
@@ -127,27 +161,57 @@ lvgl:
             bg_color: 0x000000
             widgets:
               - label:
-                  id: player_score
-                  x: 180
-                  y: 275
-                  width: 300
-                  height: 127
+                  id: player_score_shadow
+                  x: ${score_x}
+                  y: ${score_y}
+                  width: ${score_w}
+                  height: ${score_h}
+                  translate_x: ${play_value_shadow_offset}
+                  translate_y: ${play_value_shadow_offset}
                   text_font: score_font
                   text_align: CENTER
                   align: TOP_LEFT
-                  text_color: ${font_color}
+                  text_color: ${play_value_shadow_color}
+                  text_opa: ${play_value_shadow_opa}
+                  text: ""
+                  bg_opa: TRANSP
+              - label:
+                  id: player_score
+                  x: ${score_x}
+                  y: ${score_y}
+                  width: ${score_w}
+                  height: ${score_h}
+                  text_font: score_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${play_value_color}
+                  text: ""
+                  bg_opa: TRANSP
+              - label:
+                  id: player_hit_shadow
+                  x: ${hits_x}
+                  y: ${hits_y}
+                  width: ${hits_w}
+                  height: ${hits_h}
+                  translate_x: ${play_value_shadow_offset}
+                  translate_y: ${play_value_shadow_offset}
+                  text_font: hit_font
+                  text_align: CENTER
+                  align: TOP_LEFT
+                  text_color: ${play_value_shadow_color}
+                  text_opa: ${play_value_shadow_opa}
                   text: ""
                   bg_opa: TRANSP
               - label:
                   id: player_hit
-                  x: 180
-                  y: 190
-                  width: 300
-                  height: 127
+                  x: ${hits_x}
+                  y: ${hits_y}
+                  width: ${hits_w}
+                  height: ${hits_h}
                   text_font: hit_font
                   text_align: CENTER
                   align: TOP_LEFT
-                  text_color: ${font_color}
+                  text_color: ${play_value_color}
                   text: ""
                   bg_opa: TRANSP
 
@@ -185,20 +249,13 @@ lvgl:
                   shadow_color: 0x000000
                   on_click:
                     then:
-                      - globals.set:
-                          id: game_over_active
-                          value: 'false'
-                      - lvgl.widget.hide: boot_screen
-                      - lvgl.widget.show: game_screen
-                      - lvgl.widget.show: game_shot_screen
-                      - script.execute: reset_score_script
-                      - homeassistant.service:
-                          service: input_boolean.turn_on
-                          data:
-                            entity_id: input_boolean.player_${id}_active
-                      - lvgl.label.update:
-                          id: player_shot
-                          text: !lambda 'return std::to_string(id(g_max_shots));'
+                      # Ask Home Assistant to start the round instead of
+                      # starting it locally: start_player_game applies the
+                      # credit gate, and the round begins only when it turns
+                      # player_<id>_active on (see request_start_game in
+                      # configs/networked.yaml). A refused start - no credit,
+                      # free play off - leaves this screen untouched.
+                      - script.execute: request_start_game
 
         # ------------------------------------------------------------------
         # GAME OVER SCREEN - End-of-game graphic
@@ -218,16 +275,20 @@ lvgl:
               - image:
                   align: CENTER
                   src: game_over_background
+              # FINAL SCORE plate geometry + colour: image_layout package.
+              # This PNG is shared by all five colour builds, so its value
+              # colour is ${final_score_color} rather than ${font_color} —
+              # a cream plate needs a dark value.
               - label:
                   id: game_over_score
-                  x: 100
-                  y: 260
-                  width: 480
-                  height: 480
-                  text_font: score_font
+                  x: ${final_score_x}
+                  y: ${final_score_y}
+                  width: ${final_score_w}
+                  height: ${final_score_h}
+                  text_font: final_score_font
                   text_align: CENTER
-                  align: CENTER
-                  text_color: ${font_color}
+                  align: TOP_LEFT
+                  text_color: ${final_score_color}
                   text: ""
                   bg_opa: TRANSP
 

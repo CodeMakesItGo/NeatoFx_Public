@@ -1,0 +1,16 @@
+# ==============================================================================
+# NEATO RELAY 2 - STANDALONE CONFIGURATION
+# ==============================================================================
+# AP-only mode: the board creates its own WiFi access point and is controlled
+# directly from a browser, with no router and no Home Assistant. The hotspot
+# SSID is the device name (relay2-<mac>) and the password is ap_password from
+# _shared/secrets.yaml.
+#
+# Everything in boards/common/common.yaml — the two switches, the pulse buttons,
+# "Pulse Time", the summary sensors — works unchanged here; only the Home
+# Assistant API and its channel-number actions are absent.
+# ==============================================================================
+
+# Shared base packages — common to all NEATO-FX devices
+packages:
+  standalone_base: !include ../../../_shared/standalone_base.yaml

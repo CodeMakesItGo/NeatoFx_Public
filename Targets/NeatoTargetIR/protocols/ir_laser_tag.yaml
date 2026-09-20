@@ -89,7 +89,7 @@ remote_receiver:
     then:
       - if:
           condition:
-            - lambda: 'return id(ir_enabled);'
+            - lambda: 'return id(ir_enabled) && id(target_enabled);'
           then:
             - lambda: |-
                 id(ir_command) = 0;

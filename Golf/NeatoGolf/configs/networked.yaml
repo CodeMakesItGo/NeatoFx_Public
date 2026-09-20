@@ -25,7 +25,8 @@ improv_serial:
 # SUBSTITUTIONS - Configuration Variables
 # ==============================================================================
 substitutions:
-  # ip_addr default (${ip_base}${id}) is set in _shared/networked_base.yaml.
+  # ip_addr default (${ip_base}1) is set in _shared/networked_base.yaml. It is a
+  # placeholder, not a per-unit address — override it here before enabling manual_ip.
   # Override here only if this device type needs a different subnet offset.
 
 # ==============================================================================
@@ -57,6 +58,6 @@ script:
       - homeassistant.event:
           event: esphome.golf-hit
           data:
-            address: ${id}
+            address: !lambda 'return id(device_id);'
             player: !lambda 'return id(ir_command);'
             points: ${default_points}

@@ -1,0 +1,239 @@
+# ==============================================================================
+# NEATO RELAY 8 - HARDWARE DEFINITION (REV 1.0)
+# ==============================================================================
+# Hardware: ESP32-WROOM-32E + 8 relay driver channels
+#
+# Relay outputs (one GPIO per relay, all output-capable):
+#   GPIO32 - Relay 1
+#   GPIO33 - Relay 2
+#   GPIO25 - Relay 3
+#   GPIO26 - Relay 4
+#   GPIO27 - Relay 5
+#   GPIO14 - Relay 6
+#   GPIO12 - Relay 7   <-- STRAPPING PIN, see the boot-strapping note below
+#   GPIO13 - Relay 8
+#
+# ---------------------------------------------------------------------------
+# GPIO12 IS A STRAPPING PIN (MTDI) — READ THIS BEFORE CHANGING RELAY 7
+# ---------------------------------------------------------------------------
+# On the WROOM-32E the module's SPI flash runs at 3.3V, which the ESP32 selects
+# by sampling MTDI (GPIO12) LOW at reset. If anything holds GPIO12 HIGH while
+# the board comes out of reset — an external pull-up, or an opto-isolated relay
+# input pulled up to 3.3V — the chip latches 1.8V flash voltage and the module
+# will not boot at all (it is not a firmware fault and no log ever appears).
+#
+# The firmware side is already safe: every relay switch below is ALWAYS_OFF and
+# GPIOSwitch::setup() writes the pin off BEFORE it configures it, so the ESP32
+# never drives GPIO12 high on its own. The requirement is on the hardware — the
+# Relay 7 channel must idle LOW, with no pull-up on the ESP32 side of the driver.
+#
+# GPIO12-14 are also the JTAG pins; that only matters if a debugger is attached.
+#
+# ---------------------------------------------------------------------------
+# RELAY POLARITY
+# ---------------------------------------------------------------------------
+# ${relay_inverted} matches the firmware's idea of "on" to the driver hardware:
+#   "false" — active HIGH: GPIO high energises the relay coil (transistor /
+#             MOSFET low-side driver — the default for this board)
+#   "true"  — active LOW: GPIO low energises the relay coil (most off-the-shelf
+#             opto-isolated relay modules work this way)
+# Set it ONCE here to match the board. It is a hardware fact, not a per-unit
+# setting, so it stays a build-time substitution rather than a web UI control.
+# Note that flipping it to "true" also inverts the boot state of every pin,
+# including the GPIO12 strapping pin above — an active-LOW board must not put
+# Relay 7 on GPIO12.
+# ==============================================================================
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  common: !include common/common.yaml
+
+# ==============================================================================
+# SUBSTITUTIONS - Hardware Pin Assignments
+# ==============================================================================
+substitutions:
+  relay_1_gpio: GPIO32
+  relay_2_gpio: GPIO33
+  relay_3_gpio: GPIO25
+  relay_4_gpio: GPIO26
+  relay_5_gpio: GPIO27
+  relay_6_gpio: GPIO14
+  relay_7_gpio: GPIO12
+  relay_8_gpio: GPIO13
+
+  relay_inverted: "false"        # "true" for active-LOW relay boards (see above)
+
+  hw_version: "Rev 1"            # Hardware revision label for the version readout
+
+# ==============================================================================
+# CORE CONFIGURATION
+# ==============================================================================
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  # Driven by the main.yaml substitution (default "false" in
+  # _shared/esphome_base.yaml). Hardcoding it here would silently override the
+  # shared default, because a board package's own esphome: block wins over the
+  # esphome_base it includes.
+  name_add_mac_suffix: ${name_add_mac_suffix}
+  # Both come from substitutions so project_version (boards/common/common.yaml)
+  # is the single source of truth. A literal here silently overrides the bump.
+  project:
+    name: ${project_name}
+    version: ${project_version}
+  # MUST stay a LIST (leading "-"). Package merging only concatenates on_boot
+  # when both sides are lists; as a bare dict this block would silently clobber,
+  # or be clobbered by, another package's trigger with no error.
+  on_boot:
+    - priority: 900   # Earliest hook — before any relay switch is set up
+      then:
+        # Nothing to drive here on purpose. Relay switches are gpio switches,
+        # which set up at HARDWARE (800) — i.e. AFTER this hook — so calling
+        # switch.turn_off now would write to a pin that has not been configured.
+        # The real safe state comes from restore_mode: ALWAYS_OFF below, which
+        # writes the pin off both before and after pin setup.
+        - logger.log: "Boot: relays start de-energised (ALWAYS_OFF)"
+
+    - priority: 700   # After globals (800) and relay switch setup, before 600 hooks
+      then:
+        # Belt and braces: re-assert every relay off once the switches exist, so
+        # a board that latched a coil through a brownout reset lets go here.
+        - script.execute: relay_all_off
+
+    - priority: -100  # After all components are initialised
+      then:
+        - text_sensor.template.publish:
+            id: firmware_version_sensor
+            state: "${project_version} · ${hw_version}"
+        - script.execute: publish_relay_state
+        - logger.log: "Boot: Relay 8 ready — 8 channels, all off"
+
+esp32:
+  board: esp32dev            # Generic ESP32-WROOM-32 / 32E module
+  framework:
+    type: arduino
+    version: recommended
+
+# ==============================================================================
+# RELAY OUTPUTS
+# ==============================================================================
+# Plain gpio switches rather than template switches over outputs: the relay IS
+# the pin, so there is no separate logical state to keep in sync.
+#
+# restore_mode: ALWAYS_OFF — the board NEVER wakes up energised. A relay
+# controller drives real loads (motors, valves, mains contactors), and restoring
+# a saved ON state after a power cut means a prop starts moving the moment power
+# returns with nobody expecting it. Change this to RESTORE_DEFAULT_OFF only if a
+# specific install genuinely needs the relays to come back on by themselves.
+#
+# on_turn_on / on_turn_off refresh the summary entities (see common.yaml) the
+# instant a channel changes, instead of polling them on a timer.
+# ==============================================================================
+switch:
+  - platform: gpio
+    name: "Relay 1"
+    id: relay_1
+    icon: "mdi:electric-switch"
+    pin:
+      number: ${relay_1_gpio}
+      inverted: ${relay_inverted}
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - script.execute: publish_relay_state
+    on_turn_off:
+      - script.execute: publish_relay_state
+
+  - platform: gpio
+    name: "Relay 2"
+    id: relay_2
+    icon: "mdi:electric-switch"
+    pin:
+      number: ${relay_2_gpio}
+      inverted: ${relay_inverted}
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - script.execute: publish_relay_state
+    on_turn_off:
+      - script.execute: publish_relay_state
+
+  - platform: gpio
+    name: "Relay 3"
+    id: relay_3
+    icon: "mdi:electric-switch"
+    pin:
+      number: ${relay_3_gpio}
+      inverted: ${relay_inverted}
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - script.execute: publish_relay_state
+    on_turn_off:
+      - script.execute: publish_relay_state
+
+  - platform: gpio
+    name: "Relay 4"
+    id: relay_4
+    icon: "mdi:electric-switch"
+    pin:
+      number: ${relay_4_gpio}
+      inverted: ${relay_inverted}
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - script.execute: publish_relay_state
+    on_turn_off:
+      - script.execute: publish_relay_state
+
+  - platform: gpio
+    name: "Relay 5"
+    id: relay_5
+    icon: "mdi:electric-switch"
+    pin:
+      number: ${relay_5_gpio}
+      inverted: ${relay_inverted}
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - script.execute: publish_relay_state
+    on_turn_off:
+      - script.execute: publish_relay_state
+
+  - platform: gpio
+    name: "Relay 6"
+    id: relay_6
+    icon: "mdi:electric-switch"
+    pin:
+      number: ${relay_6_gpio}
+      inverted: ${relay_inverted}
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - script.execute: publish_relay_state
+    on_turn_off:
+      - script.execute: publish_relay_state
+
+  # Relay 7 sits on GPIO12 — the MTDI strapping pin. See the boot-strapping
+  # note at the top of this file before rewiring or inverting this channel.
+  - platform: gpio
+    name: "Relay 7"
+    id: relay_7
+    icon: "mdi:electric-switch"
+    pin:
+      number: ${relay_7_gpio}
+      inverted: ${relay_inverted}
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - script.execute: publish_relay_state
+    on_turn_off:
+      - script.execute: publish_relay_state
+
+  - platform: gpio
+    name: "Relay 8"
+    id: relay_8
+    icon: "mdi:electric-switch"
+    pin:
+      number: ${relay_8_gpio}
+      inverted: ${relay_inverted}
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - script.execute: publish_relay_state
+    on_turn_off:
+      - script.execute: publish_relay_state

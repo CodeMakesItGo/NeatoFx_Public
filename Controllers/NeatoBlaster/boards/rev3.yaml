@@ -9,11 +9,15 @@
 # - ESP32 microcontroller with optimized pin layout
 # - IR transmitter (GPIO4) for target communication
 # - Trigger sensor (GPIO22)
-# - Pump sensor (GPIO34)
-# - MP3 player outputs (individual pins for each sound):
-#   Pin 17: Sound 1 - Empty trigger (game inactive or no pump)
-#   Pin 25: Sound 2 - Pump action
-#   Pin 16: Sound 3 - Fire shot
+# - Pump sensor (GPIO25, internal pull-up)
+# - DY-SV5W MP3 player on the serial header (UART0):
+#     GPIO1 (TX) -> DY-SV5W RX   (commands out)
+#     GPIO3 (RX) is NOT used by the player - it stays the start game button
+#   Track 1: Empty trigger (game inactive or no pump)
+#   Track 2: Pump action
+#   Track 3: Fire shot
+#   GPIO16/GPIO17 are now free (were one-shot trigger lines); GPIO25 was
+#   the third, and now carries the pump sensor
 # - Relay output (GPIO23) for external device control
 # - Auxiliary power control (GPIO26)
 # - Multiple I/O pins for expansion
@@ -26,19 +30,40 @@ substitutions:
   # Rev 3.x specific hardware
   aux_pwr_gpio: GPIO26           # Auxiliary power control
 
-  # Right Side Connector Pins (Rev 3.x specific)
-  mp3_bit1_gpio: GPIO16          # MP3 player bit 1 (audio output)
-  mp3_bit2_gpio: GPIO17          # MP3 player bit 2 (audio output)
-  mp3_bit3_gpio: GPIO25          # MP3 player bit 3 (audio output)
+  # Serial header (UART0) - the DY-SV5W MP3 player lives here.
+  # Playback is one-way: the player only ever needs the ESP32's TX line, so
+  # only GPIO1 is claimed. GPIO3 (the header's RX pin) stays the start game
+  # button, which is why there is no rx_pin on the uart below. Wiring the
+  # player's TX back would mean giving up that button.
+  mp3_tx_gpio: GPIO01            # ESP32 TX -> DY-SV5W RX (commands)
+  mp3_baud_rate: "9600"          # DY-SV5W fixed rate, 8N1
+
+  # DY-SV5W playback settings
+  mp3_drive: "1"                 # Source: 0 = USB, 1 = SD card, 2 = onboard flash
+  default_mp3_volume: "20"       # 0-30, restored from flash after first change
+  track_empty: "4"               # Trigger pulled with no pump / game inactive
+  track_pump: "7"                # Pump action
+  track_fire: "8"                # Shot fired
 
   # Left Side Connector Pins (Rev 3.x specific)
   ir_tx_gpio: GPIO04     # IR transmitter [servo]
   trigger_gpio: GPIO22   # Trigger sensor (blaster trigger) [LED2]
-  pump_gpio: GPIO34      # Pump sensor (blaster pump action)
-  tx_gpio: GPIO03        # RX pin (free when baud_rate: 0) - start game button
+  # Pump sensor. Moved off GPIO34, which is one of the ESP32's input-only
+  # pins (34-39): those have NO internal pull-up or pull-down - ESPHome
+  # rejects `pullup: true` on them outright - so the switch floated and fired
+  # random pump events unless the board carried an external pull-up. GPIO25
+  # has a real internal pull-up and came free when the MP3 player moved to
+  # the serial port. REWIRE REQUIRED: the pump switch must move from the
+  # GPIO34 pin to GPIO25 on the right-side connector.
+  pump_gpio: GPIO25      # Pump sensor (blaster pump action)
+  # The serial header's RX pin, genuinely free now that logger baud_rate is 0.
+  # Named for what it does: ${tx_gpio} used to be overridden to GPIO03 here,
+  # which read as "the TX pin" everywhere else in the tree while actually
+  # being RX. The DY-SV5W now occupies the real TX pin, so that had to go.
+  start_button_gpio: GPIO03  # Start game button
 
   # Project Information (Rev 3.x specific)
-  project_version: "3.0.0"
+  project_version: "3.2.0"
 
 # ==============================================================================
 # EXTERNAL PACKAGES
@@ -46,6 +71,26 @@ substitutions:
 packages:
   # Include common components shared across all revisions
   common_components: !include common/rev3_common.yaml
+
+# ==============================================================================
+# LOGGER - USB serial console disabled on Rev 3.x
+# ==============================================================================
+# baud_rate: 0 releases UART0 (GPIO1/GPIO3). It has to: GPIO1 is wired to the
+# DY-SV5W's RX line, and a logger left running would push every log line into
+# the player as junk serial data. Logs are unaffected over WiFi, the API and
+# the web server - only the USB console goes away, and with it improv_serial
+# (see configs/networked.yaml). This is also what finally makes GPIO3 a clean
+# input for the start game button rather than a pin shared with UART0 RX.
+logger:
+  baud_rate: 0
+  # No level override - the WARN default from boards/common/rev3_common.yaml
+  # applies. An INFO override lived here only to surface the per-shot DY-SV5W
+  # frame dump during card bring-up; that log is back to DEBUG, so INFO would
+  # now buy nothing but noise.
+  #
+  # To watch audio again, set `level: DEBUG` in rev3_common.yaml. Note that
+  # `logs:` cannot lift a single tag ABOVE the global level - it only makes
+  # tags quieter - so the global level is what has to move.
 
 # ==============================================================================
 # CORE CONFIGURATION - Rev 3.x Specific Boot Sequence
@@ -60,7 +105,9 @@ esphome:
 
         # Initialize blaster state
         - lambda: |-
-            ESP_LOGI("blaster", "Neato Blaster ${id} initialized");
+            // player_id is the RUNTIME identity (restored at HARDWARE, 800, so
+            // it is already valid here at 600). 0 = unassigned.
+            ESP_LOGI("blaster", "Neato Blaster initialized - player %d", id(player_id));
             id(blaster_pumped) = false;
 
         - logger.log: "Basic systems initialized"
@@ -89,6 +136,27 @@ esphome:
                   else:
                     - logger.log: "❌ CRITICAL: Power supply insufficient!"
 
+        # ---------------------------------------------------------------
+        # DY-SV5W MP3 PLAYER - serial initialisation
+        # ---------------------------------------------------------------
+        # The module runs off aux power (switched on above) and ignores UART
+        # traffic for roughly a second after its supply comes up, so give it
+        # a margin before the first frame. Drive selection has to be sent on
+        # every boot: the DY-SV5W does not persist it.
+        - delay: 1500ms
+        - script.execute:
+            id: dy_select_drive
+            drive: ${mp3_drive}
+        - delay: 200ms
+        # Push the restored volume back out. The number entity restores at
+        # HARDWARE (800) so its state is valid here at 600, but the set_action
+        # that fired during its own setup() went out before the player had
+        # power and was lost.
+        - script.execute:
+            id: dy_set_volume
+            volume: !lambda 'return (int) id(mp3_volume).state;'
+        - delay: 100ms
+
         - logger.log: "✅ Neato Blaster startup complete"
 
 # ==============================================================================
@@ -103,7 +171,27 @@ remote_transmitter:
   non_blocking: true
 
 # ==============================================================================
-# MP3 PLAYER OUTPUT CONTROL SWITCHES
+# DY-SV5W MP3 PLAYER - SERIAL LINK
+# ==============================================================================
+# TX only. Every command below is fire-and-forget, so the player's TX line is
+# never read and GPIO3 stays available for the start game button. Adding
+# rx_pin: ${start_button_gpio} would let you read DY-SV5W status replies, at
+# the cost of that button.
+#
+# The DY-SV5W must be strapped for UART mode on its CON1/CON2/CON3 config pads
+# (see the module datasheet for the combination); in the factory default
+# one-key trigger mode it ignores the serial port entirely and nothing plays,
+# which is the usual cause of a silent new player.
+uart:
+  id: mp3_uart
+  tx_pin: ${mp3_tx_gpio}
+  baud_rate: ${mp3_baud_rate}
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+
+# ==============================================================================
+# SWITCHES - Power and Game Options
 # ==============================================================================
 switch:
   # Auxiliary power control
@@ -113,54 +201,80 @@ switch:
     name: "Aux Pwr"
     id: aux_pwr
 
-  # MP3 player bit 1 (pin 17)
-  - platform: gpio
-    pin: ${mp3_bit1_gpio}
-    id: mp3_bit_1
-    internal: true
-    inverted: true
-    restore_mode: ALWAYS_OFF
-
-  # MP3 player bit 2 (pin 25)
-  - platform: gpio
-    pin: ${mp3_bit2_gpio}
-    id: mp3_bit_2
-    internal: true
-    inverted: true
-    restore_mode: ALWAYS_OFF
-
-  # MP3 player bit 3 (pin 16)
-  - platform: gpio
-    pin: ${mp3_bit3_gpio}
-    id: mp3_bit_3
-    internal: true
-    inverted: true
-    restore_mode: ALWAYS_OFF
-
   # Pump requirement toggle
   - platform: template
     name: "Pump Required"
     id: pump_required
     icon: "mdi:pump"
     optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
+    restore_mode: RESTORE_DEFAULT_OFF
+
+# ==============================================================================
+# NUMBER - MP3 Volume
+# ==============================================================================
+number:
+  - platform: template
+    name: "MP3 Volume"
+    id: mp3_volume
+    icon: "mdi:volume-high"
+    min_value: 0
+    max_value: 30
+    step: 1
+    restore_value: true
+    optimistic: true
+    initial_value: ${default_mp3_volume}
+    set_action:
+      - script.execute:
+          id: dy_set_volume
+          volume: !lambda 'return (int) x;'
+
+  # Which track the "Test Sound" button plays. The DY-SV5W addresses tracks by
+  # their position in the card's directory table, not by filename, so the only
+  # reliable way to learn the mapping is to sweep it by ear: set this to 1,
+  # press Test Sound, note what you hear, repeat. Not restored - it is a bench
+  # tool, and a stale value surviving a reboot is just confusing.
+  - platform: template
+    name: "Test Track"
+    id: test_track
+    icon: "mdi:music-note-eighth"
+    min_value: 1
+    max_value: 255
+    step: 1
+    optimistic: true
+    initial_value: "1"
 
 # ==============================================================================
 # BINARY SENSORS - Trigger and Pump Detection
 # ==============================================================================
 binary_sensor:
   # Pump sensor - detects when blaster is pumped
+  #
+  # INPUT_PULLUP, matching the trigger sensor below: switch to GND, pin idles
+  # high, inverted so a closed switch reads as pressed. This is only possible
+  # because the pin moved off GPIO34 (see the note on pump_gpio above) - the
+  # 34-39 range has no internal pull resistor to enable.
   - platform: gpio
     pin:
       number: ${pump_gpio}
-      mode: INPUT
+      mode: INPUT_PULLUP
       inverted: True
     name: "Pump Sensor"
     id: pump_sensor
     icon: "mdi:pump"
+    # ASYMMETRIC DEBOUNCE - deliberately no delayed_on.
+    #
+    # delayed_on is pure latency on the leading edge: it holds the press for
+    # the full interval before on_press runs, and on_press is what starts the
+    # sound. The 20ms that used to be here was insurance against the floating
+    # GPIO34 pin; GPIO25 has a real pull-up, so it is no longer buying
+    # anything except delay.
+    #
+    # delayed_off alone still rejects contact bounce. Bounce after a press
+    # shows up as brief OFF blips; each one starts a 20ms timer that the
+    # returning HIGH cancels before it expires, so no OFF is ever published
+    # and exactly one on_press fires - immediately, on the first edge.
     filters:
-      - delayed_on: 1ms
-      - delayed_off: 10ms
+      - delayed_off: 20ms
     on_press:
       - lambda: |-
           id(blaster_pumped) = true;
@@ -177,8 +291,9 @@ binary_sensor:
     name: "Blaster Trigger"
     id: blaster_trigger
     icon: "mdi:pistol"
+    # Asymmetric debounce, same reasoning as the pump sensor above: fire on
+    # the first edge, let delayed_off swallow the contact bounce.
     filters:
-      - delayed_on: 1ms
       - delayed_off: 20ms
     on_press:
       - if:
@@ -207,10 +322,11 @@ binary_sensor:
           else:
             - script.execute: play_no_pump_sound
 
-  # Start game button on TX pin (GPIO01, free when baud_rate: 0)
+  # Start game button on the serial header's RX pin (GPIO3), free now
+  # that logger baud_rate is 0 and UART0 is no longer the console
   - platform: gpio
     pin:
-      number: ${tx_gpio}
+      number: ${start_button_gpio}
       mode: INPUT_PULLUP
       inverted: true
     name: "Start Game Button"
@@ -219,15 +335,14 @@ binary_sensor:
     filters:
       - delayed_on: 50ms
       - delayed_off: 50ms
+    # Behaviour lives in the active config's start_game_pressed script, NOT
+    # here: this is a board file and is shared by both network modes, but
+    # homeassistant.event only exists when api: does. Inlining it broke the
+    # standalone build ("Unable to find action with the name
+    # 'homeassistant.event'"), since configs/standalone.yaml has no api:.
+    # Same split as blaster_trigger_pressed.
     on_press:
-      - if:
-          condition:
-            lambda: 'return !id(game_active);'
-          then:
-            - homeassistant.event:
-                event: esphome.game_start_requested
-                data:
-                  blaster_id: "${id}"
+      - script.execute: start_game_pressed
 
 # ==============================================================================
 # BUTTON - Trigger Action Handler
@@ -249,28 +364,108 @@ button:
             # Transmit IR signal to target
             - remote_transmitter.transmit_nec:
                 address: 0x0003
-                command: 7${id}
+                # Player number in the low nibble: 0x71..0x7F for players 1-15.
+                # Target side recovers it with `command & 0x0F`.
+                command: !lambda |-
+                  return (uint16_t) (0x70 | (id(player_id) & 0x0F));
                 repeat: 3
 
+  # Play the track selected by the "Test Track" number, without firing IR.
+  # Two jobs: install checkout for the serial link (a silent blaster otherwise
+  # can't tell a dead DY-SV5W from a dead speaker), and mapping index -> file
+  # by ear when the card's ordering is in question.
+  - platform: template
+    id: test_sound
+    name: "Test Sound"
+    icon: "mdi:music-note"
+    on_press:
+      - script.execute:
+          id: dy_play_track
+          track: !lambda 'return (int) id(test_track).state;'
+
 
 # ==============================================================================
-# SCRIPTS - Audio Feedback (MP3 Player Control)
+# SCRIPTS - Audio Feedback (DY-SV5W over serial)
 # ==============================================================================
+# DY-SV5W frame format:  AA <cmd> <len> <data...> <sum>
+# where <sum> is the low byte of the sum of every preceding byte. The commands
+# used here are 0x07 (select track and play), 0x13 (set volume) and 0x0B
+# (select source drive). Selecting a track restarts playback immediately,
+# which is what a retriggered blaster wants - no stop-then-play needed.
 script:
-  # Play shot sound - sound 3 (fire sound)
-  - id: play_shot_sound
+  # ---- DY-SV5W command primitives ------------------------------------------
+  # Play track N (1-based, matches the 0001.mp3 / 0002.mp3 file numbering).
+  - id: dy_play_track
     mode: single
+    parameters:
+      track: int
     then:
-     - lambda: |-
-          if (!id(game_active)) {
-            // Game not active - trigger pin 17 (sound 1: empty trigger)
-            ESP_LOGI("audio", "Game not active - playing empty sound 1 on pin 17");
-            id(mp3_bit_3).turn_on();
-          } else {
-            // Game active - trigger pin 16 (sound 3: fire shot)
-            ESP_LOGI("audio", "Playing fire sound 3 on pin 16");
-            id(mp3_bit_2).turn_on();
-          }
+      - lambda: |-
+          uint8_t frame[6] = {0xAA, 0x07, 0x02,
+                              (uint8_t) ((track >> 8) & 0xFF),
+                              (uint8_t) (track & 0xFF),
+                              0x00};
+          uint16_t sum = 0;
+          for (uint8_t i = 0; i < 5; i++) sum += frame[i];
+          frame[5] = (uint8_t) (sum & 0xFF);
+          id(mp3_uart).write_array(frame, sizeof(frame));
+          // DEBUG, not INFO: this fires on every shot and pump, so at INFO it
+          // is a log line per trigger pull for no routine benefit. If track
+          // numbers ever look wrong again, raise the logger to DEBUG - the
+          // frame is reconstructible from the track number, and the datasheet
+          // reference is "play first song = AA 07 02 00 01 B4".
+          ESP_LOGD("audio", "DY-SV5W play track %d", track);
+
+  # Set volume, 0-30.
+  - id: dy_set_volume
+    mode: single
+    parameters:
+      volume: int
+    then:
+      - lambda: |-
+          uint8_t vol = (uint8_t) (volume < 0 ? 0 : (volume > 30 ? 30 : volume));
+          uint8_t frame[5] = {0xAA, 0x13, 0x01, vol, 0x00};
+          uint16_t sum = 0;
+          for (uint8_t i = 0; i < 4; i++) sum += frame[i];
+          frame[4] = (uint8_t) (sum & 0xFF);
+          id(mp3_uart).write_array(frame, sizeof(frame));
+          ESP_LOGI("audio", "DY-SV5W volume set to %u", vol);
+
+  # Select the source drive: 0 = USB, 1 = SD card, 2 = onboard flash.
+  - id: dy_select_drive
+    mode: single
+    parameters:
+      drive: int
+    then:
+      - lambda: |-
+          uint8_t frame[5] = {0xAA, 0x0B, 0x01, (uint8_t) drive, 0x00};
+          uint16_t sum = 0;
+          for (uint8_t i = 0; i < 4; i++) sum += frame[i];
+          frame[4] = (uint8_t) (sum & 0xFF);
+          id(mp3_uart).write_array(frame, sizeof(frame));
+          ESP_LOGI("audio", "DY-SV5W drive set to %d", drive);
+
+  # ---- Gameplay sounds -----------------------------------------------------
+  # Shot fired (track 3), or the empty click if the game is not running.
+  #
+  # mode: restart, not single: the relay pulse below can hold this script for
+  # as long as relay_trigger_time, and under mode:single a shot landing inside
+  # that window would be dropped silently - no sound at all. The audio frame
+  # goes out first thing, so a restart still plays every shot.
+  - id: play_shot_sound
+    mode: restart
+    then:
+     - if:
+        condition:
+          lambda: 'return id(game_active);'
+        then:
+          - script.execute:
+              id: dy_play_track
+              track: ${track_fire}
+        else:
+          - script.execute:
+              id: dy_play_track
+              track: ${track_empty}
     # Pulse relay if relay-on-trigger is enabled
      - if:
         condition:
@@ -279,37 +474,19 @@ script:
           - switch.turn_on: relay_1
           - delay: !lambda "return id(relay_trigger_time);"
           - switch.turn_off: relay_1
-     - delay: 50ms
-     - lambda: |-
-          // Turn off all pins after pulse
-          id(mp3_bit_1).turn_off();
-          id(mp3_bit_2).turn_off();
-          id(mp3_bit_3).turn_off();
 
-  # Play pump sound - sound 2 (pump action sound)
+  # Pump action (track 2)
   - id: play_pump_sound
-    mode: single
+    mode: restart
     then:
-      - lambda: |-
-          ESP_LOGI("audio", "Playing pump sound 2 on pin 25");
-          // Trigger pin 25 (sound 2: pump action)
-          id(mp3_bit_1).turn_on();
-      - delay: 50ms
-      - lambda: |-
-          id(mp3_bit_1).turn_off();
-          id(mp3_bit_2).turn_off();
-          id(mp3_bit_3).turn_off();
+      - script.execute:
+          id: dy_play_track
+          track: ${track_pump}
 
-  # Play no-pump sound - sound 1 (empty trigger sound)
+  # Trigger pulled but the blaster is not pumped (track 1)
   - id: play_no_pump_sound
-    mode: single
+    mode: restart
     then:
-      - lambda: |-
-          ESP_LOGI("audio", "Pump required but not pumped - playing empty sound 1 on pin 17");
-          // Trigger pin 17 (sound 1: empty trigger)
-          id(mp3_bit_3).turn_on();
-      - delay: 50ms
-      - lambda: |-
-          id(mp3_bit_1).turn_off();
-          id(mp3_bit_2).turn_off();
-          id(mp3_bit_3).turn_off();
+      - script.execute:
+          id: dy_play_track
+          track: ${track_empty}

@@ -39,6 +39,63 @@ globals:
     restore_value: true
     initial_value: '15'
 
+  # Seconds a round may sit with no new shot before the lane ends it by itself.
+  # A player who puts the blaster down and walks off otherwise leaves the lane
+  # parked mid-round - showing a game screen no one is playing and, on a paid
+  # site, still holding the credit that started it.
+  #
+  # 0 disables the timeout: the round then only ends on shots exhausted, on the
+  # Timed-mode timer, or when Home Assistant clears player_<id>_active.
+  #
+  # Set it at runtime from the "Idle Timeout" number below, or gallery-wide from
+  # input_number.idle_timeout (configs/networked.yaml) - the value here is only
+  # what a never-configured unit starts at. A restoring global keys off its ID
+  # STRING, so the setting survives reboots and OTA updates alike.
+  - id: g_idle_timeout
+    type: int
+    restore_value: true
+    initial_value: '30'
+
+# ==============================================================================
+# NUMBER - Idle Timeout (runtime setting)
+# ==============================================================================
+# Exposed as an entity rather than left as a compile-time constant so one binary
+# serves every site: a gallery with no Home Assistant can still set this from the
+# device web UI, and a gallery with one gets it as a normal number entity too.
+#
+# Backed by the restoring global rather than the number's own restore_value, so
+# the 1-second game tick reads a plain int instead of going through preferences.
+number:
+  - platform: template
+    name: "Idle Timeout"
+    id: idle_timeout_number
+    icon: "mdi:timer-sand"
+    entity_category: config
+    unit_of_measurement: s
+    lambda: 'return (float) id(g_idle_timeout);'
+    update_interval: never   # published at boot and after every write, below
+    min_value: 0             # 0 = never time a round out
+    max_value: 600
+    step: 5
+    mode: box
+    set_action:
+      - globals.set:
+          id: g_idle_timeout
+          value: !lambda 'return (int) x;'
+      - component.update: idle_timeout_number
+      - logger.log:
+          format: "Idle timeout set to %ds (0 = off)"
+          args: [ 'id(g_idle_timeout)' ]
+
+# Publish the restored value once at boot so the web UI and Home Assistant show
+# what the unit is actually using. Priority 250 = after the template entity has
+# finished setup, matching _shared/runtime_id.yaml.
+esphome:
+  on_boot:
+    - priority: 250
+      then:
+        - component.update: idle_timeout_number
+
 # ==============================================================================
 # INTERVAL - 1-Second Game Tick
 # ==============================================================================
@@ -49,13 +106,14 @@ interval:
           // Only run idle check when game is active
           if (lv_obj_has_flag(id(game_screen), LV_OBJ_FLAG_HIDDEN)) return;
           if (id(game_over_active)) return;
-          int current = (int)id(player_${id}_shot).state;
+          int current = (int)id(player_shot_sensor).state;
           if (current != id(last_shot_count)) {
             id(last_shot_count) = current;
             id(idle_seconds) = 0;
           } else {
             id(idle_seconds) += 1;
-            if (id(idle_seconds) >= 30) {
+            int idle_limit = id(g_idle_timeout);
+            if (idle_limit > 0 && id(idle_seconds) >= idle_limit) {
               id(idle_seconds) = 0;
               id(idle_timeout_triggered) = true;
             }
@@ -70,20 +128,63 @@ interval:
             - globals.set:
                 id: game_over_active
                 value: 'true'
-            - logger.log: "Idle timeout — returning to boot screen"
-            - script.execute: reset_score_script
+            - logger.log: "Idle timeout — ending the round"
+            # The round is over as far as the display is concerned, so drop the
+            # HA gate too — otherwise player_<id>_active stays on and the
+            # blaster keeps firing at a station showing the start screen.
+            - script.execute: set_player_inactive
+            # End exactly like a shots-exhausted round: show the score, then
+            # game_over_transition_script decides between the attract screen
+            # and staying parked (paid sites, no credit). Labels are zeroed by
+            # apply_start_game at the next start, same as every other end.
+            - lvgl.label.update:
+                id: game_over_score
+                text:
+                  format: "%d"
+                  args: [ '(int)id(player_score_sensor).state' ]
             - lvgl.widget.hide: game_screen
             - lvgl.widget.hide: game_shot_screen
-            - lvgl.widget.show: boot_screen
+            - lvgl.widget.show: game_over_screen
+            - script.execute: game_over_transition_script
 
 script:
   # ---------------------------------------------------------------------------
-  # GAME OVER TRANSITION - Wait 10s then return to boot screen
+  # GAME OVER TRANSITION - Wait 10s then return to boot screen, if playable
   # ---------------------------------------------------------------------------
+  # Paid sites: with free play off and no credits the lane stays parked on the
+  # game over screen instead; refresh_idle_screen (configs/networked.yaml)
+  # brings the attract screen back the moment a credit arrives. Sites without
+  # the credit helper read NAN, which counts as playable.
   - id: game_over_transition_script
     mode: single
     then:
       - delay: 10s
+      - if:
+          condition:
+            lambda: |-
+              return id(ha_free_play).state
+                  || isnan(id(ha_player_credits).state)
+                  || id(ha_player_credits).state > 0.5;
+          then:
+            - script.execute: show_attract_screen
+
+  # ---------------------------------------------------------------------------
+  # SHOW ATTRACT SCREEN - the ONE way back to "waiting for a player"
+  # ---------------------------------------------------------------------------
+  # boot_screen sits ABOVE game_screen in the widget list, so simply showing it
+  # covers the game screen to the eye without clearing LV_OBJ_FLAG_HIDDEN on it.
+  # That is a trap: an attract screen laid over a still-"visible" game screen
+  # looks perfect and reads, to every lambda that asks, as a round in progress.
+  # Leave one of these paths half-done and the lane wedges - the display thinks
+  # it is mid-round, so it ignores the next start, and the player pays a credit
+  # for a game that never begins.
+  #
+  # Every return to the attract screen goes through here, and here hides all
+  # three game screens. Do not hand-roll "hide game over, show boot" again.
+  - id: show_attract_screen
+    then:
+      - lvgl.widget.hide: game_screen
+      - lvgl.widget.hide: game_shot_screen
       - lvgl.widget.hide: game_over_screen
       - lvgl.widget.show: boot_screen
       - globals.set:
@@ -119,7 +220,7 @@ script:
     then:
       - if:
           condition:
-            lambda: 'return (int)id(player_${id}_shot).state >= id(g_max_shots);'
+            lambda: 'return (int)id(player_shot_sensor).state >= id(g_max_shots);'
           then:
             - globals.set:
                 id: game_over_active
@@ -128,7 +229,7 @@ script:
                 id: game_over_score
                 text:
                   format: "%d"
-                  args: [ '(int)id(player_${id}_score).state' ]
+                  args: [ '(int)id(player_score_sensor).state' ]
             - lvgl.widget.hide: game_screen
             - lvgl.widget.hide: game_shot_screen
             - lvgl.widget.show: game_over_screen

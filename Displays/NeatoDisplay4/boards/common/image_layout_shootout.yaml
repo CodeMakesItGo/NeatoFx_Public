@@ -1,0 +1,53 @@
+# ==============================================================================
+# NEATO DISPLAY 4 - IMAGE TEXT LAYOUT: "Target Shootout" (stock artwork)
+# ==============================================================================
+# Geometry for the original carnival/Target Shootout art — the set kept in
+# images_bak/. Restore it by copying images_bak/*.png back over images/ and
+# selecting this file as the image_layout: package in main.yaml.
+#
+# See image_layout_gunslinger.yaml for what each substitution means and how to
+# re-measure a plate. Coordinates are 480x480 panel space.
+#
+# MEASURED FROM images_bak/:
+#   GAME_PLAY_${color}.png — three dark navy value plates, all x 203..432
+#   (230 wide): SHOTS LEFT y 212..267, SCORE y 292..350, HITS y 374..433.
+#   GAME_OVER.png — FINAL SCORE plate x 104..375, y 330..421.
+# Every plate is dark, so all values use the per-build ${font_color}.
+# ==============================================================================
+
+substitutions:
+
+  # ---- GAME PLAY SCREEN -----------------------------------------------------
+  shots_x: "203"
+  shots_y: "212"
+  shots_w: "230"
+  shots_h: "56"
+  shots_font_size: "48"
+
+  score_x: "203"
+  score_y: "293"
+  score_w: "230"
+  score_h: "58"
+  score_font_size: "48"
+
+  hits_x: "203"
+  hits_y: "375"
+  hits_w: "230"
+  hits_h: "58"
+  hits_font_size: "48"
+
+  # The stock plates are all dark navy, so the per-build ${font_color} reads
+  # fine on every one of them and the drop shadow is not needed.
+  play_value_color: "${font_color}"
+  play_value_shadow_color: "0x000000"
+  play_value_shadow_offset: "0"
+  play_value_shadow_opa: "TRANSP"
+
+  # ---- GAME OVER SCREEN -----------------------------------------------------
+  final_score_x: "104"
+  final_score_y: "337"
+  final_score_w: "272"
+  final_score_h: "84"
+  final_score_font_size: "72"
+
+  final_score_color: "${font_color}"
