@@ -21,3 +21,9 @@
 # contains "key") with its legacy secret-redaction heuristic. Upstream noise, not
 # our config. The heuristic is removed in 2026.12.0 — drop this entry then.
 ^WARNING Field 'transparency_key' is being redacted by a legacy substring heuristic
+
+# NeatoDisplay7: three 800x480 RGB565 backgrounds (~768 KB each) plus firmware
+# fill ~96% of the OTA app slot on the 8 MB board. Informational — the build
+# succeeds, and an actual overflow is a hard error, not a warning, so this
+# cannot mask a broken build. Revisit if the Display7 image is enlarged.
+^\s*Warning: The smallest app partition is nearly full

@@ -68,7 +68,7 @@ script:
     then:
       - if:
           condition:
-            lambda: 'return id(aux_pwr_mode_select).state == "On";'
+            lambda: 'return id(aux_pwr_mode_select).current_option() == "On";'
           then:
             - switch.turn_on: aux_pwr
           else:
@@ -82,19 +82,19 @@ switch:
   # Both branches are gated on the mode, which means On / Off modes see no
   # behaviour change at all: the rail is left exactly where the mode put it.
   # At boot relay_1 publishes its restore_mode ALWAYS_OFF state before the
-  # select has been set up; state is "" then, so neither branch fires.
+  # select has been set up; current_option() is empty then, so neither branch fires.
   - id: !extend relay_1
     on_turn_on:
       - if:
           condition:
-            lambda: 'return id(aux_pwr_mode_select).state == "Follow Relay";'
+            lambda: 'return id(aux_pwr_mode_select).current_option() == "Follow Relay";'
           then:
             - switch.turn_on: aux_pwr
             - logger.log: "Aux power ON (following relay)"
     on_turn_off:
       - if:
           condition:
-            lambda: 'return id(aux_pwr_mode_select).state == "Follow Relay";'
+            lambda: 'return id(aux_pwr_mode_select).current_option() == "Follow Relay";'
           then:
             - switch.turn_off: aux_pwr
             - logger.log: "Aux power OFF (following relay)"
