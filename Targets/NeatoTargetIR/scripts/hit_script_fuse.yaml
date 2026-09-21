@@ -390,6 +390,11 @@ script:
       # already high by the time the next line runs. Anything added above this
       # line adds latency to the pulse; the lead-in, if any, is timed from here.
       - script.execute: hit_pulse
+      # SECOND: tell Home Assistant, before any LED / relay / servo work, so an
+      # HA-driven sound starts as early as possible. One non-blocking API write
+      # (microseconds after the pulse); a no-op stub in the standalone and
+      # No-HA configs.
+      - script.execute: esphome_hit_event_script
       - logger.log: "Target hit detected - lighting fuse..."
       # Disable IR during hit processing
       - globals.set:

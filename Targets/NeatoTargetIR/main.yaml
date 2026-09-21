@@ -82,24 +82,13 @@ packages:
   #hit_script: !include scripts/hit_script_lightning.yaml  # xLights lightning-storm port (left cloud)
 
 # ==============================================================================
-# BLE PROVISIONING — MUST BE REMOVED ON LCD BUILDS
+# BLE PROVISIONING — no longer compiled in
 # ==============================================================================
-# _shared/networked_base.yaml enables esp32_improv (BLE). Bluedroid needs ~60-70 KB
-# of internal DRAM, and the GC9A01 framebuffer already takes 57.6 KB. Together they
-# do not fit on a no-PSRAM ESP32: btc_config_init() fails, then Bluedroid aborts in
-# btc_config_lock ("assert failed: xQueueSemaphoreTake ... btc_init_bluetooth") and
-# the device boot-loops. Serial provisioning (improv_serial, in configs/*.yaml) is
-# unaffected and still works — only BLE provisioning is lost.
-#
-# This has to live here in main.yaml: !remove only takes effect from the top-level
-# config, which merges LAST and wins over every package. Putting it in the board
-# file does nothing (board packages merge first, as the lowest-precedence base).
-#
-# Remove the leading '#' below when using an LCD board above; put the '#' back
-# for non-LCD boards. Currently disabled (the '#' is present): the hit face 1.0
-# board has no display, so there is no framebuffer competing with Bluedroid and
-# BLE provisioning fits again.
-#esp32_improv: !remove
+# _shared/networked_base.yaml used to enable esp32_improv (BLE), which forced
+# WiFi modem sleep (laggy HA -> target traffic) and did not fit next to the
+# GC9A01 framebuffer on LCD builds. It has been removed from the base for every
+# product, so LCD builds no longer need an `esp32_improv: !remove` here.
+# Provisioning: improv_serial over USB (configs/*.yaml) or the setup hotspot.
 
 # ==============================================================================
 # TARGET HIT SCRIPTS - what to do when target is hit

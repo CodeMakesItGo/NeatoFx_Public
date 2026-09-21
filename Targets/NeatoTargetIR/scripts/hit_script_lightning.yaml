@@ -261,6 +261,11 @@ script:
   - id: target_hit_script
     mode: single  # Prevent overlapping hits
     then:
+      # Tell Home Assistant FIRST — before any LED / relay / servo work (and
+      # before the Strobe Flash branch's 150 ms hold) so an HA-driven sound
+      # starts as early as possible. One non-blocking API write; a no-op stub
+      # in the standalone and No-HA configs.
+      - script.execute: esphome_hit_event_script
       - logger.log: "Target hit detected - lightning sequence..."
       # Disable IR during hit processing
       - globals.set:

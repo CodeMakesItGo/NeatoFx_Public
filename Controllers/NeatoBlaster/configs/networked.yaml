@@ -25,9 +25,25 @@ dashboard_import:
 # whether it can exist at all is a board-level fact, not a network-mode one.
 # It requires logger baud_rate != 0, and rev 3.x sets baud_rate: 0 to hand
 # UART0 (GPIO1) to the DY-SV5W MP3 player. boards/rev1.yaml declares it; rev
-# 3.x provisions over BLE (esp32_improv, from _shared/networked_base.yaml) or
-# the setup hotspot instead. Same split _shared/networked_base.yaml already
-# documents for NeatoDisplay4.
+# 3.x provisions over BLE Improv (below) or the setup hotspot. Same split
+# _shared/networked_base.yaml already documents for NeatoDisplay4.
+
+# ==============================================================================
+# BLE IMPROV - Blaster-only (Made for ESPHome compliance)
+# ==============================================================================
+# Made for ESPHome requires Improv whenever `wifi:` is present. Every other
+# product satisfies that with improv_serial, so _shared/networked_base.yaml no
+# longer carries esp32_improv (the live BT controller forced WiFi modem sleep,
+# which made Home Assistant -> device traffic land seconds late). Rev 3.x
+# blasters cannot run improv_serial (no USB console, see above), so BLE is the
+# only Improv transport left and this product keeps its own copy. BT
+# coexistence wants modem sleep, so `light` is restored here too; the blaster
+# is outbound-only in play (gun_fired events), so inbound latency is harmless.
+esp32_improv:
+  authorizer: none  # Allow BLE provisioning without physical authorization button
+
+wifi:
+  power_save_mode: light
 
 # ==============================================================================
 # SUBSTITUTIONS - Network Configuration

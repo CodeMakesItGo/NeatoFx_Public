@@ -258,7 +258,9 @@ The DY-SV5W occupies GPIO1, which is also the USB console's TX line, so Rev
 - `esphome logs` over USB shows nothing. Use `esphome logs --device <host>`
   over WiFi, the API, or the web server — all logging is unaffected there.
 - `improv_serial` (USB provisioning) is not available. Rev 3.x provisions over
-  BLE Improv (`esp32_improv`) or the setup hotspot instead. Rev 1.x has
+  BLE Improv (`esp32_improv`, declared in
+  [configs/networked.yaml](configs/networked.yaml) for this product only) or
+  the setup hotspot instead. Rev 1.x has
   nothing on UART0 and keeps serial provisioning, which is why the component
   is declared in [boards/rev1.yaml](boards/rev1.yaml) rather than in
   [configs/networked.yaml](configs/networked.yaml).

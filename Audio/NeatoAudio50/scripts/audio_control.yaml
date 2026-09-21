@@ -22,8 +22,8 @@ script:
   # PLAY ONE MP3 - the shared play implementation
   # ==========================================================================
   # Every "just play file N" caller goes through here: the Net Play REST
-  # endpoint, the Home Assistant play_sound action, and the device-ID sound
-  # subscription (all in configs/home_assistant.yaml). One implementation means
+  # endpoint (configs/networked.yaml), the Home Assistant play_sound action and
+  # the device-ID sound subscription (configs/home_assistant.yaml). One implementation means
   # the amp sequence cannot drift between entry points — which it had: Net Play
   # used to play WITHOUT setting the volume first, so a DFPlayer that missed the
   # boot-time set_volume (the SD mount can outlast the boot delay) would play
@@ -32,6 +32,17 @@ script:
   # Order matters. The volume MUST be set while the amp is still muted: the
   # command steps the DFPlayer's DAC output to the new level, and an unmuted amp
   # reproduces that step as an audible pop.
+  #
+  # LATENCY: the amp IS put to sleep between sounds (an idle amp hisses), but
+  # waking it costs nothing measurable, so there is no separate settle wait.
+  # Wake and the volume write go out together, ONE 30 ms gap covers both the
+  # amp coming up and the DFPlayer consuming the volume frame before the play
+  # frame, then unmute and play back-to-back. The DFPlayer needs 100+ ms to
+  # seek the file, so the amp is awake and unmuted well before audio reaches
+  # it. The volume is still written before EVERY play: a DFPlayer that has
+  # brown-out reset comes back at 30 = max and would blow the speaker; nobody
+  # ever found the root cause, so the write stays. (Was wake, 50 ms, volume,
+  # 100 ms, unmute, 50 ms — 200 ms of waiting per sound.)
   - id: play_sound_script
     mode: queued
     parameters:
@@ -44,14 +55,12 @@ script:
             - logger.log:
                 format: "play_sound: playing MP3 %d"
                 args: ['mp3']
-            - output.turn_on: amp_wake     # Wake amp first
-            - delay: 50ms                  # Let amp stabilize
+            - output.turn_on: amp_wake     # Wake amp (still muted)
             - dfplayer.set_volume:         # While still muted — see above
                 id: dfplayer1
                 volume: !lambda 'return (int)id(dfplayer_volume).state;'
-            - delay: 100ms
+            - delay: 30ms                  # amp wake + DFPlayer command spacing
             - output.turn_on: amp_unmute
-            - delay: 50ms
             - lambda: 'id(dfplayer1).play_mp3(mp3);'
             - script.execute: playback_timeout
           else:
@@ -113,20 +122,16 @@ script:
     then:
       - lambda: |-
           ESP_LOGI("bg_loop", "Background loop: playing MP3 #%d", (int)id(bg_loop_mp3_select).state);
+      # Wake + volume together, one gap, unmute + play — see play_sound_script.
+      # Volume MUST be set while still muted (the DAC step would pop through an
+      # unmuted amp) and is re-sent before every play because a reset DFPlayer
+      # comes back at 30 = max.
       - output.turn_on: amp_wake
-      - delay: 50ms
-      # Volume MUST be set while the amp is still muted. This command steps the
-      # DFPlayer's DAC output to the new level, and an unmuted amp reproduces
-      # that step as an audible pop. Re-sent before every play because the
-      # DFPlayer powers up (and resets) at volume 30 = max: if it missed the
-      # boot-time set_volume — SD mount can outlast the boot delay — it would
-      # otherwise blast full volume while the UI shows the saved value.
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
-      - delay: 100ms
+      - delay: 30ms
       - output.turn_on: amp_unmute
-      - delay: 50ms
       - dfplayer.play_mp3:
           id: dfplayer1
           file: !lambda 'return (int)id(bg_loop_mp3_select).state;'
@@ -136,24 +141,16 @@ script:
     mode: queued
     then:
       - logger.log: "Random MP3 script started"
-       # Wake + unmute the amp BEFORE playing; volume is set while still muted
-      - logger.log: "Waking amp..."
-      - output.turn_on: amp_wake    # Wake amp first
-      - delay: 50ms                 # Let amp stabilize
-      # Volume MUST be set while the amp is still muted. This command steps the
-      # DFPlayer's DAC output to the new level, and an unmuted amp reproduces
-      # that step as an audible pop. Re-sent before every play because the
-      # DFPlayer powers up (and resets) at volume 30 = max: if it missed the
-      # boot-time set_volume — SD mount can outlast the boot delay — it would
-      # otherwise blast full volume while the UI shows the saved value.
+      # Wake + volume together, one gap, unmute + play — see play_sound_script.
+      # Volume is set while still muted (DAC step would pop through an unmuted
+      # amp) and re-sent before every play because a reset DFPlayer comes back
+      # at 30 = max.
+      - output.turn_on: amp_wake    # Wake amp (still muted)
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
-      - delay: 100ms
-      - logger.log: "Unmuting amp..."
-      - output.turn_on: amp_unmute  # Unmute
-      - delay: 50ms
-      - logger.log: "Amp awake, unmuted, volume already set"
+      - delay: 30ms                 # amp wake + DFPlayer command spacing
+      - output.turn_on: amp_unmute  # Unmute; play follows immediately
       - lambda: |-
           id(button_counter) += 1;
           int max_files = (int)id(max_mp3_files).state;
@@ -170,24 +167,16 @@ script:
       mp3_override: int   # 0 = use "Input 1 MP3"; 1-255 = caller-supplied file
     then:
       - logger.log: "Input 1 MP3 script started"
-       # Wake + unmute the amp BEFORE playing; volume is set while still muted
-      - logger.log: "Waking amp..."
-      - output.turn_on: amp_wake    # Wake amp first
-      - delay: 50ms                 # Let amp stabilize
-      # Volume MUST be set while the amp is still muted. This command steps the
-      # DFPlayer's DAC output to the new level, and an unmuted amp reproduces
-      # that step as an audible pop. Re-sent before every play because the
-      # DFPlayer powers up (and resets) at volume 30 = max: if it missed the
-      # boot-time set_volume — SD mount can outlast the boot delay — it would
-      # otherwise blast full volume while the UI shows the saved value.
+      # Wake + volume together, one gap, unmute + play — see play_sound_script.
+      # Volume is set while still muted (DAC step would pop through an unmuted
+      # amp) and re-sent before every play because a reset DFPlayer comes back
+      # at 30 = max.
+      - output.turn_on: amp_wake    # Wake amp (still muted)
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
-      - delay: 100ms
-      - logger.log: "Unmuting amp..."
-      - output.turn_on: amp_unmute  # Unmute
-      - delay: 50ms
-      - logger.log: "Amp awake, unmuted, volume already set"
+      - delay: 30ms                 # amp wake + DFPlayer command spacing
+      - output.turn_on: amp_unmute  # Unmute; play follows immediately
 
       - lambda: |-
           // Control selected output
@@ -247,24 +236,16 @@ script:
       mp3_override: int   # 0 = use "Input 2 MP3"; 1-255 = caller-supplied file
     then:
       - logger.log: "Input 2 MP3 script started"
-       # Wake + unmute the amp BEFORE playing; volume is set while still muted
-      - logger.log: "Waking amp..."
-      - output.turn_on: amp_wake    # Wake amp first
-      - delay: 50ms                 # Let amp stabilize
-      # Volume MUST be set while the amp is still muted. This command steps the
-      # DFPlayer's DAC output to the new level, and an unmuted amp reproduces
-      # that step as an audible pop. Re-sent before every play because the
-      # DFPlayer powers up (and resets) at volume 30 = max: if it missed the
-      # boot-time set_volume — SD mount can outlast the boot delay — it would
-      # otherwise blast full volume while the UI shows the saved value.
+      # Wake + volume together, one gap, unmute + play — see play_sound_script.
+      # Volume is set while still muted (DAC step would pop through an unmuted
+      # amp) and re-sent before every play because a reset DFPlayer comes back
+      # at 30 = max.
+      - output.turn_on: amp_wake    # Wake amp (still muted)
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
-      - delay: 100ms
-      - logger.log: "Unmuting amp..."
-      - output.turn_on: amp_unmute  # Unmute
-      - delay: 50ms
-      - logger.log: "Amp awake, unmuted, volume already set"
+      - delay: 30ms                 # amp wake + DFPlayer command spacing
+      - output.turn_on: amp_unmute  # Unmute; play follows immediately
 
       - lambda: |-
           // Control selected output
@@ -317,15 +298,13 @@ script:
   - id: play_rf_a_mp3
     mode: queued
     then:
+      # Wake + volume (while muted), one gap, unmute — see play_sound_script
       - output.turn_on: amp_wake
-      - delay: 50ms
-      # Set volume while muted — see note in play_random_mp3
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
-      - delay: 100ms
+      - delay: 30ms
       - output.turn_on: amp_unmute
-      - delay: 50ms
       - lambda: |-
           std::string output_choice = id(rf_a_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
@@ -344,15 +323,13 @@ script:
   - id: play_rf_b_mp3
     mode: queued
     then:
+      # Wake + volume (while muted), one gap, unmute — see play_sound_script
       - output.turn_on: amp_wake
-      - delay: 50ms
-      # Set volume while muted — see note in play_random_mp3
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
-      - delay: 100ms
+      - delay: 30ms
       - output.turn_on: amp_unmute
-      - delay: 50ms
       - lambda: |-
           std::string output_choice = id(rf_b_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
@@ -371,15 +348,13 @@ script:
   - id: play_rf_c_mp3
     mode: queued
     then:
+      # Wake + volume (while muted), one gap, unmute — see play_sound_script
       - output.turn_on: amp_wake
-      - delay: 50ms
-      # Set volume while muted — see note in play_random_mp3
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
-      - delay: 100ms
+      - delay: 30ms
       - output.turn_on: amp_unmute
-      - delay: 50ms
       - lambda: |-
           std::string output_choice = id(rf_c_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
@@ -398,15 +373,13 @@ script:
   - id: play_rf_d_mp3
     mode: queued
     then:
+      # Wake + volume (while muted), one gap, unmute — see play_sound_script
       - output.turn_on: amp_wake
-      - delay: 50ms
-      # Set volume while muted — see note in play_random_mp3
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
-      - delay: 100ms
+      - delay: 30ms
       - output.turn_on: amp_unmute
-      - delay: 50ms
       - lambda: |-
           std::string output_choice = id(rf_d_output_select).current_option();
           if (output_choice == "Relay 1") { id(relay_1).turn_on(); }

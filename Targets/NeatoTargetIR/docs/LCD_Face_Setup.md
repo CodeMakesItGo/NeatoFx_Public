@@ -134,20 +134,20 @@ animation. If that matters, raise the display `update_interval` from 100 ms to
 
 ### No BLE on LCD builds
 
-`_shared/networked_base.yaml` enables `esp32_improv`, which pulls in Bluedroid
-(~60–70 KB internal DRAM). That does not coexist with the 57.6 KB framebuffer on a
-no-PSRAM ESP32 — `btc_config_init()` fails, then Bluedroid aborts on a NULL mutex:
+BLE provisioning (`esp32_improv`) is no longer part of `_shared/networked_base.yaml`
+for any product: keeping the Bluetooth controller alive forced WiFi modem sleep,
+which made Home Assistant → device traffic land seconds late. So nothing has to be
+removed for LCD builds any more. For the record, Bluedroid needed ~60–70 KB of
+internal DRAM and did not coexist with the 57.6 KB framebuffer on a no-PSRAM
+ESP32 — `btc_config_init()` failed, then Bluedroid aborted on a NULL mutex:
 
 ```
 assert failed: xQueueSemaphoreTake queue.c:1709 (( pxQueue ))
   ... btc_config_lock → btc_storage_get_ble_local_key → btc_init_bluetooth
 ```
 
-`main.yaml` carries `esp32_improv: !remove` for LCD builds. It must live in
-`main.yaml`, not the board file: `!remove` only takes effect from the top-level
-config, which merges last; board packages merge first as the lowest-precedence
-base, so a `!remove` there is a no-op. **Comment the line back out when switching
-back to a non-LCD board.** `improv_serial` (UART provisioning) is unaffected.
+If you ever add `esp32_improv:` back to a build, do it in `main.yaml` and keep
+it off LCD boards. `improv_serial` (UART provisioning) is unaffected either way.
 
 ---
 
@@ -155,7 +155,7 @@ back to a non-LCD board.** `improv_serial` (UART provisioning) is unaffected.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Boot loop, `btc_init_bluetooth` assert | Bluedroid + framebuffer OOM | `esp32_improv: !remove` in `main.yaml` |
+| Boot loop, `btc_init_bluetooth` assert | Bluedroid + framebuffer OOM | Remove any `esp32_improv:` you added — the shared base no longer has one |
 | `gpio_pullup_en ... input-only pad has no internal PU` | IDF RMT driver requesting a pull-up on GPIO35 | None needed — harmless |
 | Static / snow, not changing | SPI not reaching display | Check DC and CS wiring |
 | `Could not allocate buffer` | 115 KB framebuffer OOM | Use `color_palette: 8BIT` or `GRAYSCALE` |

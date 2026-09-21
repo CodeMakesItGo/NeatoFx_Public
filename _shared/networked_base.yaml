@@ -64,8 +64,20 @@ wifi:
   # NOTE: inert while an `ap:` block exists — wifi_component.cpp only reboots on
   # WiFi loss when there is no AP to fall back to. Kept for the AP-less case.
   reboot_timeout: 10min
-  power_save_mode: light    # BLE (esp32_improv) requires modem sleep — 'none' is
-                            # rejected by ESPHome when esp32_ble is present
+  # No modem sleep. Every NEATO-FX device is mains powered, and modem sleep is
+  # what made Home Assistant -> device traffic (play_sound, score pushes) land
+  # anywhere from 100 ms to several seconds late: a sleeping station only
+  # receives on the router's DTIM wake, so a missed frame costs a full TCP
+  # retransmit backoff. The old `light` setting existed only because BLE
+  # provisioning (esp32_improv) was compiled in and BT coexistence wants modem
+  # sleep; BLE is gone from this base (see the note under captive_portal), so
+  # nothing needs it any more. standalone_base.yaml already ran `none`.
+  power_save_mode: none
+  # No post-connect roaming scans. ESPHome 2026 re-scans for a stronger AP every
+  # 5 minutes whenever RSSI is below -49 dBm; each scan takes the radio
+  # off-channel for up to ~1 s, and any hit that lands in that window waits.
+  # Gallery LANs are a single AP, so there is nothing to roam to.
+  post_connect_roaming: false
   output_power: 20dB        # Maximum WiFi power for best range
 
   # --------------------------------------------------------------------------
@@ -120,14 +132,26 @@ web_server:
 # ==============================================================================
 api:
   reboot_timeout: 5min  # Reboot the device if no connection to Home Assistant for 5 minutes
+  # Send every state change to Home Assistant immediately instead of holding it
+  # up to 100 ms to batch with others. Hit counts, scores and player-active
+  # flags are the game; responsiveness matters more than packet count here.
+  batch_delay: 0ms
 
 # ==============================================================================
 # CAPTIVE PORTAL & DASHBOARD - Initial Setup
 # ==============================================================================
 captive_portal:
 
-esp32_improv:
-  authorizer: none  # Allow BLE provisioning without physical authorization button
+# BLE provisioning (esp32_improv) is deliberately NOT in this base any more.
+# Keeping the Bluetooth controller alive forced WiFi modem sleep (see
+# power_save_mode above) and cost ~60-70 KB of internal DRAM on every build.
+# Provisioning still works two ways: improv_serial over USB (declared per
+# device, see the note below) and the setup hotspot + captive portal above.
+# Made for ESPHome needs Improv whenever `wifi:` is present; improv_serial
+# satisfies that everywhere except NeatoBlaster rev 3.x (no USB console), so
+# that product carries its own `esp32_improv:` plus `wifi: power_save_mode:
+# light` in Controllers/NeatoBlaster/configs/networked.yaml. Copy that pattern
+# if another product ever loses its serial console.
 
 # Note: improv_serial is NOT included here because it requires logger baud_rate != 0,
 # which conflicts with devices that disable serial logging (e.g. NeatoDisplay4).

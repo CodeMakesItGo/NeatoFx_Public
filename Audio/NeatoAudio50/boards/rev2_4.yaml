@@ -28,7 +28,8 @@ esphome:
     - priority: 300
       then:
       - output.turn_off: amp_unmute  # Keep muted
-      - output.turn_off: amp_wake    # Keep asleep
+      - output.turn_off: amp_wake    # Keep asleep (an idle amp hisses); each
+                                     # play wakes it — see play_sound_script
       - output.turn_on: hb_led
       - logger.log: "Boot: Resetting DFPlayer..."
       - dfplayer.reset:
@@ -142,7 +143,7 @@ switch:
       - light.turn_off: spot_light_2
       - output.turn_off: amp_unmute
       - delay: 10ms
-      - output.turn_off: amp_wake
+      - output.turn_off: amp_wake     # sleep: an idle amp hisses
 
   - platform: template
     name: "Test SpotLight 1"
@@ -661,7 +662,7 @@ dfplayer:
           - light.turn_off: spot_light_2
           - output.turn_off: amp_unmute
           - delay: 10ms
-          - output.turn_off: amp_wake
+          - output.turn_off: amp_wake     # sleep: an idle amp hisses
           - script.execute: mp3_finished_script
 
 # ==============================================================================

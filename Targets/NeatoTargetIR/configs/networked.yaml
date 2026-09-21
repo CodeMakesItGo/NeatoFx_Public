@@ -214,14 +214,13 @@ script:
                   }
                   return "http://" + host + "/number/Net%20Play/set?value=" + to_string(mp3);
                 capture_response: false
-      # Optional: also notify Home Assistant (only fires if an HA client is
-      # connected; harmless no-op otherwise). Uncomment if you run HA too.
-      #- homeassistant.event:
-      #    event: esphome.target-hit
-      #    data:
-      #      player: !lambda 'return id(ir_command);'
-      #      points: !lambda 'return std::to_string(id(target_points));'
-      #      address: !lambda 'return id(device_id);'
+
+  # Home Assistant hit event — fired FIRST by target_hit_script. There is no HA
+  # server on a No-HA LAN, so this is a stub; the real one lives in
+  # configs/home_assistant.yaml. Switch main.yaml to that config to run HA.
+  - id: esphome_hit_event_script
+    mode: parallel
+    then: []
 improv_serial:
 
 # ==============================================================================

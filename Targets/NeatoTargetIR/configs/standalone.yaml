@@ -19,3 +19,7 @@ script:
   - id: esphome_hit_script
     mode: single
     then: []
+  # Same for the Home Assistant hit event target_hit_script fires first.
+  - id: esphome_hit_event_script
+    mode: parallel
+    then: []

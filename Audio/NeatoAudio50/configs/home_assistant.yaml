@@ -3,8 +3,9 @@
 # ==============================================================================
 # Joins a WiFi router where a Home Assistant server IS present (internet
 # optional). Keeps the native ESPHome api: enabled so HA can control the device
-# and receive the esphome.speaker-triggered events fired below. The device also
-# still accepts direct device-to-device "Net Play" POSTs over the LAN.
+# and receive the esphome.speaker-triggered events fired below. Sounds are
+# triggered THROUGH Home Assistant only: the device-to-device "Net Play" /
+# "Net Trigger" REST endpoints exist solely in configs/networked.yaml.
 #
 # Use this when:      router present, Home Assistant server on the LAN
 # Use networked.yaml instead when: router present but NO HA server (No-HA LAN)
@@ -156,74 +157,13 @@ script:
             input: '2'
 
 # ==============================================================================
-# NETWORK PLAY ENDPOINT - direct device-to-device trigger
+# NO NETWORK PLAY / NETWORK TRIGGER ENDPOINTS IN THIS VARIANT
 # ==============================================================================
-# Still available alongside Home Assistant: other NEATO-FX devices can play a
-# sound by POSTing over the LAN via web_server REST:
-#
-#   POST http://audio-<id>.local/number/Net%20Play/set?value=<mp3 number>
-#
-# value 1-255 = play that MP3 file; 0 or out-of-range = ignored.
-number:
-  - platform: template
-    name: "Net Play"
-    id: net_play
-    min_value: 0
-    max_value: 255
-    step: 1
-    mode: box
-    optimistic: true
-    # Delegates to the shared play script — same amp/volume sequence as every
-    # other entry point. It used to inline its own, which skipped setting the
-    # volume while muted; see the note on play_sound_script.
-    set_action:
-      - script.execute:
-          id: play_sound_script
-          mp3: !lambda 'return (int)x;'
-
-  # ============================================================================
-  # NETWORK TRIGGER ENDPOINT - fire a full input chain remotely
-  # ============================================================================
-  # "Net Play" above is sound only — it calls the DFPlayer directly and so skips
-  # everything the physical inputs do. This endpoint instead runs the real
-  # run_inputN_script, so a remote caller gets the input's complete behavior:
-  # spotlight/relay routing (Input N Output), trigger brightness, output timer,
-  # and the background-loop pause.
-  #
-  #   POST http://audio-<id>.local/number/Net%20Trigger/set?value=<code>
-  #
-  # The value packs the input number and the MP3 file into one atomic POST:
-  #
-  #   code = input * 1000 + mp3        input: 1 or 2      mp3: 0-255
-  #
-  #   1005 → Input 1 effects, play MP3 5      2001 → Input 2 effects, play MP3 1
-  #   1000 → Input 1 effects, play whatever "Input 1 MP3" is set to locally
-  #
-  # Anything else is ignored and logged.
-  - platform: template
-    name: "Net Trigger"
-    id: net_trigger
-    min_value: 0
-    max_value: 2255
-    step: 1
-    mode: box
-    optimistic: true
-    set_action:
-      - lambda: |-
-          int code = (int) x;
-          int input = code / 1000;
-          int mp3   = code % 1000;
-          if (mp3 > 255) {
-            ESP_LOGW("net_trigger", "Ignoring code %d (MP3 %d out of range)", code, mp3);
-          } else if (input == 1) {
-            ESP_LOGI("net_trigger", "Input 1 chain, MP3 %s", mp3 ? to_string(mp3).c_str() : "(local setting)");
-            id(run_input1_script)->execute(mp3);
-          } else if (input == 2) {
-            ESP_LOGI("net_trigger", "Input 2 chain, MP3 %s", mp3 ? to_string(mp3).c_str() : "(local setting)");
-            id(run_input2_script)->execute(mp3);
-          } else {
-            ESP_LOGW("net_trigger", "Ignoring code %d (input %d is not 1 or 2)", code, input);
-          }
+# With a Home Assistant server on the LAN every sound is triggered through HA
+# (play_sound action or the input_number.speaker_<id>_sound helper above). The
+# direct device-to-device "Net Play" and "Net Trigger" REST endpoints are only
+# built into configs/networked.yaml (No-HA LAN). Targets mirror this: their
+# Remote Audio controls exist only in THEIR networked config, never in HA mode.
 
 # ==============================================================================
 # FIRMWARE UPDATES - OTA via HTTP

@@ -80,6 +80,11 @@ script:
   - id: target_hit_script
     mode: single  # Prevent overlapping hits
     then:
+      # Tell Home Assistant FIRST — before any LED / relay / servo work (and
+      # before the Strobe Flash branch's 150 ms hold) so an HA-driven sound
+      # starts as early as possible. One non-blocking API write; a no-op stub
+      # in the standalone and No-HA configs.
+      - script.execute: esphome_hit_event_script
       - logger.log: "Target hit detected - processing..."
       # Disable IR during hit processing
       - globals.set:
@@ -221,7 +226,8 @@ script:
       - script.execute: ${servo_pwm_script}
       - script.execute: servo_go_hit
 
-      # Trigger linked audio / HA event AFTER the visual hit effect is on screen.
+      # Trigger the linked Audio-50 POST AFTER the visual hit effect is on screen
+      # (the HA event already went out at the top of this script).
       # In networked mode esphome_hit_script does a *blocking* http_request.post to
       # the Audio-50; ESPHome's http_request is synchronous and freezes the main
       # loop for the whole round-trip. The delay yields one frame so the LED flash,

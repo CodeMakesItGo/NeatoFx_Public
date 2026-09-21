@@ -85,8 +85,10 @@ improv_serial:
 #
 #   POST http://audio-<id>.local/number/Net%20Play/set?value=<mp3 number>
 #
-# value 1-255 = play that MP3 file; 0 or out-of-range = ignored. Mirrors the
-# amp wake/unmute/play/watchdog sequence used by the physical input scripts.
+# value 1-255 = play that MP3 file; 0 or out-of-range = ignored. Delegates to
+# the shared play_sound_script (scripts/audio_control.yaml) so it gets the same
+# volume-before-play guard and the same minimal-latency sequence as every other
+# entry point — it used to inline its own copy that never set the volume.
 number:
   - platform: template
     name: "Net Play"
@@ -97,23 +99,9 @@ number:
     mode: box
     optimistic: true
     set_action:
-      - if:
-          condition:
-            lambda: 'return ((int)x) >= 1 && ((int)x) <= 255;'
-          then:
-            - logger.log:
-                format: "Net Play: playing MP3 %d"
-                args: ['(int)x']
-            - output.turn_on: amp_wake     # Wake amp first
-            - delay: 50ms                  # Let amp stabilize
-            - output.turn_on: amp_unmute   # Unmute
-            - delay: 100ms
-            - lambda: 'id(dfplayer1).play_mp3((int)x);'
-            - script.execute: playback_timeout
-          else:
-            - logger.log:
-                format: "Net Play: ignoring out-of-range value %d"
-                args: ['(int)x']
+      - script.execute:
+          id: play_sound_script
+          mp3: !lambda 'return (int)x;'
 
   # ============================================================================
   # NETWORK TRIGGER ENDPOINT - fire a full input chain remotely
