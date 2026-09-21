@@ -1,12 +1,12 @@
 {
   "name": "NEATO Audio 50",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "builds": [
     {
       "chipFamily": "ESP32",
       "ota": {
-        "path": "https://github.com/CodeMakesItGo/NeatoFx_Public/releases/download/v3.1.0/audio50-v3.1.0.bin",
-        "md5": "REPLACE_WITH_MD5_OF_RELEASED_BIN",
+        "path": "https://github.com/CodeMakesItGo/NeatoFx_Public/releases/download/v3.2.0/audio50-v3.2.0.bin",
+        "md5": "feefe4461763ed0ae75f3f4d64897870",
         "summary": "Shared runtime identity package: Device ID plus an Audio Name sensor, available in standalone builds too, and no build-time id substitution"
       }
     }

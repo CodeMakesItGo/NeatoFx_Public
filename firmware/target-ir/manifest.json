@@ -1,12 +1,12 @@
 {
   "name": "NEATO Target IR",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "builds": [
     {
       "chipFamily": "ESP32",
       "ota": {
-        "path": "https://github.com/CodeMakesItGo/NeatoFx_Public/releases/download/v3.1.0/target-ir-v3.1.0.bin",
-        "md5": "REPLACE_WITH_MD5_OF_RELEASED_BIN",
+        "path": "https://github.com/CodeMakesItGo/NeatoFx_Public/releases/download/v3.2.0/target-ir-v3.2.0.bin",
+        "md5": "bc8fd6b8e28fbd13c61911ec43da3123",
         "summary": "Shared runtime identity package: Device ID plus a Target Name sensor, and no build-time id substitution"
       }
     }

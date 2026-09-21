@@ -1,12 +1,12 @@
 {
   "name": "NEATO Motor",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "builds": [
     {
       "chipFamily": "ESP32",
       "ota": {
-        "path": "https://github.com/CodeMakesItGo/NeatoFx_Public/releases/download/v3.1.0/motor-v3.1.0.bin",
-        "md5": "REPLACE_WITH_MD5_OF_RELEASED_BIN",
+        "path": "https://github.com/CodeMakesItGo/NeatoFx_Public/releases/download/v3.2.0/motor-v3.2.0.bin",
+        "md5": "07b8225f4225ec25d3ea1bfdb58e18a2",
         "summary": "Shared runtime identity package: Source Address plus a Motor Name sensor, and no build-time id substitution"
       }
     }

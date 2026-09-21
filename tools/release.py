@@ -125,12 +125,19 @@ def ota_binary(main_yaml: Path, info: dict) -> Path:
     (which for some targets is a full-flash image) and not firmware.factory.bin
     (bootloader + partitions, USB only).
     """
-    p = (main_yaml.parent / ".esphome" / info["build_path"]
-         / ".pioenvs" / info["name"] / "firmware.ota.bin")
-    if not p.exists():
-        die(f"expected OTA image not found: {p}\n"
-            f"       (did the compile succeed?)")
-    return p
+    base = main_yaml.parent / ".esphome" / info["build_path"]
+    candidates = (
+        # ESPHome >= 2026.7 (native ESP-IDF toolchain, also for Arduino builds)
+        base / "build" / "firmware.ota.bin",
+        # older ESPHome / PlatformIO builds
+        base / ".pioenvs" / info["name"] / "firmware.ota.bin",
+    )
+    for p in candidates:
+        if p.exists():
+            return p
+    die("expected OTA image not found in any of:\n"
+        + "".join(f"       {c}\n" for c in candidates)
+        + "       (did the compile succeed?)")
 
 
 def md5_of(path: Path) -> str:
