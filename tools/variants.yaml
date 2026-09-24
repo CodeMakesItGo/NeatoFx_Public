@@ -132,7 +132,9 @@ devices:
       gunslinger_art:          # Temecula "Gunslinger Jacks" geometry +
                                # ../../../Customers/temecula/images_mobile/.
                                # Needs the private repo; not buildable from a
-                               # standalone NeatoFx_Public clone.
+                               # standalone NeatoFx_Public clone, so CI drops it
+                               # from the matrix rather than failing on it.
+        _requires: ../Customers/temecula/images_mobile
         image_layout: boards/common/image_layout_gunslinger.yaml
 
   display7:

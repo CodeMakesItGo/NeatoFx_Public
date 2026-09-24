@@ -101,9 +101,20 @@ def build(device: str, variant: str, matrix: dict, check: str, dev_id: str,
           keep: bool) -> bool:
     spec = matrix[device]
     main_yaml = REPO_ROOT / spec["path"]
-    selections = spec["variants"][variant] or {}
+    vspec = spec["variants"][variant] or {}
+    # Keys starting with "_" are metadata, not package selections. "_requires"
+    # names a path this variant's artwork lives at — some variants point at
+    # customer assets in the private repo, which only exist when this repo is
+    # checked out nested inside it. A standalone clone skips them.
+    requires = vspec.get("_requires")
+    selections = {k: v for k, v in vspec.items() if not k.startswith("_")}
+    label = spec.get("label", device)
+    if requires and not (REPO_ROOT / requires).exists():
+        print(f"== {label} :: {variant} == SKIPPED "
+              f"({requires} not present — needs the private repo)", flush=True)
+        return True
     original = main_yaml.read_text()
-    print(f"== {spec.get('label', device)} :: {variant} ==", flush=True)
+    print(f"== {label} :: {variant} ==", flush=True)
     try:
         if selections:
             main_yaml.write_text(apply_variant(main_yaml, selections))

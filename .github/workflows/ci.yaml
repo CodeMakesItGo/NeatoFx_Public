@@ -44,10 +44,19 @@ jobs:
       - id: gen
         run: |
           python - <<'EOF' >> "$GITHUB_OUTPUT"
-          import json, yaml
+          import json, os, sys, yaml
           m = yaml.safe_load(open("tools/variants.yaml"))["devices"]
-          builds = [{"device": d, "variant": v}
-                    for d, spec in m.items() for v in spec["variants"]]
+          builds = []
+          for d, spec in m.items():
+              for v, vspec in spec["variants"].items():
+                  # A variant may declare "_requires": a path its artwork lives
+                  # at. Temecula's points into the private repo, which is not
+                  # checked out here, so drop it rather than fail the build.
+                  req = (vspec or {}).get("_requires")
+                  if req and not os.path.exists(req):
+                      print(f"skipping {d}:{v} ({req} not present)", file=sys.stderr)
+                      continue
+                  builds.append({"device": d, "variant": v})
           print(f"builds={json.dumps(builds)}")
           EOF
 
