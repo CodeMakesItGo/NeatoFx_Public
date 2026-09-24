@@ -43,6 +43,22 @@ packages:
   # Runtime player assignment (replaces the old compile-time -s id N).
   runtime_id: !include ../../_shared/runtime_id.yaml
 
+  # ---- SCREEN ARTWORK LAYOUT ----
+  # Where the score / shots / hits / final-score digits sit on the artwork,
+  # plus their font sizes and colours. The layout file ALSO sets ${images_dir},
+  # the directory its PNGs come from, so the coordinates and the artwork travel
+  # together — one line picks both and they cannot drift apart.
+  #
+  # Only one layout exists for this product. Display 4's Temecula "Gunslinger
+  # Jacks" set is 1024x1024 square artwork for a 480x480 panel and does not fit
+  # this 800x480 landscape screen, so there is no 7" equivalent to select. Add
+  # a second image_layout_*.yaml here when 800x480 customer artwork exists.
+  #
+  # Do not define images_dir or the geometry in this file. Substitutions here
+  # override those from a package, so a copy at this level would win over
+  # whichever layout is selected.
+  image_layout: !include boards/common/image_layout_default.yaml       # stock "Target Shootout" — images/
+
   # Hardware board definition
   board: !include boards/rev1.yaml
 

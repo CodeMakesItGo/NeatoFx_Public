@@ -47,21 +47,21 @@ sensor:
 # build does not fit. Check the "Flash:" line after any change here.
 image:
   - platform: file
-    file: "images/GAME_START_${color}.png"
+    file: "${images_dir}/GAME_START_${color}.png"
     id: boot_logo
     type: RGB565
     resize: 800x480
     transparency: opaque
 
   - platform: file
-    file: "images/GAME_PLAY_${color}.png"
+    file: "${images_dir}/GAME_PLAY_${color}.png"
     id: shots_background
     type: RGB565
     resize: 800x480
     transparency: opaque
 
   - platform: file
-    file: "images/GAME_OVER.png"
+    file: "${images_dir}/GAME_OVER.png"
     id: game_over_background
     type: RGB565
     resize: 800x480
@@ -113,20 +113,19 @@ lvgl:
                   width: 100%
                   height: 100%
                   src: shots_background
-              # Geometry tracks the artwork: the three value plates in
-              # GAME_PLAY_${color}.png sit at x 319..650 (332 wide), with the
-              # SHOTS LEFT plate at y 224..273, SCORE at 296..344 and HITS at
-              # 367..416. Re-measure these if the artwork is redrawn.
+              # Geometry comes from the selected image_layout package, so the
+              # coordinates travel with the artwork they were measured against
+              # — see boards/common/image_layout_default.yaml.
               - label:
                   id: player_shot
-                  x: 319
-                  y: 224
-                  width: 332
-                  height: 50
+                  x: ${shots_x}
+                  y: ${shots_y}
+                  width: ${shots_w}
+                  height: ${shots_h}
                   text_font: shot_font
                   text_align: CENTER
                   align: TOP_LEFT
-                  text_color: ${font_color}
+                  text_color: ${play_value_color}
                   text: ""
                   bg_opa: TRANSP
 
@@ -147,26 +146,26 @@ lvgl:
             widgets:
               - label:
                   id: player_hit
-                  x: 319
-                  y: 367
-                  width: 332
-                  height: 50
+                  x: ${hits_x}
+                  y: ${hits_y}
+                  width: ${hits_w}
+                  height: ${hits_h}
                   text_font: hit_font
                   text_align: CENTER
                   align: TOP_LEFT
-                  text_color: ${font_color}
+                  text_color: ${play_value_color}
                   text: ""
                   bg_opa: TRANSP
               - label:
                   id: player_score
-                  x: 319
-                  y: 295
-                  width: 332
-                  height: 50
+                  x: ${score_x}
+                  y: ${score_y}
+                  width: ${score_w}
+                  height: ${score_h}
                   text_font: score_font
                   text_align: CENTER
                   align: TOP_LEFT
-                  text_color: ${font_color}
+                  text_color: ${play_value_color}
                   text: ""
                   bg_opa: TRANSP
 
@@ -231,17 +230,17 @@ lvgl:
               - image:
                   align: CENTER
                   src: game_over_background
-              # FINAL SCORE plate in GAME_OVER.png: x 239..560, y 340..420.
+              # FINAL SCORE plate geometry comes from the image_layout package.
               - label:
                   id: game_over_score
-                  x: 239
-                  y: 342
-                  width: 322
-                  height: 77
+                  x: ${final_score_x}
+                  y: ${final_score_y}
+                  width: ${final_score_w}
+                  height: ${final_score_h}
                   text_font: final_score_font
                   text_align: CENTER
                   align: TOP_LEFT
-                  text_color: ${font_color}
+                  text_color: ${final_score_color}
                   text: ""
                   bg_opa: TRANSP
 

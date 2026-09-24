@@ -19,7 +19,7 @@
 # ==============================================================================
 substitutions:
   # Project Information (Rev 1.x specific)
-  project_version: "3.2.0"
+  project_version: "3.2.1"
   
   # Audio Configuration
   max_value: "2"                 # Number of different shot sounds

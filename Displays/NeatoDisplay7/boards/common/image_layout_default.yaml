@@ -1,0 +1,68 @@
+# ==============================================================================
+# NEATO DISPLAY 7 - IMAGE TEXT LAYOUT: "Target Shootout" (stock artwork)
+# ==============================================================================
+# THE DEFAULT LAYOUT, and currently the only one. It holds where the score /
+# shots / hits / final-score digits sit on the artwork, their font sizes and
+# their colours — plus ${images_dir}, the directory the PNGs come from, so the
+# coordinates and the artwork they were measured against travel together.
+#
+# Same mechanism as NeatoDisplay4, with two differences worth knowing:
+#
+#   1. Panel space is 800x480 LANDSCAPE here, not Display 4's 480x480 square,
+#      and images/ holds native 800x480 PNGs rather than 1024x1024 squares that
+#      get resized down. Artwork is NOT interchangeable between the two
+#      products — a Display 4 image set squashed into 800x480 will distort and
+#      none of these coordinates will line up.
+#
+#   2. There is no drop-shadow layer. Display 4 draws each value twice (a
+#      shadow label underneath, nudged by translate_x/y, then the real one on
+#      top), which its gunslinger artwork needs to stay readable over light
+#      plates. Display 7 has no layout that needs it, and its flash budget is
+#      the tight one — see the note above `image:` in screens.yaml — so the
+#      extra widgets are deliberately not there. Adding a layout that needs a
+#      shadow means adding those labels to screens.yaml first.
+#
+# Do NOT also define these in main.yaml. Substitutions in the including file
+# override those from a package, so a copy up there would silently win over
+# whichever layout is selected.
+#
+# MEASURED FROM THE STOCK ARTWORK:
+#   GAME_PLAY_${color}.png — three value plates, all x 319..650 (332 wide):
+#   SHOTS LEFT y 224..273, SCORE y 296..344, HITS y 367..416.
+#   GAME_OVER.png — FINAL SCORE plate x 239..560, y 340..420.
+# Every plate is dark, so all values use the per-build ${font_color}.
+# ==============================================================================
+
+substitutions:
+  # Artwork this layout belongs to. Resolved relative to the directory holding
+  # main.yaml, NOT this file — so "images" means Displays/NeatoDisplay7/images/.
+  images_dir: "images"
+
+  shots_x: "319"
+  shots_y: "224"
+  shots_w: "332"
+  shots_h: "50"
+  shots_font_size: "44"
+
+  score_x: "319"
+  score_y: "295"
+  score_w: "332"
+  score_h: "50"
+  score_font_size: "44"
+
+  hits_x: "319"
+  hits_y: "367"
+  hits_w: "332"
+  hits_h: "50"
+  hits_font_size: "44"
+
+  # Colour of the three in-game values. ${font_color} is the per-build screen
+  # colour set in main.yaml.
+  play_value_color: "${font_color}"
+
+  final_score_x: "239"
+  final_score_y: "342"
+  final_score_w: "322"
+  final_score_h: "77"
+  final_score_font_size: "68"
+  final_score_color: "${font_color}"

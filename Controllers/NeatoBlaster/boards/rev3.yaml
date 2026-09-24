@@ -12,12 +12,13 @@
 # - Pump sensor (GPIO25, internal pull-up)
 # - DY-SV5W MP3 player on the serial header (UART0):
 #     GPIO1 (TX) -> DY-SV5W RX   (commands out)
-#     GPIO3 (RX) is NOT used by the player - it stays the start game button
+#     GPIO3 (RX) is NOT used by the player, and is now unwired entirely
 #   Track 1: Empty trigger (game inactive or no pump)
 #   Track 2: Pump action
 #   Track 3: Fire shot
-#   GPIO16/GPIO17 are now free (were one-shot trigger lines); GPIO25 was
-#   the third, and now carries the pump sensor
+# - Start game button (GPIO17, internal pull-up)
+#   GPIO16 is free. GPIO16/GPIO17/GPIO25 were the old one-shot trigger lines;
+#   GPIO25 now carries the pump sensor and GPIO17 the start game button
 # - Relay output (GPIO23) for external device control
 # - Auxiliary power control (GPIO26)
 # - Multiple I/O pins for expansion
@@ -32,9 +33,9 @@ substitutions:
 
   # Serial header (UART0) - the DY-SV5W MP3 player lives here.
   # Playback is one-way: the player only ever needs the ESP32's TX line, so
-  # only GPIO1 is claimed. GPIO3 (the header's RX pin) stays the start game
-  # button, which is why there is no rx_pin on the uart below. Wiring the
-  # player's TX back would mean giving up that button.
+  # only GPIO1 is claimed, which is why there is no rx_pin on the uart below.
+  # GPIO3 (the header's RX pin) is left unwired: the start game button moved
+  # off it to GPIO17, so GPIO3 is now genuinely spare.
   mp3_tx_gpio: GPIO01            # ESP32 TX -> DY-SV5W RX (commands)
   mp3_baud_rate: "9600"          # DY-SV5W fixed rate, 8N1
 
@@ -56,14 +57,21 @@ substitutions:
   # the serial port. REWIRE REQUIRED: the pump switch must move from the
   # GPIO34 pin to GPIO25 on the right-side connector.
   pump_gpio: GPIO25      # Pump sensor (blaster pump action)
-  # The serial header's RX pin, genuinely free now that logger baud_rate is 0.
-  # Named for what it does: ${tx_gpio} used to be overridden to GPIO03 here,
-  # which read as "the TX pin" everywhere else in the tree while actually
-  # being RX. The DY-SV5W now occupies the real TX pin, so that had to go.
-  start_button_gpio: GPIO03  # Start game button
+  # Start game button. Moved off GPIO3 (the serial header's RX pin), which
+  # works electrically - GPIO3 has a real internal pull-up and is not a
+  # strapping pin - but sits on the USB-serial adapter's TX line: holding the
+  # button during a serial flash fights the programmer. GPIO17 is an ordinary
+  # GPIO with an internal pull-up and no boot-time role, and came free when the
+  # one-shot trigger lines were removed. REWIRE REQUIRED: the start button must
+  # move from the serial header's RX pin to GPIO17.
+  #
+  # NOTE: GPIO16/GPIO17 are wired to PSRAM on ESP32-WROVER modules. This board
+  # is a WROOM-32 (wemos_d1_mini32, 4MB, no PSRAM), so they are free here - do
+  # not carry this pinout to a WROVER variant.
+  start_button_gpio: GPIO17  # Start game button
 
   # Project Information (Rev 3.x specific)
-  project_version: "3.2.0"
+  project_version: "3.2.1"
 
 # ==============================================================================
 # EXTERNAL PACKAGES
@@ -79,8 +87,9 @@ packages:
 # DY-SV5W's RX line, and a logger left running would push every log line into
 # the player as junk serial data. Logs are unaffected over WiFi, the API and
 # the web server - only the USB console goes away, and with it improv_serial
-# (see configs/networked.yaml). This is also what finally makes GPIO3 a clean
-# input for the start game button rather than a pin shared with UART0 RX.
+# (see configs/networked.yaml). This is independent of where the start game
+# button lives: it is GPIO1, the TX line, that the player needs, so moving the
+# button off GPIO3 does NOT make it safe to turn the console back on.
 logger:
   baud_rate: 0
   # No level override - the WARN default from boards/common/rev3_common.yaml
@@ -174,9 +183,9 @@ remote_transmitter:
 # DY-SV5W MP3 PLAYER - SERIAL LINK
 # ==============================================================================
 # TX only. Every command below is fire-and-forget, so the player's TX line is
-# never read and GPIO3 stays available for the start game button. Adding
-# rx_pin: ${start_button_gpio} would let you read DY-SV5W status replies, at
-# the cost of that button.
+# never read, so GPIO3 is left unwired. Adding rx_pin: GPIO03 would let you
+# read DY-SV5W status replies; nothing else claims that pin now that the start
+# button has moved to GPIO17.
 #
 # The DY-SV5W must be strapped for UART mode on its CON1/CON2/CON3 config pads
 # (see the module datasheet for the combination); in the factory default
@@ -322,8 +331,8 @@ binary_sensor:
           else:
             - script.execute: play_no_pump_sound
 
-  # Start game button on the serial header's RX pin (GPIO3), free now
-  # that logger baud_rate is 0 and UART0 is no longer the console
+  # Start game button on GPIO17 - an ordinary GPIO with a real internal
+  # pull-up and no boot-time role (see the note on start_button_gpio above)
   - platform: gpio
     pin:
       number: ${start_button_gpio}

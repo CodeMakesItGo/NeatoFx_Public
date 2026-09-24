@@ -130,7 +130,7 @@ binary_sensor:
 # ==============================================================================
 script:
   # --------------------------------------------------------------------------
-  # START GAME BUTTON (rev 3.x, serial header RX pin / GPIO3)
+  # START GAME BUTTON (rev 3.x, GPIO17)
   # --------------------------------------------------------------------------
   # Asks Home Assistant to start a game. Only meaningful while the blaster is
   # idle — once the player gate is on, game_active is true and a press is

@@ -1,14 +1,19 @@
 # ==============================================================================
 # NEATO DISPLAY 4 - IMAGE TEXT LAYOUT: "Target Shootout" (stock artwork)
 # ==============================================================================
-# Geometry for the original carnival/Target Shootout art — the set kept in
-# images_bak/. Restore it by copying images_bak/*.png back over images/ and
-# selecting this file as the image_layout: package in main.yaml.
+# THE DEFAULT LAYOUT. Geometry for the stock carnival/Target Shootout art, which
+# ships in this repo as images/ — so this is the one layout that builds from a
+# standalone NeatoFx_Public clone. It is selected in main.yaml.
+#
+# (This was image_layout_shootout.yaml, and the artwork lived in images_bak/
+# while images/ carried the Temecula set. The stock art is now images/ and the
+# Temecula art has moved out to the private repo — see
+# image_layout_gunslinger.yaml.)
 #
 # See image_layout_gunslinger.yaml for what each substitution means and how to
 # re-measure a plate. Coordinates are 480x480 panel space.
 #
-# MEASURED FROM images_bak/:
+# MEASURED FROM THE STOCK ARTWORK:
 #   GAME_PLAY_${color}.png — three dark navy value plates, all x 203..432
 #   (230 wide): SHOTS LEFT y 212..267, SCORE y 292..350, HITS y 374..433.
 #   GAME_OVER.png — FINAL SCORE plate x 104..375, y 330..421.
@@ -16,6 +21,17 @@
 # ==============================================================================
 
 substitutions:
+  # ARTWORK THIS LAYOUT BELONGS TO.
+  # Resolved relative to the directory holding main.yaml, NOT this file — so
+  # "images" means Displays/NeatoDisplay4/images/. Keeping it here rather than
+  # in main.yaml is what stops the coordinates and the PNGs drifting apart:
+  # selecting a layout selects its artwork in the same line.
+  #
+  # Do NOT also define images_dir in main.yaml. Substitutions in the including
+  # file override those from a package, so a copy up there would silently win
+  # over whichever layout is selected and pin every layout to one image set.
+  images_dir: "images"
+
 
   # ---- GAME PLAY SCREEN -----------------------------------------------------
   shots_x: "203"

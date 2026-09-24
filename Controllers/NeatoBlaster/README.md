@@ -71,18 +71,41 @@ NeatoBlaster comes in two distinct hardware revisions optimized for different us
   - GPIO1 (TX) -> DY-SV5W RX (commands out)
   - 9600 baud, 8N1
   - Playback is one-way, so the player's TX line is not wired back and
-    GPIO3 (RX) stays free for the start game button
+    GPIO3 (RX) is left unwired
 - Tracks are selected by number, so any track is reachable:
   - Track 1: Empty trigger (pump not engaged, or game inactive)
   - Track 2: Pump action sound
   - Track 3: Fire shot sound
   - Tracks 4+: Additional game audio
 - Full volume control (0-30), restored from flash across reboots
-- GPIO16/GPIO17 are now free — earlier firmware used them as one-shot trigger
-  lines. GPIO25 was the third, and now carries the pump sensor
+- GPIO16 is free. GPIO16/GPIO17/GPIO25 were the one-shot trigger lines in
+  earlier firmware; GPIO25 now carries the pump sensor and GPIO17 the start
+  game button
+
+**Rev 3.x Pinout:**
+
+| GPIO | Function | Direction / Mode | Wiring |
+|------|----------|------------------|--------|
+| GPIO1 | DY-SV5W MP3 player | UART0 TX, 9600 8N1 | serial header TX -> player RX |
+| GPIO3 | *(unused)* | — | serial header RX; leave unwired |
+| GPIO4 | IR transmitter | output | IR LED driver (servo header) |
+| GPIO16 | *(free)* | — | available for expansion |
+| GPIO17 | Start game button | input, internal pull-up, inverted | switch to GND |
+| GPIO22 | Blaster trigger | input, internal pull-up, inverted | switch to GND (LED2 header) |
+| GPIO23 | Relay 1 output | output | prize dispenser / external device |
+| GPIO25 | Pump sensor | input, internal pull-up, inverted | switch to GND (right-side connector) |
+| GPIO26 | Auxiliary power | output | powers the MP3 player and external gear |
+
+All three inputs are wired the same way: switch to GND, pin idles high on its
+internal pull-up, `inverted: true` in firmware so a closed switch reads as
+pressed. No external pull-up resistors are needed.
+
+> **WROVER note:** GPIO16/GPIO17 are wired to PSRAM on ESP32-WROVER modules.
+> This board is a WROOM-32 (`wemos_d1_mini32`, 4 MB, no PSRAM), so they are free
+> here — do not carry this pinout to a WROVER variant.
 
 **Advanced Features:**
-- Start game button (GPIO3 - the serial header's RX pin)
+- Start game button (GPIO17 - internal pull-up, switch to GND)
 - Relay output (GPIO23) for prize dispensers
 - Auxiliary power control (GPIO26) for external equipment
 - Game active/inactive state tracking
@@ -182,7 +205,7 @@ Check your blaster PCB or documentation:
    | ESP32 | DY-SV5W | Note |
    |-------|---------|------|
    | GPIO1 (TX) | RX | commands out — the only line playback needs |
-   | GPIO3 (RX) | — | leave unwired; this is the start game button |
+   | GPIO3 (RX) | — | leave unwired; playback needs no return line |
    | GND | GND | common ground is required |
 
    The player runs off aux power (GPIO26), which the firmware switches on at
@@ -274,7 +297,7 @@ The DY-SV5W occupies GPIO1, which is also the USB console's TX line, so Rev
 
 #### Game State Management
 - Blaster tracks game state (active/inactive)
-- Start Game Button (GPIO3) activates game
+- Start Game Button (GPIO17) activates game
 - Game state shown in web interface
 - Used for game flow control
 
@@ -346,7 +369,7 @@ Sound cycling: Different sound per shot
 
 ### Game Button (Rev 3.x Only)
 
-1. Press Start Game Button (GPIO3)
+1. Press Start Game Button (GPIO17)
 2. Game state changes to "active"
 3. Trigger now responds to shots
 4. Web interface shows game status
@@ -543,8 +566,36 @@ untouched, or the blaster reporting itself pumped with nobody near it.
 To keep the old GPIO34 wiring instead, set `pump_gpio: GPIO34` and change the
 pump sensor's `mode: INPUT_PULLUP` back to `mode: INPUT` in
 [boards/rev3.yaml](boards/rev3.yaml) — and fit a ~10 kΩ pull-up from GPIO34 to
-3V3, because nothing in firmware can un-float that pin. GPIO16 and GPIO17 are
-also free and support internal pull-ups if GPIO25 is inconvenient.
+3V3, because nothing in firmware can un-float that pin. GPIO16 is also free and
+supports an internal pull-up if GPIO25 is inconvenient (GPIO17 is no longer
+available — it now carries the start game button).
+
+### Start Button Moved from GPIO3 to GPIO17 (Rev 3.x) — REWIRE REQUIRED
+
+**The start game button must be moved from the serial header's RX pin (GPIO3)
+to GPIO17.** Flashing this firmware without rewiring leaves the button dead —
+GPIO17 idles high on its internal pull-up with nothing attached, which reads as
+"not pressed", so the blaster never asks Home Assistant to start a game.
+
+**Why it moved**: GPIO3 works electrically — it has a real internal pull-up and
+is not a strapping pin — but it is the USB-serial adapter's TX line. A button
+held down during a serial flash fights the programmer, and the pin can never be
+reclaimed for the console while a switch sits on it. GPIO17 is an ordinary GPIO
+with an internal pull-up and no boot-time role, and came free when the one-shot
+trigger lines were removed.
+
+**Wiring is otherwise unchanged**: switch to GND, no external pull-up.
+
+**Symptom this fixes**: nothing happens when the start button is pressed, or
+serial flashing fails while the button is held.
+
+This does **not** bring back the USB serial console or `improv_serial`. Those
+need `logger: baud_rate` non-zero, and the logger's TX is GPIO1 — the MP3
+player's RX line — so the console has to stay off regardless of where the
+button lives. Provision over BLE Improv or the setup hotspot as before.
+
+To keep the old GPIO3 wiring instead, set `start_button_gpio: GPIO03` in
+[boards/rev3.yaml](boards/rev3.yaml).
 
 ### WiFi Connection Issues
 

@@ -45,21 +45,21 @@ sensor:
 # per image (460 KB vs 691 KB) and skips per-pixel blending.
 image:
   - platform: file
-    file: "images/GAME_START_${color}.png"
+    file: "${images_dir}/GAME_START_${color}.png"
     id: boot_logo
     type: RGB565
     resize: 480x480
     transparency: opaque
 
   - platform: file
-    file: "images/GAME_PLAY_${color}.png"
+    file: "${images_dir}/GAME_PLAY_${color}.png"
     id: shots_background
     type: RGB565
     resize: 480x480
     transparency: opaque
 
   - platform: file
-    file: "images/GAME_OVER.png"
+    file: "${images_dir}/GAME_OVER.png"
     id: game_over_background
     type: RGB565
     resize: 480x480

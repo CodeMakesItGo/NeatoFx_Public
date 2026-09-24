@@ -1,0 +1,1202 @@
+# ==============================================================================
+# NEATO BLASTER - FLATTENED SINGLE-FILE CONFIGURATION
+# ==============================================================================
+# This file is main.yaml with every !include resolved inline. It is the rev 3.x
+# + networked build — the combination main.yaml actually has uncommented:
+#
+#   main.yaml
+#     ├── _shared/runtime_id.yaml
+#     ├── boards/rev3.yaml
+#     │     └── boards/common/rev3_common.yaml
+#     │           └── _shared/esphome_base.yaml
+#     └── configs/networked.yaml
+#           ├── _shared/networked_base.yaml
+#           └── _shared/network_sensors.yaml
+#
+# Blocks below are ordered the way ESPHome's package merge produces them:
+# package content first, then the including file's own content, so list
+# concatenation order (entity order, on_boot trigger order) is preserved.
+# Each section is labelled with the file it came from.
+#
+# NOT flattened: `!secret` references (ota_password, ap_password) — those read
+# from _shared/secrets.yaml and are not !include directives.
+#
+# ONE BINARY for every blaster — there is no per-unit build.
+#
+# Usage:
+#   esphome run     main.flat.yaml
+#   esphome compile main.flat.yaml
+#   esphome logs    main.flat.yaml
+#   Then set the Player ID (1-15) from the device web interface.
+# ==============================================================================
+
+
+# ==============================================================================
+# SUBSTITUTIONS  (merged: runtime_id → esphome_base → rev3_common → rev3 →
+#                 networked_base → main.yaml; later wins)
+# ==============================================================================
+substitutions:
+  # ---- main.yaml: device identification ------------------------------------
+  # ONE BINARY: there is no build-time id substitution. ESPHome appends the MAC
+  # suffix to the hostname at runtime (see the esphome: block below), giving
+  # each unit a unique, permanent hostname. Logical identity is the runtime
+  # Player ID, assigned from the web UI and stored in flash — swapping in a
+  # replacement blaster means setting that number and nothing else.
+  name: blaster
+  # Overrides the "false" default that _shared/esphome_base.yaml carries for
+  # products still compiled per unit.
+  name_add_mac_suffix: "true"
+  friendly_name: "NeatoFx PumpBlaster"
+
+  # ---- main.yaml: runtime identity (overrides _shared/runtime_id.yaml) ------
+  # Player-facing product: the identity global is player_id, matching the
+  # Display. runtime_id.yaml defaults these to device_id / "Device ID" / "99" /
+  # "Device Name" for infrastructure products.
+  runtime_id: player_id
+  runtime_id_label: "Player ID"
+  runtime_id_max: "15"        # player rides in the low nibble of the NEC command
+  runtime_name_label: "Blaster Name"
+
+  # ---- _shared/esphome_base.yaml -------------------------------------------
+  # The OTA password is a substitution, not a bare !secret, so it can be
+  # overridden on the command line. That matters when updating a device still
+  # running firmware that used a DIFFERENT (or empty) OTA password: the
+  # handshake uses the password from the config you invoke, so a plain `upload`
+  # is rejected by the old device. Migrate such a device without a USB trip by
+  # compiling normally, then uploading the resulting binary while overriding the
+  # password to the OLD one:
+  #
+  #   esphome compile main.flat.yaml
+  #   esphome -s ota_password "" upload \
+  #       --file .esphome/build/blaster/.pioenvs/blaster/firmware.bin \
+  #       main.flat.yaml
+  #
+  # The uploaded binary still contains the new password, so this is needed once
+  # per device. Do NOT `compile` with the override — that bakes the old
+  # password in.
+  ota_password: !secret ota_password
+
+  # ---- boards/common/rev3_common.yaml --------------------------------------
+  # Hardware configuration (common across all revisions)
+  default_relay_time: "3000"           # Relay activation time in milliseconds
+  default_cooldown_time: "1000"        # Cooldown period in milliseconds
+  default_relay_trigger_time: "200"    # Relay on-trigger pulse duration in milliseconds
+
+  # Common GPIO pins (consistent across revisions)
+  relay_gpio: GPIO23     # Relay output
+  tx_gpio: GPIO01        # UART TX
+  rx_gpio: GPIO03        # UART RX
+
+  project_name: "NeatoFX.Blaster"
+
+  # ---- boards/rev3.yaml: rev 3.x specific ----------------------------------
+  aux_pwr_gpio: GPIO26           # Auxiliary power control
+
+  # Serial header (UART0) - the DY-SV5W MP3 player lives here.
+  # Playback is one-way: the player only ever needs the ESP32's TX line, so
+  # only GPIO1 is claimed, which is why there is no rx_pin on the uart below.
+  # GPIO3 (the header's RX pin) is left unwired: the start game button moved
+  # off it to GPIO17, so GPIO3 is now genuinely spare.
+  mp3_tx_gpio: GPIO01            # ESP32 TX -> DY-SV5W RX (commands)
+  mp3_baud_rate: "9600"          # DY-SV5W fixed rate, 8N1
+
+  # DY-SV5W playback settings
+  mp3_drive: "1"                 # Source: 0 = USB, 1 = SD card, 2 = onboard flash
+  default_mp3_volume: "20"       # 0-30, restored from flash after first change
+  track_empty: "4"               # Trigger pulled with no pump / game inactive
+  track_pump: "7"                # Pump action
+  track_fire: "8"                # Shot fired
+
+  # Left Side Connector Pins (Rev 3.x specific)
+  ir_tx_gpio: GPIO04     # IR transmitter [servo]
+  trigger_gpio: GPIO22   # Trigger sensor (blaster trigger) [LED2]
+  # Pump sensor. Moved off GPIO34, which is one of the ESP32's input-only
+  # pins (34-39): those have NO internal pull-up or pull-down - ESPHome
+  # rejects `pullup: true` on them outright - so the switch floated and fired
+  # random pump events unless the board carried an external pull-up. GPIO25
+  # has a real internal pull-up and came free when the MP3 player moved to
+  # the serial port. REWIRE REQUIRED: the pump switch must move from the
+  # GPIO34 pin to GPIO25 on the right-side connector.
+  pump_gpio: GPIO25      # Pump sensor (blaster pump action)
+  # Start game button. Moved off GPIO3 (the serial header's RX pin), which
+  # works electrically - GPIO3 has a real internal pull-up and is not a
+  # strapping pin - but sits on the USB-serial adapter's TX line: holding the
+  # button during a serial flash fights the programmer. GPIO17 is an ordinary
+  # GPIO with an internal pull-up and no boot-time role, and came free when the
+  # one-shot trigger lines were removed. REWIRE REQUIRED: the start button must
+  # move from the serial header's RX pin to GPIO17.
+  #
+  # NOTE: GPIO16/GPIO17 are wired to PSRAM on ESP32-WROVER modules. This board
+  # is a WROOM-32 (wemos_d1_mini32, 4MB, no PSRAM), so they are free here - do
+  # not carry this pinout to a WROVER variant.
+  start_button_gpio: GPIO17  # Start game button
+
+  project_version: "3.2.1"
+
+  # ---- _shared/networked_base.yaml: network addressing defaults ------------
+  # ip_base and ip_addr provide default static IP values used by the optional
+  # manual_ip block below. Every device is on DHCP by default — that block is
+  # commented out — so these only matter once you enable it.
+  #
+  # The default is a fixed .1 and NOT derived from any device number: one binary
+  # ships to every unit, so there is no build-time number to derive it from. If
+  # you enable manual_ip you MUST give each device a distinct ip_addr, or they
+  # will all claim the same address. Override it here or on the command line:
+  #   esphome -s ip_addr 192.168.8.5 run ...
+  ip_base: "192.168.8."
+  ip_addr: "${ip_base}1"        # Placeholder — override per device before enabling manual_ip
+
+
+# ==============================================================================
+# CORE ESPHOME CONFIGURATION
+# (merged: _shared/esphome_base.yaml + _shared/runtime_id.yaml on_boot +
+#          boards/rev3.yaml on_boot + configs/networked.yaml on_boot)
+# ==============================================================================
+# ONE BINARY PER PRODUCT
+# ----------------------
+# Products that ship a single firmware for every unit set
+#   name_add_mac_suffix: "true"
+# in their substitutions. ESPHome then appends the last 3 bytes of the MAC to
+# both name and friendly_name at runtime, so `blaster` becomes blaster-a1b2c3 —
+# unique per device, permanent, and identical in every build.
+#
+# The hostname CANNOT carry a logical ID: App.pre_setup() runs before
+# preferences exist and writes into a fixed-length buffer. Logical identity
+# (player number, target number) is therefore a restore_value global exposed as
+# a number entity, assigned once from the web UI.
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: ${name_add_mac_suffix}
+  project:
+    name: ${project_name}
+    version: ${project_version}
+  min_version: 2025.8.2
+
+  # on_boot triggers below are in package-merge order: runtime_id (250), then
+  # the rev 3.x startup sequence (600), then the networked HA binding (600).
+  # Order within the same priority is registration order, so keep it.
+  on_boot:
+    # ---- _shared/runtime_id.yaml ------------------------------------------
+    # The ID can only change through set_action, which reboots — so the two
+    # identity entities are published exactly once, here, instead of being
+    # polled. Home Assistant re-reads every entity state when it connects, so a
+    # one-time publish is all it needs. Priority 250 = after all DATA-level
+    # components (the template entities) have finished setup.
+    - priority: 250
+      then:
+        - component.update: runtime_name_display
+        - component.update: runtime_id_number
+
+    # ---- boards/rev3.yaml: rev 3.x specific boot sequence ------------------
+    - priority: 600
+      then:
+        - logger.log: "=== NEATO BLASTER REV 3.X STARTUP ==="
+        - delay: 100ms
+
+        # Initialize blaster state
+        - lambda: |-
+            // player_id is the RUNTIME identity (restored at HARDWARE, 800, so
+            // it is already valid here at 600). 0 = unassigned.
+            ESP_LOGI("blaster", "Neato Blaster initialized - player %d", id(player_id));
+            id(blaster_pumped) = false;
+
+        - logger.log: "Basic systems initialized"
+        - delay: 500ms
+
+        # Enable auxiliary power
+        - switch.turn_on: aux_pwr
+        - delay: 1s
+
+        # Verify power
+        - if:
+            condition:
+              switch.is_on: aux_pwr
+            then:
+              - logger.log: "✓ Auxiliary power stable"
+            else:
+              - logger.log: "⚠ Power supply issue - retrying..."
+              - delay: 1s
+              - switch.turn_on: aux_pwr
+              - delay: 1s
+              - if:
+                  condition:
+                    switch.is_on: aux_pwr
+                  then:
+                    - logger.log: "✓ Auxiliary power stable after retry"
+                  else:
+                    - logger.log: "❌ CRITICAL: Power supply insufficient!"
+
+        # ---------------------------------------------------------------
+        # DY-SV5W MP3 PLAYER - serial initialisation
+        # ---------------------------------------------------------------
+        # The module runs off aux power (switched on above) and ignores UART
+        # traffic for roughly a second after its supply comes up, so give it
+        # a margin before the first frame. Drive selection has to be sent on
+        # every boot: the DY-SV5W does not persist it.
+        - delay: 1500ms
+        - script.execute:
+            id: dy_select_drive
+            drive: ${mp3_drive}
+        - delay: 200ms
+        # Push the restored volume back out. The number entity restores at
+        # HARDWARE (800) so its state is valid here at 600, but the set_action
+        # that fired during its own setup() went out before the player had
+        # power and was lost.
+        - script.execute:
+            id: dy_set_volume
+            volume: !lambda 'return (int) id(mp3_volume).state;'
+        - delay: 100ms
+
+        - logger.log: "✅ Neato Blaster startup complete"
+
+    # ---- configs/networked.yaml: player-keyed HA binding -------------------
+    # Home Assistant addresses this blaster by its PLAYER ID, never by its
+    # hostname or MAC. Set the Player ID on a replacement unit and every script
+    # below keeps working untouched.
+    #
+    # The entity_ids in the binary_sensor block are compile-time placeholders
+    # only — ESPHome's schema makes entity_id Required
+    # (cv.Required(CONF_ENTITY_ID)), so something syntactically valid has to be
+    # there. This rebinds them to the restored player_id at priority 600:
+    # globals restore at HARDWARE (800) and the homeassistant sensors subscribe
+    # at AFTER_WIFI (200), so the placeholders are never actually subscribed.
+    # Changing Player ID reboots the device, which is what re-runs this binding.
+    #
+    # Home Assistant needs this helper, one per player (1-15):
+    #   input_boolean.player_<id>_active
+    - priority: 600   # after globals restore (800), before HA subscribe (200)
+      then:
+        - lambda: |-
+            // static: set_entity_id stores the pointer, not a copy, so this
+            // string must outlive the component's setup().
+            static std::string active_eid = "input_boolean.player_" +
+                                            std::to_string(id(player_id)) + "_active";
+            id(player_active_sensor).set_entity_id(active_eid.c_str());
+            ESP_LOGI("blaster", "Player gate bound to %s", active_eid.c_str());
+
+
+# ==============================================================================
+# ESP32 FRAMEWORK
+# (merged: _shared/esphome_base.yaml flash_mode + rev3_common.yaml board)
+# ==============================================================================
+# DIO flash mode is required by our hardware (flash chips don't support QIO).
+# platformio_options.board_build.flash_mode used to set this, but ESPHome's
+# ESP32 Arduino builds now run on the native ESP-IDF toolchain too, which
+# ignores that PlatformIO-level option (CI: "...is ignored when building with
+# the native ESP-IDF toolchain"). esp32.flash_mode is the toolchain-agnostic
+# replacement — works under both Arduino and ESP-IDF frameworks.
+esp32:
+  board: wemos_d1_mini32
+  framework:
+    type: arduino
+    version: recommended
+  flash_size: 4MB
+  flash_mode: dio
+
+
+# ==============================================================================
+# OTA - Over The Air Updates  (_shared/esphome_base.yaml)
+# ==============================================================================
+ota:
+  - platform: esphome
+    password: "${ota_password}"
+  # Enable firmware (.bin) upload from the web UI — adds an "OTA Update"
+  # file-upload form to the web server at http://<device>/.
+  - platform: web_server
+
+
+# ==============================================================================
+# LOGGER  (merged: rev3_common.yaml level + rev3.yaml baud_rate)
+# ==============================================================================
+# baud_rate: 0 releases UART0 (GPIO1/GPIO3). It has to: GPIO1 is wired to the
+# DY-SV5W's RX line, and a logger left running would push every log line into
+# the player as junk serial data. Logs are unaffected over WiFi, the API and
+# the web server - only the USB console goes away, and with it improv_serial
+# (see the esp32_improv note below). This is independent of where the start
+# game button lives: it is GPIO1, the TX line, that the player needs, so moving
+# the button off GPIO3 does NOT make it safe to turn the console back on.
+#
+# level: an INFO override lived in rev3.yaml only to surface the per-shot
+# DY-SV5W frame dump during card bring-up; that log is back to DEBUG, so INFO
+# would now buy nothing but noise. To watch audio again, set level: DEBUG here.
+# Note that `logs:` cannot lift a single tag ABOVE the global level - it only
+# makes tags quieter - so the global level is what has to move.
+logger:
+  level: WARN  # Change to DEBUG for troubleshooting
+  baud_rate: 0
+
+
+# ==============================================================================
+# WIFI  (merged: _shared/networked_base.yaml + configs/networked.yaml override)
+# ==============================================================================
+wifi:
+  # NO compiled-in network — deliberate, do not add one back without reading this.
+  #
+  # One generic firmware ships to every customer, so we cannot know their SSID at
+  # build time. The customer supplies it once via the setup hotspot below (or
+  # improv), and ESPHome saves it to flash.
+  #
+  # The subtle part: ESPHome keys those saved credentials by a hash of the config
+  # ONLY when a network is compiled in — see wifi_component.cpp,
+  #   hash = has_sta() ? App.get_config_version_hash() : 88491487UL
+  # With no compiled network, has_sta() is false and the key is that constant, so
+  # provisioned credentials survive every firmware update and ESPHome version bump.
+  # Compile an SSID in here and the key becomes config-dependent: the next update
+  # that touches any YAML silently orphans the customer's WiFi and drops the whole
+  # site back into hotspot mode.
+  #
+  # Bench testing: provision the device once over USB (improv_serial) or the
+  # hotspot; those credentials then persist across every reflash. Per-site builds
+  # under Customers/ still compile in !secret wifi_ssid — appropriate there, since
+  # the compiled fallback is that site's own network.
+
+  # Setup hotspot — raised when no WiFi is configured or reachable. SSID is the
+  # device name (e.g. "blaster-a1b2c3"); the password is documented for the
+  # customer. ssid intentionally omitted. ESPHome derives the hotspot name from
+  # App.get_name() at runtime (wifi_component.cpp), which is the ONLY way it can
+  # include the MAC suffix on one-binary products — the ${name} substitution is
+  # just the generic "blaster", so hardcoding it here would name every unit's
+  # hotspot identically.
+  ap:
+    password: !secret ap_password
+
+  # Connection management
+  # NOTE: inert while an `ap:` block exists — wifi_component.cpp only reboots on
+  # WiFi loss when there is no AP to fall back to. Kept for the AP-less case.
+  reboot_timeout: 10min
+
+  # configs/networked.yaml overrides networked_base's `none` here. The base
+  # dropped modem sleep because it made Home Assistant -> device traffic land
+  # late, but rev 3.x blasters must run BLE Improv (no USB console, see
+  # esp32_improv below) and BT coexistence wants modem sleep. The blaster is
+  # outbound-only in play (gun_fired events), so inbound latency is harmless.
+  power_save_mode: light
+
+  # No post-connect roaming scans. ESPHome 2026 re-scans for a stronger AP every
+  # 5 minutes whenever RSSI is below -49 dBm; each scan takes the radio
+  # off-channel for up to ~1 s, and any hit that lands in that window waits.
+  # Gallery LANs are a single AP, so there is nothing to roam to.
+  post_connect_roaming: false
+  output_power: 20dB        # Maximum WiFi power for best range
+
+  # --------------------------------------------------------------------------
+  # OPTIONAL: Static IP Address
+  # --------------------------------------------------------------------------
+  # By default your device uses DHCP — your router assigns it an IP address
+  # automatically. This works well for most setups.
+  #
+  # You may want a static (fixed) IP address if:
+  #   • Your setup uses FPP / Falcon Player for light show sync — FPP needs
+  #     to reach each device at a known, stable address
+  #   • Your router assigns a different IP after every reboot and you're
+  #     using direct-IP automations in Home Assistant
+  #   • You are deploying many devices and want predictable addresses for
+  #     remote flashing, monitoring, or bulk configuration
+  #   • Your network has no DHCP server (uncommon, but possible in isolated
+  #     game-room networks)
+  #
+  # To enable: uncomment the manual_ip block below. The ip_addr substitution
+  # is defined above and can be overridden per-device or on the command line.
+  # --------------------------------------------------------------------------
+  # manual_ip:
+  #   static_ip: ${ip_addr}
+  #   gateway: ${ip_base}1
+  #   subnet: 255.255.255.0
+  #   dns1: ${ip_base}1
+  #   dns2: 8.8.8.8
+
+  on_connect:
+    then:
+      - logger.log: "WiFi connected successfully"
+
+  on_disconnect:
+    then:
+      - logger.log: "WiFi disconnected"
+
+
+# ==============================================================================
+# WEB INTERFACE  (_shared/networked_base.yaml)
+# ==============================================================================
+web_server:
+  port: 80
+  include_internal: false
+  # local: true embeds the web frontend (JS/CSS) into the firmware so the UI
+  # works with NO internet. Must be true on landlocked gallery LANs — with
+  # local: false the page pulls its JS from the ESPHome CDN and renders blank
+  # when the network has no WAN access.
+  local: true
+  version: 2
+
+
+# ==============================================================================
+# CAPTIVE PORTAL  (_shared/networked_base.yaml)
+# ==============================================================================
+captive_portal:
+
+# BLE provisioning (esp32_improv) is deliberately NOT in _shared/networked_base
+# any more. Keeping the Bluetooth controller alive forced WiFi modem sleep (see
+# power_save_mode above) and cost ~60-70 KB of internal DRAM on every build.
+# Provisioning still works two ways: improv_serial over USB (declared per
+# device) and the setup hotspot + captive portal above.
+#
+# Note: improv_serial is NOT in the shared base because it requires logger
+# baud_rate != 0, which conflicts with devices that disable serial logging.
+
+
+# ==============================================================================
+# BLE IMPROV - Blaster-only (Made for ESPHome compliance)
+# (configs/networked.yaml)
+# ==============================================================================
+# Made for ESPHome requires Improv whenever `wifi:` is present. Every other
+# product satisfies that with improv_serial. Rev 3.x blasters cannot run
+# improv_serial (no USB console, see the logger block), so BLE is the only
+# Improv transport left and this product keeps its own copy.
+esp32_improv:
+  authorizer: none  # Allow BLE provisioning without physical authorization button
+
+
+# ==============================================================================
+# DASHBOARD IMPORT - Made for ESPHome  (configs/networked.yaml)
+# ==============================================================================
+dashboard_import:
+  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Controllers/NeatoBlaster/main.yaml@main
+  import_full_config: true
+
+
+# ==============================================================================
+# HOME ASSISTANT API
+# (merged: _shared/networked_base.yaml + configs/networked.yaml override)
+# ==============================================================================
+api:
+  reboot_timeout: 0s    # Disable auto-reboot if not using a Home Assistant server
+  #reboot_timeout: 5min  # Reboot the device if no connection to Home Assistant for 5 minutes
+  # Send every state change to Home Assistant immediately instead of holding it
+  # up to 100 ms to batch with others. Hit counts, scores and player-active
+  # flags are the game; responsiveness matters more than packet count here.
+  batch_delay: 0ms
+  homeassistant_services: true
+  # ---------------------------------------------------------------------------
+  # PUMP IS DEVICE-LOCAL — deliberately no Home Assistant surface.
+  # ---------------------------------------------------------------------------
+  # "Pump Required" is a per-blaster hardware/feel preference, set once from the
+  # device web UI and kept in flash (RESTORE_DEFAULT_ON). Nothing in the game
+  # loop changes it at runtime, so there is no set_pump_required service and no
+  # player_<id>_pump_required helper.
+  #
+  # There is no reset_pump service either. The blaster_pumped latch is cleared
+  # at boot, and again the instant a shot fires, so the only case a manual reset
+  # covered was a pump registered but never fired — a player pumps, the round
+  # ends, and the next player inherits a free shot. Nothing ever called the
+  # service, so removing it changed no behaviour; that case is handled the same
+  # way it always was, which is to say not at all. If it ever matters, clear the
+  # latch in the player_active_sensor on_state below when the gate goes false,
+  # rather than reintroducing a MAC-named service.
+  services:
+    # Redundant: input_boolean.player_<id>_active already drives game_active and
+    # does survive a hardware swap. Kept only for older HA scripts.
+    - service: set_active
+      variables:
+        score_value: bool
+      then:
+        - globals.set:
+            id: game_active
+            value: !lambda 'return score_value;'
+
+
+# ==============================================================================
+# IR TRANSMITTER - For communicating with targets  (boards/rev3.yaml)
+# ==============================================================================
+remote_transmitter:
+  pin: ${ir_tx_gpio}
+  carrier_duty_percent: 50%
+  # Explicit (matches the ESPHome 2026 default; unset emits a CI-failing
+  # warning). Pump-action fire rate is human-limited, so async TX can't
+  # overlap NEC frames in practice.
+  non_blocking: true
+
+
+# ==============================================================================
+# DY-SV5W MP3 PLAYER - SERIAL LINK  (boards/rev3.yaml)
+# ==============================================================================
+# TX only. Every command below is fire-and-forget, so the player's TX line is
+# never read, so GPIO3 is left unwired. Adding rx_pin: GPIO03 would let you
+# read DY-SV5W status replies; nothing else claims that pin now that the start
+# button has moved to GPIO17.
+#
+# The DY-SV5W must be strapped for UART mode on its CON1/CON2/CON3 config pads
+# (see the module datasheet for the combination); in the factory default
+# one-key trigger mode it ignores the serial port entirely and nothing plays,
+# which is the usual cause of a silent new player.
+uart:
+  id: mp3_uart
+  tx_pin: ${mp3_tx_gpio}
+  baud_rate: ${mp3_baud_rate}
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+
+
+# ==============================================================================
+# GLOBAL VARIABLES
+# (merged: _shared/runtime_id.yaml + boards/common/rev3_common.yaml)
+# ==============================================================================
+globals:
+  # ---- _shared/runtime_id.yaml ---------------------------------------------
+  # One binary ships to every unit, so a unit's logical number cannot be a
+  # build-time value — it lives here, as a restored global exposed as a number
+  # entity and assigned once from the web UI.
+  #
+  # The value survives reboots AND firmware updates: a restoring global's flash
+  # key is md5 of the global's ID STRING (components/globals/__init__.py), not
+  # the config hash — unlike WiFi credentials, which key off the config version.
+  #
+  # THAT ALSO MEANS: renaming the global strands every deployed unit's
+  # assignment. Do not change ${runtime_id} for a product already in the field
+  # without a migration step.
+  #
+  # 0 = UNASSIGNED, and it is the default so a crate of freshly flashed units
+  # can't all arrive claiming to be unit 1. Anything consuming the ID should
+  # treat 0 as "not set up yet" rather than as a valid address.
+  - id: ${runtime_id}
+    type: int
+    restore_value: true
+    initial_value: '0'
+
+  # ---- boards/common/rev3_common.yaml --------------------------------------
+  # Blaster pump state
+  - id: blaster_pumped
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Game active state - false blocks trigger (set by HA helper player_<player_id>_active)
+  - id: game_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Relay activation duration (milliseconds)
+  - id: relay_timer
+    type: int
+    restore_value: true
+    initial_value: ${default_relay_time}
+
+  # Cooldown period (milliseconds)
+  - id: cooldown_timer
+    type: int
+    restore_value: true
+    initial_value: ${default_cooldown_time}
+
+  # Relay on-trigger pulse duration (milliseconds)
+  - id: relay_trigger_time
+    type: int
+    restore_value: true
+    initial_value: ${default_relay_trigger_time}
+
+
+# ==============================================================================
+# SENSORS
+# (merged: rev3_common.yaml + _shared/network_sensors.yaml)
+# ==============================================================================
+sensor:
+  # ---- boards/common/rev3_common.yaml --------------------------------------
+  - platform: template
+    name: "Player Active"
+    id: player_active
+    icon: "mdi:account-check"
+    accuracy_decimals: 0
+    lambda: 'return (float)id(game_active);'
+    update_interval: 5s
+
+  # System uptime monitoring
+  - platform: uptime
+    name: "Uptime Sensor"
+    update_interval: 60s  # Reduce frequency for less spam
+
+  # ---- _shared/network_sensors.yaml ----------------------------------------
+  # WiFi signal strength monitoring
+  - platform: wifi_signal
+    name: "WiFi Signal Strength"
+    id: wifi_strength
+    update_interval: 30s
+    filters:
+      - sliding_window_moving_average:
+          window_size: 5
+          send_every: 5
+    accuracy_decimals: 0
+    unit_of_measurement: "dBm"
+    on_value_range:
+      - below: -80
+        then:
+          - logger.log: "⚠ Weak WiFi signal detected - possible power supply issue"
+
+
+# ==============================================================================
+# TEXT SENSORS
+# (merged: _shared/runtime_id.yaml + _shared/network_sensors.yaml)
+# ==============================================================================
+text_sensor:
+  # ---- _shared/runtime_id.yaml ---------------------------------------------
+  # The logical, number-based name of this unit — "blaster-3", "target-7".
+  # This is NOT the hostname: the hostname keeps its MAC suffix. Use this to
+  # work out which physical unit is which.
+  - platform: template
+    name: "${runtime_name_label}"
+    id: runtime_name_display
+    icon: "mdi:tag-outline"
+    lambda: |-
+      return {"${name}-" + std::to_string(id(${runtime_id}))};
+    update_interval: never   # published once at boot (see esphome.on_boot); it only changes via reboot
+
+  # ---- _shared/network_sensors.yaml ----------------------------------------
+  - platform: wifi_info
+    ip_address:
+      name: "WiFi IP Address"
+    ssid:
+      name: "WiFi SSID"
+    mac_address:
+      name: "WiFi MAC Address"
+
+
+# ==============================================================================
+# SWITCHES
+# (merged: rev3_common.yaml + boards/rev3.yaml)
+# ==============================================================================
+switch:
+  # ---- boards/common/rev3_common.yaml --------------------------------------
+  # Main relay output control
+  - platform: gpio
+    pin: ${relay_gpio}
+    name: "Relay 1"
+    id: relay_1
+    restore_mode: ALWAYS_OFF
+    icon: "mdi:electric-switch"
+    on_turn_on:
+      - logger.log: "Relay 1 activated"
+    on_turn_off:
+      - logger.log: "Relay 1 deactivated"
+
+  # Enable relay pulse when trigger is pulled
+  - platform: template
+    name: "Relay on Trigger"
+    id: relay_on_trigger
+    icon: "mdi:electric-switch-closed"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+  # --------------------------------------------------------------------------
+  # GAME ACTIVE - manual gate, for bench testing without Home Assistant
+  # --------------------------------------------------------------------------
+  # Both the trigger sensor and the "Fire Blaster" button refuse to do anything
+  # while game_active is false, which on a bench with no HA helper is always.
+  # That makes the whole fire path - shot sound, relay pulse, IR transmit -
+  # untestable without inventing an input_boolean first. This switch opens the
+  # gate by hand.
+  #
+  # `lambda` rather than `optimistic`, so the switch REPORTS the global instead
+  # of a private copy: when Home Assistant drives game_active through
+  # player_active_sensor, this follows along instead of drifting out of sync
+  # and lying about the state.
+  #
+  # restore_mode: DISABLED is deliberate. The other restore modes write the
+  # switch at boot, which would set game_active behind the back of whatever
+  # owns it - clobbering the standalone build's on_boot latch, or booting a
+  # networked blaster into a live game before HA has said so. DISABLED means
+  # this switch only ever acts when a human touches it.
+  #
+  # In networked mode the override lasts until Home Assistant next publishes
+  # player_<id>_active, which then wins. With no such helper defined, nothing
+  # ever publishes and the override simply sticks - which is the bench case.
+  - platform: template
+    name: "Game Active"
+    id: game_active_switch
+    icon: "mdi:gamepad-variant"
+    restore_mode: DISABLED
+    lambda: 'return id(game_active);'
+    turn_on_action:
+      - globals.set:
+          id: game_active
+          value: 'true'
+      - logger.log: "Game Active set ON manually - fire path enabled"
+    turn_off_action:
+      - globals.set:
+          id: game_active
+          value: 'false'
+      - logger.log: "Game Active set OFF manually - fire path blocked"
+
+  # ---- boards/rev3.yaml ----------------------------------------------------
+  # Auxiliary power control
+  - platform: gpio
+    pin:
+      number: ${aux_pwr_gpio}
+    name: "Aux Pwr"
+    id: aux_pwr
+
+  # Pump requirement toggle
+  - platform: template
+    name: "Pump Required"
+    id: pump_required
+    icon: "mdi:pump"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+
+# ==============================================================================
+# NUMBERS
+# (merged: _shared/runtime_id.yaml + rev3_common.yaml + boards/rev3.yaml)
+# ==============================================================================
+number:
+  # ---- _shared/runtime_id.yaml ---------------------------------------------
+  - platform: template
+    name: "${runtime_id_label}"
+    id: runtime_id_number
+    icon: "mdi:identifier"
+    # Backed by the global rather than the number's own restore_value, so the
+    # value is restored at setup_priority HARDWARE (800) — early enough for
+    # on_boot hooks at 600 to use it.
+    lambda: 'return (float) id(${runtime_id});'
+    update_interval: never   # published once at boot (see esphome.on_boot); it only changes via reboot
+    min_value: 0
+    max_value: ${runtime_id_max}
+    step: 1
+    mode: box
+    set_action:
+      # Reboot on assignment: anything bound at boot (Home Assistant entity
+      # subscriptions, advertised addresses) is only re-evaluated on restart, so
+      # this keeps every consumer of the ID consistent instead of leaving some
+      # on the old value.
+      #
+      # No explicit flash sync needed: safe_reboot() runs shutdown hooks in
+      # reverse component order, so the global stores itself (on_shutdown ->
+      # store_value_) and preferences IntervalSyncer::on_shutdown then calls
+      # global_preferences->sync() before arch_restart().
+      - globals.set:
+          id: ${runtime_id}
+          value: !lambda 'return (int) x;'
+      - lambda: |-
+          int rid = (int) x;
+          if (rid == 0) {
+            ESP_LOGW("identity", "${runtime_id_label} cleared - restarting (unit is unassigned)");
+          } else {
+            ESP_LOGI("identity", "${runtime_id_label} set to %d - restarting", rid);
+          }
+      - delay: 1s          # let the web/API response and the log line get out
+      - lambda: 'App.safe_reboot();'
+
+  # ---- boards/common/rev3_common.yaml --------------------------------------
+  # NOTE: the "Player ID" number and the "Blaster Name" text sensor both come
+  # from _shared/runtime_id.yaml (above). Do not re-add them here — a second
+  # entity with the same name on one device collides in Home Assistant.
+
+  # Relay activation duration control
+  - platform: template
+    name: "Relay Timer"
+    id: relay_timer_control
+    min_value: 100
+    max_value: 60000
+    step: 100
+    restore_value: true
+    optimistic: true
+    initial_value: ${default_relay_time}
+    icon: "mdi:timer-outline"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          id(relay_timer) = value;
+          ESP_LOGI("config", "Relay timer set to: %d ms", value);
+
+  # Relay on-trigger pulse duration
+  - platform: template
+    name: "Relay Trigger Duration"
+    id: relay_trigger_duration_control
+    min_value: 50
+    max_value: 500
+    step: 50
+    restore_value: true
+    optimistic: true
+    initial_value: ${default_relay_trigger_time}
+    icon: "mdi:timer-outline"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          id(relay_trigger_time) = value;
+          ESP_LOGI("config", "Relay trigger duration set to: %d ms", value);
+
+  # Cooldown period control
+  - platform: template
+    name: "Cooldown Timer"
+    id: cooldown_timer_control
+    min_value: 0
+    max_value: 60000
+    step: 100
+    restore_value: true
+    optimistic: true
+    initial_value: ${default_cooldown_time}
+    icon: "mdi:timer-sand"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          id(cooldown_timer) = value;
+          ESP_LOGI("config", "Cooldown timer set to: %d ms", value);
+
+  # ---- boards/rev3.yaml: MP3 volume ----------------------------------------
+  - platform: template
+    name: "MP3 Volume"
+    id: mp3_volume
+    icon: "mdi:volume-high"
+    min_value: 0
+    max_value: 30
+    step: 1
+    restore_value: true
+    optimistic: true
+    initial_value: ${default_mp3_volume}
+    set_action:
+      - script.execute:
+          id: dy_set_volume
+          volume: !lambda 'return (int) x;'
+
+  # Which track the "Test Sound" button plays. The DY-SV5W addresses tracks by
+  # their position in the card's directory table, not by filename, so the only
+  # reliable way to learn the mapping is to sweep it by ear: set this to 1,
+  # press Test Sound, note what you hear, repeat. Not restored - it is a bench
+  # tool, and a stale value surviving a reboot is just confusing.
+  - platform: template
+    name: "Test Track"
+    id: test_track
+    icon: "mdi:music-note-eighth"
+    min_value: 1
+    max_value: 255
+    step: 1
+    optimistic: true
+    initial_value: "1"
+
+
+# ==============================================================================
+# BINARY SENSORS
+# (merged: boards/rev3.yaml + configs/networked.yaml)
+# ==============================================================================
+binary_sensor:
+  # ---- boards/rev3.yaml ----------------------------------------------------
+  # Pump sensor - detects when blaster is pumped
+  #
+  # INPUT_PULLUP, matching the trigger sensor below: switch to GND, pin idles
+  # high, inverted so a closed switch reads as pressed. This is only possible
+  # because the pin moved off GPIO34 (see the note on pump_gpio above) - the
+  # 34-39 range has no internal pull resistor to enable.
+  - platform: gpio
+    pin:
+      number: ${pump_gpio}
+      mode: INPUT_PULLUP
+      inverted: True
+    name: "Pump Sensor"
+    id: pump_sensor
+    icon: "mdi:pump"
+    # ASYMMETRIC DEBOUNCE - deliberately no delayed_on.
+    #
+    # delayed_on is pure latency on the leading edge: it holds the press for
+    # the full interval before on_press runs, and on_press is what starts the
+    # sound. The 20ms that used to be here was insurance against the floating
+    # GPIO34 pin; GPIO25 has a real pull-up, so it is no longer buying
+    # anything except delay.
+    #
+    # delayed_off alone still rejects contact bounce. Bounce after a press
+    # shows up as brief OFF blips; each one starts a 20ms timer that the
+    # returning HIGH cancels before it expires, so no OFF is ever published
+    # and exactly one on_press fires - immediately, on the first edge.
+    filters:
+      - delayed_off: 20ms
+    on_press:
+      - lambda: |-
+          id(blaster_pumped) = true;
+          ESP_LOGD("pump", "Blaster pumped - ready to fire");
+      # Play pump sound (sound 5)
+      - script.execute: play_pump_sound
+
+  # Trigger sensor - detects when trigger is pulled
+  - platform: gpio
+    pin:
+      number: ${trigger_gpio}
+      mode: INPUT_PULLUP
+      inverted: True
+    name: "Blaster Trigger"
+    id: blaster_trigger
+    icon: "mdi:pistol"
+    # Asymmetric debounce, same reasoning as the pump sensor above: fire on
+    # the first edge, let delayed_off swallow the contact bounce.
+    filters:
+      - delayed_off: 20ms
+    on_press:
+      - if:
+          condition:
+            lambda: |-
+              // Block firing while game start screen is active
+              if (!id(game_active)) {
+                ESP_LOGD("trigger", "Game not active - trigger disabled");
+                return false;
+              }
+              // If pump is not required, always allow firing
+              if (!id(pump_required).state) {
+                return true;
+              }
+              // If pump is required, check if blaster has been pumped
+              if (id(blaster_pumped)) {
+                return true;
+              }
+              ESP_LOGD("trigger", "Pump required but blaster not pumped");
+              return false;
+          then:
+            - lambda: |-
+                // Reset pump state after firing
+                id(blaster_pumped) = false;
+            - button.press: trigger_action
+          else:
+            - script.execute: play_no_pump_sound
+
+  # Start game button on GPIO17 - an ordinary GPIO with a real internal
+  # pull-up and no boot-time role (see the note on start_button_gpio above)
+  - platform: gpio
+    pin:
+      number: ${start_button_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Start Game Button"
+    id: start_game_button
+    icon: "mdi:play-circle"
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+    # Behaviour lives in the start_game_pressed script below, NOT here: in the
+    # unflattened tree this is a board file shared by both network modes, but
+    # homeassistant.event only exists when api: does. Inlining it broke the
+    # standalone build ("Unable to find action with the name
+    # 'homeassistant.event'"), since configs/standalone.yaml has no api:.
+    # Same split as blaster_trigger_pressed.
+    on_press:
+      - script.execute: start_game_pressed
+
+  # ---- configs/networked.yaml ----------------------------------------------
+  # entity_id here is a compile-time placeholder; esphome.on_boot (priority
+  # 600, above) rebinds it to the restored player_id.
+  - platform: homeassistant
+    id: player_active_sensor
+    name: "Player Active"
+    entity_id: input_boolean.player_0_active
+    on_state:
+      - globals.set:
+          id: game_active
+          value: !lambda 'return x;'
+
+
+# ==============================================================================
+# BUTTONS
+# (merged: boards/rev3.yaml + _shared/network_sensors.yaml)
+# ==============================================================================
+button:
+  # ---- boards/rev3.yaml: trigger action handler ----------------------------
+  - platform: template
+    id: trigger_action
+    name: "Fire Blaster"
+    icon: "mdi:bullseye-arrow"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(game_active);'
+          then:
+            # Play shot sound (cycling through 2-4)
+            - script.execute: play_shot_sound
+            # Execute custom script (see script: below)
+            - script.execute: blaster_trigger_pressed
+            # Transmit IR signal to target
+            - remote_transmitter.transmit_nec:
+                address: 0x0003
+                # Player number in the low nibble: 0x71..0x7F for players 1-15.
+                # Target side recovers it with `command & 0x0F`.
+                command: !lambda |-
+                  return (uint16_t) (0x70 | (id(player_id) & 0x0F));
+                repeat: 3
+
+  # Play the track selected by the "Test Track" number, without firing IR.
+  # Two jobs: install checkout for the serial link (a silent blaster otherwise
+  # can't tell a dead DY-SV5W from a dead speaker), and mapping index -> file
+  # by ear when the card's ordering is in question.
+  - platform: template
+    id: test_sound
+    name: "Test Sound"
+    icon: "mdi:music-note"
+    on_press:
+      - script.execute:
+          id: dy_play_track
+          track: !lambda 'return (int) id(test_track).state;'
+
+  # ---- _shared/network_sensors.yaml ----------------------------------------
+  # WiFi Reset Button - Clear saved WiFi credentials and restart in AP mode
+  - platform: template
+    name: "WiFi Reset"
+    id: wifi_reset_button
+    icon: "mdi:wifi-off"
+    on_press:
+      then:
+        - logger.log: "🔄 Performing factory reset to clear WiFi credentials..."
+        - button.press: factory_reset_button
+
+  # Factory Reset Button - Clears all stored preferences including WiFi credentials
+  - platform: factory_reset
+    name: "Factory Reset"
+    id: factory_reset_button
+    icon: "mdi:restart-alert"
+
+
+# ==============================================================================
+# SCRIPTS
+# (merged: boards/rev3.yaml + configs/networked.yaml)
+# ==============================================================================
+# DY-SV5W frame format:  AA <cmd> <len> <data...> <sum>
+# where <sum> is the low byte of the sum of every preceding byte. The commands
+# used here are 0x07 (select track and play), 0x13 (set volume) and 0x0B
+# (select source drive). Selecting a track restarts playback immediately,
+# which is what a retriggered blaster wants - no stop-then-play needed.
+script:
+  # ---- boards/rev3.yaml: DY-SV5W command primitives ------------------------
+  # Play track N (1-based, matches the 0001.mp3 / 0002.mp3 file numbering).
+  - id: dy_play_track
+    mode: single
+    parameters:
+      track: int
+    then:
+      - lambda: |-
+          uint8_t frame[6] = {0xAA, 0x07, 0x02,
+                              (uint8_t) ((track >> 8) & 0xFF),
+                              (uint8_t) (track & 0xFF),
+                              0x00};
+          uint16_t sum = 0;
+          for (uint8_t i = 0; i < 5; i++) sum += frame[i];
+          frame[5] = (uint8_t) (sum & 0xFF);
+          id(mp3_uart).write_array(frame, sizeof(frame));
+          // DEBUG, not INFO: this fires on every shot and pump, so at INFO it
+          // is a log line per trigger pull for no routine benefit. If track
+          // numbers ever look wrong again, raise the logger to DEBUG - the
+          // frame is reconstructible from the track number, and the datasheet
+          // reference is "play first song = AA 07 02 00 01 B4".
+          ESP_LOGD("audio", "DY-SV5W play track %d", track);
+
+  # Set volume, 0-30.
+  - id: dy_set_volume
+    mode: single
+    parameters:
+      volume: int
+    then:
+      - lambda: |-
+          uint8_t vol = (uint8_t) (volume < 0 ? 0 : (volume > 30 ? 30 : volume));
+          uint8_t frame[5] = {0xAA, 0x13, 0x01, vol, 0x00};
+          uint16_t sum = 0;
+          for (uint8_t i = 0; i < 4; i++) sum += frame[i];
+          frame[4] = (uint8_t) (sum & 0xFF);
+          id(mp3_uart).write_array(frame, sizeof(frame));
+          ESP_LOGI("audio", "DY-SV5W volume set to %u", vol);
+
+  # Select the source drive: 0 = USB, 1 = SD card, 2 = onboard flash.
+  - id: dy_select_drive
+    mode: single
+    parameters:
+      drive: int
+    then:
+      - lambda: |-
+          uint8_t frame[5] = {0xAA, 0x0B, 0x01, (uint8_t) drive, 0x00};
+          uint16_t sum = 0;
+          for (uint8_t i = 0; i < 4; i++) sum += frame[i];
+          frame[4] = (uint8_t) (sum & 0xFF);
+          id(mp3_uart).write_array(frame, sizeof(frame));
+          ESP_LOGI("audio", "DY-SV5W drive set to %d", drive);
+
+  # ---- boards/rev3.yaml: gameplay sounds -----------------------------------
+  # Shot fired (track 3), or the empty click if the game is not running.
+  #
+  # mode: restart, not single: the relay pulse below can hold this script for
+  # as long as relay_trigger_time, and under mode:single a shot landing inside
+  # that window would be dropped silently - no sound at all. The audio frame
+  # goes out first thing, so a restart still plays every shot.
+  - id: play_shot_sound
+    mode: restart
+    then:
+     - if:
+        condition:
+          lambda: 'return id(game_active);'
+        then:
+          - script.execute:
+              id: dy_play_track
+              track: ${track_fire}
+        else:
+          - script.execute:
+              id: dy_play_track
+              track: ${track_empty}
+    # Pulse relay if relay-on-trigger is enabled
+     - if:
+        condition:
+          switch.is_on: relay_on_trigger
+        then:
+          - switch.turn_on: relay_1
+          - delay: !lambda "return id(relay_trigger_time);"
+          - switch.turn_off: relay_1
+
+  # Pump action (track 2)
+  - id: play_pump_sound
+    mode: restart
+    then:
+      - script.execute:
+          id: dy_play_track
+          track: ${track_pump}
+
+  # Trigger pulled but the blaster is not pumped (track 1)
+  - id: play_no_pump_sound
+    mode: restart
+    then:
+      - script.execute:
+          id: dy_play_track
+          track: ${track_empty}
+
+  # ---- configs/networked.yaml ----------------------------------------------
+  # --------------------------------------------------------------------------
+  # START GAME BUTTON (rev 3.x, serial header RX pin / GPIO3)
+  # --------------------------------------------------------------------------
+  # Asks Home Assistant to start a game. Only meaningful while the blaster is
+  # idle — once the player gate is on, game_active is true and a press is
+  # ignored so a mid-game bump cannot restart the round.
+  #
+  # The event NAME is fixed and the player travels in the payload, so this
+  # survives a hardware swap. The standalone build has its own no-op version of
+  # this script.
+  - id: start_game_pressed
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(game_active);'
+          then:
+            - homeassistant.event:
+                event: esphome.game_start_requested
+                data_template:
+                  blaster_id: "{{ blaster_id }}"
+                variables:
+                  blaster_id: !lambda 'return id(player_id);'
+
+  # --------------------------------------------------------------------------
+  # HOME ASSISTANT EVENT REPORTING
+  # --------------------------------------------------------------------------
+  # The event NAME is fixed (esphome.blaster_fired) and the player travels in
+  # the payload, so this already survives a hardware swap.
+  - id: blaster_trigger_pressed
+    mode: single
+    then:
+      # Report blaster fired event to Home Assistant
+      - homeassistant.event:
+          event: esphome.blaster_fired
+          data:
+            blaster_name: "${friendly_name}"
+          data_template:
+            blaster_id: "{{ blaster_id }}"
+          variables:
+            blaster_id: !lambda 'return id(player_id);'

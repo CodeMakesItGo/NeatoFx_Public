@@ -54,6 +54,16 @@
 # ==============================================================================
 
 substitutions:
+  # ARTWORK THIS LAYOUT BELONGS TO — see the note in image_layout_default.yaml.
+  #
+  # This one reaches OUT of the public repo into the private site build:
+  # NeatoFx_Private/Customers/temecula/images_mobile/. The path is relative to
+  # the directory holding main.yaml, so it only resolves when NeatoFx_Public is
+  # checked out as a submodule of NeatoFx_Private. A standalone clone of the
+  # public repo cannot build this layout — which is why main.yaml ships with
+  # image_layout_default.yaml selected instead.
+  images_dir: "../../../Customers/temecula/images_mobile"
+
 
   # ---- GAME PLAY SCREEN -----------------------------------------------------
   # One shared column so the three numbers line up under each other.

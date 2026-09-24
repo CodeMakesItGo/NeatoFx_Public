@@ -127,22 +127,22 @@ light:
 font:
   - file: "fonts/arialbd.ttf"
     id: score_font
-    size: 44
+    size: ${score_font_size}
     glyphs: "-0123456789"
 
   - file: "fonts/arialbd.ttf"
     id: hit_font
-    size: 44
+    size: ${hits_font_size}
     glyphs: "-0123456789"
 
   - file: "fonts/arialbd.ttf"
     id: shot_font
-    size: 44
+    size: ${shots_font_size}
     glyphs: "-0123456789"
 
   - file: "fonts/arialbd.ttf"
     id: final_score_font
-    size: 68
+    size: ${final_score_font_size}
     glyphs: "-0123456789"
 
   - file: "fonts/arial.ttf"

@@ -44,10 +44,26 @@ packages:
 
   # ---- SCREEN ARTWORK LAYOUT — select exactly ONE ----
   # Where the score / shots / hits / final-score digits sit on the artwork,
-  # plus their font sizes and colours. This MUST match whatever PNGs are in
-  # images/ — swapping a customer's artwork means swapping this line too.
-  image_layout: !include boards/common/image_layout_gunslinger.yaml   # Temecula "Gunslinger Jacks" (current images/)
-  #image_layout: !include boards/common/image_layout_shootout.yaml    # stock "Target Shootout" (images_bak/)
+  # plus their font sizes and colours. Each layout file ALSO sets ${images_dir},
+  # the directory its PNGs come from, so the coordinates and the artwork travel
+  # together — one line picks both and they cannot drift apart.
+  #
+  # Do not define images_dir in this file. Substitutions here override those
+  # from a package, so a copy at this level would win over whichever layout is
+  # selected and pin every layout to a single image set.
+  image_layout: !include boards/common/image_layout_default.yaml       # stock "Target Shootout" — images/
+  #image_layout: !include boards/common/image_layout_gunslinger.yaml   # Temecula "Gunslinger Jacks" — ../../../Customers/temecula/images_mobile/
+  #
+  # The gunslinger artwork lives in the PRIVATE repo, so that line only works
+  # when NeatoFx_Public is checked out as a submodule of NeatoFx_Private.
+  #
+  # ESPHome does expand substitutions inside include paths, so the two lines
+  # above could collapse into one parameterised include ending in
+  # "image_layout_${layout}.yaml", driven by `esphome -s layout gunslinger`.
+  # Not done here for two reasons: a typo in the value surfaces as a confusing
+  # "file not found" at config time, and tools/lint_repo.py + build_variant.py
+  # discover the selectable artwork by scanning these commented include lines,
+  # which a computed path would hide from both.
 
   # Hardware board definition
   board: !include boards/rev1.yaml
