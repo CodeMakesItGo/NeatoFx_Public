@@ -247,13 +247,15 @@
   }
 
   // Apply an incoming SSE state update to the DOM.
-  // Prefers the new name_id format "{domain}/[{device}/]{name}"; falls back to
-  // the legacy id format "{domain}-{object_id}" (removed in ESPHome 2026.8).
+  // Name-based format "{domain}/[{device}/]{name}" arrives as `name_id`
+  // (2026.7-2026.8) or as `id` itself (2026.9+, where name_id was dropped).
+  // Falls back to the legacy id format "{domain}-{object_id}".
   function applyState(data) {
     var type, objId;
+    var nid = data.name_id || (data.id && String(data.id).indexOf('/') !== -1 ? data.id : null);
 
-    if (data.name_id) {
-      var parts = String(data.name_id).split('/');
+    if (nid) {
+      var parts = String(nid).split('/');
       type = parts[0];
       var name = parts[parts.length - 1];
       if (name === 'Hit Count')            objId = 'hit_count';

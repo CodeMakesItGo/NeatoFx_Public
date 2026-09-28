@@ -69,6 +69,30 @@
     in2_timer: { type: NUM, name: 'Input 2 Output Timer', label: 'Output Timer (ms)', min: 0, max: 5000, step: 100, box: true,
                  hint: '0 = on for song duration', section: 'in2' },
 
+    // ── Aux Inputs (collapsible, auto-shown — rftx_inputs builds ONLY) ──
+    // The RFTX connector repurposed as 4 trigger inputs (RFTX0-3). These
+    // entities exist only in rftx_inputs builds, so the card appears there alone.
+    aux1_mp3:  { type: NUM, name: 'Aux 1 MP3',          label: 'Aux 1 MP3 #', min: 0, max: 255, step: 1, box: true,
+                 hint: '0 = play nothing', auto: true, section: 'aux' },
+    aux1_seq:  { type: SW,  name: 'Aux 1 Sequential',   label: 'Aux 1 Sequential', auto: true, section: 'aux' },
+    aux1_out:  { type: SEL, name: 'Aux 1 Output',       label: 'Aux 1 Output', options: OUTPUTS, auto: true, section: 'aux' },
+    aux1_test: { type: BTN, name: 'Test Aux 1 (RFTX0)', label: 'Test Aux 1', btnText: 'Trigger', auto: true, section: 'aux' },
+    aux2_mp3:  { type: NUM, name: 'Aux 2 MP3',          label: 'Aux 2 MP3 #', min: 0, max: 255, step: 1, box: true,
+                 hint: '0 = play nothing', auto: true, section: 'aux' },
+    aux2_seq:  { type: SW,  name: 'Aux 2 Sequential',   label: 'Aux 2 Sequential', auto: true, section: 'aux' },
+    aux2_out:  { type: SEL, name: 'Aux 2 Output',       label: 'Aux 2 Output', options: OUTPUTS, auto: true, section: 'aux' },
+    aux2_test: { type: BTN, name: 'Test Aux 2 (RFTX1)', label: 'Test Aux 2', btnText: 'Trigger', auto: true, section: 'aux' },
+    aux3_mp3:  { type: NUM, name: 'Aux 3 MP3',          label: 'Aux 3 MP3 #', min: 0, max: 255, step: 1, box: true,
+                 hint: '0 = play nothing', auto: true, section: 'aux' },
+    aux3_seq:  { type: SW,  name: 'Aux 3 Sequential',   label: 'Aux 3 Sequential', auto: true, section: 'aux' },
+    aux3_out:  { type: SEL, name: 'Aux 3 Output',       label: 'Aux 3 Output', options: OUTPUTS, auto: true, section: 'aux' },
+    aux3_test: { type: BTN, name: 'Test Aux 3 (RFTX2)', label: 'Test Aux 3', btnText: 'Trigger', auto: true, section: 'aux' },
+    aux4_mp3:  { type: NUM, name: 'Aux 4 MP3',          label: 'Aux 4 MP3 #', min: 0, max: 255, step: 1, box: true,
+                 hint: '0 = play nothing', auto: true, section: 'aux' },
+    aux4_seq:  { type: SW,  name: 'Aux 4 Sequential',   label: 'Aux 4 Sequential', auto: true, section: 'aux' },
+    aux4_out:  { type: SEL, name: 'Aux 4 Output',       label: 'Aux 4 Output', options: OUTPUTS, auto: true, section: 'aux' },
+    aux4_test: { type: BTN, name: 'Test Aux 4 (RFTX3)', label: 'Test Aux 4', btnText: 'Trigger', auto: true, section: 'aux' },
+
     // ── Outputs (collapsible) ──
     relay1:       { type: SW,  name: 'Relay 1', label: 'Relay 1', section: 'out' },
     relay2:       { type: SW,  name: 'Relay 2', label: 'Relay 2', section: 'out' },
@@ -230,13 +254,15 @@
   }
 
   // Apply an incoming SSE state update to the DOM.
-  // Prefers the new name_id format "{domain}/[{device}/]{name}"; falls back to
-  // the legacy id format "{domain}-{object_id}" (removed in ESPHome 2026.8).
+  // Name-based format "{domain}/[{device}/]{name}" arrives as `name_id`
+  // (2026.7-2026.8) or as `id` itself (2026.9+, where name_id was dropped).
+  // Falls back to the legacy id format "{domain}-{object_id}".
   function applyState(data) {
     var type, objId;
+    var nid = data.name_id || (data.id && String(data.id).indexOf('/') !== -1 ? data.id : null);
 
-    if (data.name_id) {
-      var parts = String(data.name_id).split('/');
+    if (nid) {
+      var parts = String(nid).split('/');
       type = parts[0];
       var name = parts[parts.length - 1];
       if (name === 'Firmware Version') objId = 'fw_version';
@@ -725,6 +751,10 @@
     // Collapsible cards
     inner.appendChild(makeCollapsible('Input 1',     sectionItems('in1')));
     inner.appendChild(makeCollapsible('Input 2',     sectionItems('in2')));
+    var auxCard = makeCollapsible('Aux Inputs (RFTX)', sectionItems('aux'));
+    auxCard.classList.add('auto-hide');  // shown when an Aux entity reports state
+    autoCards.aux = auxCard;
+    inner.appendChild(auxCard);
     inner.appendChild(makeCollapsible('Outputs',     sectionItems('out')));
     // RF is two independent cards: the receiver (what a remote button plays) and
     // the transmitter (the RFTX connector). They are separate because the two
