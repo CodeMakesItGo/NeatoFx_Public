@@ -42,8 +42,8 @@ packages:
   # pins each RF MP3 # to 0 (None), so the UI shows nothing and a remote press
   # plays nothing. Use outputs or inputs to get the RF Receiver card back.
   #rftx:           !include boards/common/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
-  #rftx:          !include boards/common/rftx_inputs.yaml    # RFTX as 4 trigger inputs
-  rftx:          !include boards/common/rftx_none.yaml      # RFTX unused (hides all RF controls from UI)
+  rftx:          !include boards/common/rftx_inputs.yaml    # RFTX as 4 trigger inputs
+  #rftx:          !include boards/common/rftx_none.yaml      # RFTX unused (hides all RF controls from UI)
 
   # Network mode — select one:
   #config:        !include configs/standalone.yaml       # Device's own AP, no router

@@ -464,6 +464,7 @@ font:
 # DISPLAY — GC9A01A 240x240 round TFT
 # Idle: programmatic bullseye with hit counter
 # Hit:  red screen with point value (driven by hit_processing global)
+# Disabled: black (driven by target_enabled global); idle redrawn on re-enable
 # ==============================================================================
 display:
   - platform: ili9xxx
@@ -488,12 +489,29 @@ display:
       auto RED    = Color(220, 30,  30);
       auto YELLOW = Color(255, 200, 0);
 
+      // DISABLED — blank the panel once, then hold it black ("Target Enabled"
+      // switch in common.yaml). The module has no BL pin, so black pixels are
+      // as dark as it gets. Starts true so a target that boots disabled still
+      // gets its one black fill.
+      static bool last_enabled = true;
+      if (!id(target_enabled)) {
+        if (last_enabled) {
+          it.fill(BLACK);
+          last_enabled = false;
+        }
+        return;
+      }
+      // Just re-enabled: force the idle screen to be drawn again
+      bool reenabled = !last_enabled;
+      last_enabled = true;
+
       // Skip idle redraws when nothing has changed
       static int  last_hit_count      = -1;
       static bool last_hit_processing = false;
       static std::string last_effect  = "";
       bool idle_dirty = (!id(hit_processing) &&
-                         (id(hit_count) != last_hit_count ||
+                         (reenabled                        ||
+                          id(hit_count) != last_hit_count ||
                           last_hit_processing              ||
                           id(lcd_hit_effect_select).current_option() != last_effect));
       if (!id(hit_processing) && !idle_dirty) return;
