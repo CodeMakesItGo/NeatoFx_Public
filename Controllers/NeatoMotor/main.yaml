@@ -40,8 +40,8 @@ packages:
   runtime_id: !include ../../_shared/runtime_id.yaml
 
   # ---- BOARD / BEHAVIOR — select exactly ONE ----
-  board: !include boards/rev3_12v.yaml             # Standard, no CAN: hold-to-run joystick, SW1 on GPIO4 (pick a DRIVE below)
-  #board: !include boards/rev3.yaml            # Standard + CAN: SW1 on GPIO25, GPIO4/5 free for the CAN add-on
+  #board: !include boards/rev3_12v.yaml             # Standard, no CAN: hold-to-run joystick, SW1 on GPIO4 (pick a DRIVE below)
+  board: !include boards/rev3.yaml            # Standard + CAN: SW1 on GPIO25, GPIO4/5 free for the CAN add-on
   #board: !include boards/rev3_winch.yaml      # Winch: hall-encoder, auto-homing, soft limits
 
   # ---- DRIVE — standard board only; select ONE (leave commented for winch) ----
@@ -55,7 +55,7 @@ packages:
   #config: !include configs/standalone.yaml         # AP-only: local web UI, no router, no Home Assistant
 
   # ---- OPTIONAL ADD-ONS ----
-  #can:   !include boards/common/can.yaml         # CAN inter-controller bus (game-gates the joysticks)
+  can:   !include boards/common/can.yaml         # CAN inter-controller bus (game-gates the joysticks)
   #sound: !include boards/common/sound.yaml       # DY-SV5W audio module on GPIO21/22
 
 # ==============================================================================
