@@ -45,6 +45,7 @@ packages:
   board: !include boards/rev3.yaml     # Rev 3.x (current production)
   #board: !include boards/rev3_hit_1_0.yaml # Rev 3.x + hit face 1.0 (push button on GPIO19, no IR receiver)
   #board: !include boards/rev3_lcd_1_1.yaml # Rev 3.x + GC9A01 LCD face 1.1 (LED CTRL GPIO5, RST GPIO32, IR GPIO35)
+  #board: !include boards/rev3_fan_1_0.yaml # Rev 3.x + hologram fan 1.0 (IR LED on GPIO17: REPEAT 1 on aux power-up; hit = FORWARD, then FORWARD + REPEAT 1)
 
   # Network mode — select one:
   #config: !include configs/standalone.yaml       # Device's own AP, no router
@@ -76,10 +77,12 @@ packages:
   #servo_pwm_effects: !include scripts/servo_pwm_effects.yaml
 
   # Hit behavior script - defines what happens when the target is hit.
-  # Include EXACTLY ONE — all three define the same script ids.
+  # Include EXACTLY ONE — they all define the same script ids.
   hit_script: !include scripts/hit_script.yaml       # standard hit
   #hit_script: !include scripts/hit_script_fuse.yaml   # fuse burns down LED Strip 2, then explodes
   #hit_script: !include scripts/hit_script_lightning.yaml  # xLights lightning-storm port (left cloud)
+  #hit_script: !include scripts/hit_script_fan_mister.yaml  # LCD board only: fan icon, 2nd hit on the water drop = mister
+  #hit_script: !include scripts/hit_script_curtain.yaml  # LCD board + Home Assistant only: sun when the HA curtain is open, moon when closed
 
 # ==============================================================================
 # BLE PROVISIONING — no longer compiled in
@@ -125,6 +128,6 @@ web_server:
   js_include: "boards/common/custom_ui.js"
 
 logger:
-  level: WARN  # Reduced from DEBUG to prevent mobile browser overload
-  #level: DEBUG
+  #level: WARN  # Reduced from DEBUG to prevent mobile browser overload
+  level: DEBUG
 

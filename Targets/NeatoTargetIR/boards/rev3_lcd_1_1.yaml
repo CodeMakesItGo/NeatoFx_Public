@@ -468,6 +468,9 @@ font:
 # ==============================================================================
 display:
   - platform: ili9xxx
+    # id lets a hit script swap the face — scripts/hit_script_fan_mister.yaml
+    # replaces the lambda below via `!extend lcd_display`.
+    id: lcd_display
     model: GC9A01A
     dc_pin: GPIO21
     reset_pin: GPIO32

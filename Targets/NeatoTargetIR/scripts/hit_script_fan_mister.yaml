@@ -1,0 +1,699 @@
+# ==============================================================================
+# TARGET HIT SCRIPTS - FAN + MISTER variant (LCD face only)
+# ==============================================================================
+# Drop-in replacement for scripts/hit_script.yaml. In main.yaml swap the include:
+#
+#   packages:
+#     #hit_script: !include scripts/hit_script.yaml             # standard hit
+#     hit_script: !include scripts/hit_script_fan_mister.yaml   # fan + mister
+#
+# Include EXACTLY ONE hit script — they all define the same script ids
+# (target_hit_script, gnd_pulse, target_disable_apply, target_enable_apply).
+#
+# WIRING
+#   GND switch -> fan     (1st hit; GND Timer + GND Ramp, see gnd_pulse)
+#   Relay      -> mister  (2nd hit; Relay Timer, see mister_relay_pulse)
+#
+# REQUIRES boards/rev3_lcd_1_1.yaml: this file replaces that board's display
+# lambda (`!extend lcd_display`) and removes its "LCD Hit Effect" select, which
+# the fan / water-drop face does not use.
+#
+# BEHAVIOR
+#   Idle        -> LCD shows a fan icon (slowly spinning, see fan_idle_spin)
+#   1st hit     -> the normal hit: esphome.target-hit event, GND switch / servo,
+#                  LED hit effect — i.e. "the fan turns on". The GND switch
+#                  ramps up and holds on its usual GND Ramp / GND Timer. The
+#                  relay is NOT switched by the first hit.
+#               -> LCD changes to a water drop for the hit window, ringed by
+#                  dots that count the window down
+#   2nd hit     -> accepted ONLY while the water drop is showing. Turns the
+#   (on drop)      relay on for the Relay Timer — "the mister turns on" — and
+#                  the LCD shows a spray for mister_time. Also fires the
+#                  separate esphome.target-second-hit event (same address /
+#                  player / points data) for Home Assistant automations
+#   Window ends -> LEDs off, cooldown, LCD back to the fan
+#
+#   The hit window is hit_display_time (boards/common/common.yaml), or the
+#   Relay Timer if that is longer. Every hit on the drop counts: once a spray
+#   finishes, another hit inside the same window fires the event again and
+#   restarts the relay's timer. The relay runs out its own timer, so a mister
+#   started late in the window can still be on during the cooldown.
+#
+#   The second hit is deliberately NOT another esphome.target-hit: scoring
+#   automations count every one of those, so the mister shot would score twice.
+#   It also does not touch the GND switch, servo or hit counter. In the
+#   standalone and No-HA configs the event is a no-op stub; the relay and the
+#   LCD spray work the same in every config.
+#
+# HOW A SECOND HIT GETS IN
+#   The standard script gates IR off for the whole hit and target_hit_script is
+#   mode: single, so a follow-up hit is swallowed twice over. Here
+#   target_hit_script is only a dispatcher that returns immediately; the long
+#   sequence lives in fan_hit_sequence, and IR stays armed until the window
+#   closes. mister_arm_delay keeps the repeat frames of the FIRST shot from
+#   being taken as the second hit.
+#
+# TUNING
+#   All values are substitutions (compile-time) — same reasoning as the fuse
+#   and lightning scripts: adding restore_value globals reindexes the flash
+#   preference table on deployed targets. Override them in main.yaml.
+#
+# SERVO PIN PWM EFFECT
+# By default the servo pin is unused during a hit. To drive a device on the
+# servo pin when a target is hit, add to target_main.yaml:
+#   packages:
+#     servo_pwm_effects: !include scripts/servo_pwm_effects.yaml
+#   substitutions:
+#     servo_pwm_script: "servo_pwm_sawzall"   # or servo_pwm_flicker
+# ------------------------------------------------------------------------------
+substitutions:
+  servo_pwm_script: "servo_pwm_none"   # no-op default
+
+  # --- Fan / mister tuning ----------------------------------------------------
+  mister_time: "1000"        # ms the spray shows; hits landing during it are ignored
+  mister_arm_delay: "400"    # ms after the 1st hit before a 2nd hit is accepted
+  fan_idle_spin: "true"      # false = static fan icon (no idle LCD redraws at all)
+  fan_spin_period: "4000"    # ms per idle revolution
+  fan_frame_ms: "150"        # ms between idle fan redraws. Each redraw briefly
+                             # stalls the LED animation: 100 = smoothest spin,
+                             # higher = choppier spin but fewer LED hitches
+
+# ==============================================================================
+# STATE - shared by the scripts and the LCD lambda below (none are persisted)
+# ==============================================================================
+globals:
+  # True while the water drop is showing and a second hit will be accepted
+  - id: mister_window_open
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # True while the spray is showing
+  - id: mister_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # millis() of the first hit — arm delay and the LCD countdown run from here
+  - id: fan_hit_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
+# ==============================================================================
+# LCD FACE - fan icon / water drop / spray
+# ==============================================================================
+# Replaces the bullseye lambda in boards/rev3_lcd_1_1.yaml. auto_clear stays
+# false there, so every branch below paints its own background — and paints as
+# little as it can: the panel only flushes the bounding box of what changed, and
+# a full 240x240 flush (~25 ms) stalls the LED animation.
+#   fan   — erases just the blade disc each frame; the guard ring is drawn once
+#   drop  — drawn once; afterwards only the expired countdown dots are blanked
+#   spray — full-frame redraw, but only for mister_time
+# (the board's unused "LCD Hit Effect" select is removed in the select: block
+# further down — a YAML file can only have one select: key)
+display:
+  - id: !extend lcd_display
+    lambda: |-
+      auto BLACK = Color(0,   0,   0);
+      auto WHITE = Color(255, 255, 255);
+      auto GREY  = Color(150, 150, 150);
+      auto BLADE = Color(110, 220, 255);
+      auto WATER = Color(40,  150, 255);
+      auto SPRAY = Color(150, 230, 255);
+      const float TAU = 6.2831853f;
+      const int   DOTS   = 24;
+
+      // 0 disabled, 1 fan (idle + cooldown), 2 water drop, 3 spray
+      int state = 1;
+      if (!id(target_enabled))         state = 0;
+      else if (id(mister_active))      state = 3;
+      else if (id(mister_window_open)) state = 2;
+      static int last_state = -1;
+      bool entered = (state != last_state);
+      last_state = state;
+
+      // DISABLED — blank the panel once, then hold it black (the module has no
+      // BL pin, so black pixels are as dark as it gets).
+      if (state == 0) {
+        if (entered) it.fill(BLACK);
+        return;
+      }
+
+      // Water drop: point at the top, tangent to a round body
+      auto draw_drop = [&](Color c) {
+        it.filled_triangle(120, 38, 76, 112, 164, 112, c);
+        it.filled_circle(120, 138, 52, c);
+        it.filled_circle(102, 132, 9, WHITE);   // highlight
+      };
+
+      uint32_t since_hit = millis() - id(fan_hit_ms);
+
+      if (state == 1) {
+        // ── FAN ──────────────────────────────────────────────────────────────
+        if (entered) {
+          it.fill(BLACK);
+          it.circle(120, 120, 99, GREY);          // guard ring
+          it.circle(120, 120, 98, GREY);
+          it.circle(120, 120, 97, GREY);
+        } else if (!${fan_idle_spin}) {
+          return;                                 // static icon: nothing to redraw
+        } else {
+          // Skip ticks until fan_frame_ms has passed — an untouched buffer
+          // means no SPI flush, so the LED animation is not interrupted.
+          static uint32_t last_frame = 0;
+          if (millis() - last_frame < ${fan_frame_ms}) return;
+          last_frame = millis();
+          it.filled_circle(120, 120, 86, BLACK);  // erase last frame's blades
+        }
+        float spin = ${fan_idle_spin}
+            ? (millis() % ${fan_spin_period}) * TAU / ${fan_spin_period}
+            : 0.5f;
+        // Three swept blades, each a run of overlapping discs that swell
+        // toward the middle of the blade and curl with radius.
+        for (int b = 0; b < 3; b++) {
+          float base = spin + b * (TAU / 3.0f);
+          for (int k = 0; k <= 6; k++) {
+            float t   = k / 6.0f;
+            float rad = 24.0f + 46.0f * t;
+            float ang = base + 0.85f * t;
+            int   sz  = (int)(9.0f + 13.0f * sinf(3.14159f * (0.15f + 0.75f * t)));
+            it.filled_circle(120 + (int)(rad * cosf(ang)),
+                             120 + (int)(rad * sinf(ang)), sz, BLADE);
+          }
+        }
+        it.filled_circle(120, 120, 15, GREY);     // hub
+        it.filled_circle(120, 120, 6,  BLACK);
+
+      } else if (state == 2) {
+        // ── WATER DROP — "hit me again" ──────────────────────────────────────
+        // Countdown: DOTS dots around the rim go out clockwise from the top as
+        // the hit window runs down.
+        int window = std::max(${hit_display_time}, (int) id(relay_timer));
+        int expired = window > 0 ? (int)((uint64_t) since_hit * DOTS / window) : DOTS;
+        if (expired > DOTS) expired = DOTS;
+        static int last_expired = 0;
+        auto dot = [&](int i, Color c) {
+          float ang = i * (TAU / DOTS) - TAU / 4.0f;
+          it.filled_circle(120 + (int)(112.0f * cosf(ang)),
+                           120 + (int)(112.0f * sinf(ang)), 4, c);
+        };
+        if (entered) {
+          it.fill(BLACK);
+          draw_drop(WATER);
+          for (int i = expired; i < DOTS; i++) dot(i, WATER);
+        } else {
+          for (int i = last_expired; i < expired; i++) dot(i, BLACK);
+        }
+        last_expired = expired;
+
+      } else {
+        // ── SPRAY — second hit landed ────────────────────────────────────────
+        it.fill(BLACK);
+        draw_drop(SPRAY);
+        // Three rings of droplets flying outward from the drop
+        uint32_t t = millis();
+        for (int ring = 0; ring < 3; ring++) {
+          int r = 66 + (int)((t / 6 + ring * 17) % 50);
+          for (int i = 0; i < 12; i++) {
+            float ang = i * (TAU / 12.0f) + ring * 0.26f;
+            it.filled_circle(120 + (int)(r * cosf(ang)),
+                             120 + (int)(r * sinf(ang)), 3, SPRAY);
+          }
+        }
+      }
+
+# ==============================================================================
+# LED STRIP 2 HIT EFFECT
+# ==============================================================================
+# Owned by the hit script, not boards/common/common.yaml, because only this
+# one and scripts/hit_script.yaml read it (fan_hit_sequence below). hit_script_fuse.yaml and
+# hit_script_lightning.yaml drive LED Strip 2 themselves — the fuse burn and the
+# lightning sequence ARE the strip-2 hit effect — so on those builds the entity
+# is simply never created and the custom UI drops the row (pruneMissing in
+# boards/common/custom_ui.js hides any control that reports no state).
+#
+# It cannot be shared from common.yaml and narrowed per variant: ESPHome package
+# merge CONCATENATES lists, so an `options:` under `!extend` is appended to the
+# shared list rather than replacing it. Owning the whole entity here is what
+# makes "no dropdown at all" possible.
+#
+# Moving it does not disturb saved settings on deployed targets: a template
+# select stores its value under make_entity_preference<size_t>(), keyed on a hash
+# of the entity NAME, so removing or adding one never reindexes the others.
+#
+# "Solid Color"/"Strobe Flash" fall back to the LED Strip 2 Solid Color preset
+# (boards/common/color_controls.yaml); every other option is a native effect name
+# on led_strip2.
+select:
+  # Drop the LCD board's "LCD Hit Effect" select — the fan face ignores it.
+  - id: !remove lcd_hit_effect_select
+
+  - platform: template
+    name: "LED Strip 2 Hit Effect"
+    id: led_strip2_hit_effect
+    options:
+      - "Rainbow Effect"
+      - "Color Wipe Effect"
+      - "Scanner Effect"
+      - "Twinkle Effect"
+      - "Heartbeat Effect"
+      - "Strobe Flash"
+      - "Solid Color"
+    initial_option: "Color Wipe Effect"
+    restore_value: true
+    optimistic: true
+
+script:
+  # GND-switch pulse — runs concurrently with the hit so the GND output can hold
+  # for its own duration, independent of the relay. Fired from fan_hit_sequence
+  # via `script.execute: gnd_pulse`. Effective on-time = gnd_timer, or relay_timer
+  # when gnd_timer == 0 ("follow relay", the default). mode: restart re-arms the
+  # pulse cleanly if a new hit lands while one is still running. There is
+  # intentionally no "off" control — to disable GND, disconnect its load.
+  - id: gnd_pulse
+    mode: restart
+    then:
+      - light.turn_on:
+          id: gnd_light
+          brightness: 100%
+          # Ramp 0→100% over gnd_ramp_percent of the GND window, then hold at
+          # full for the remainder. 0% = snap on instantly.
+          transition_length: !lambda |-
+            int p = id(gnd_ramp_percent);
+            if (p <= 0) return 0;
+            if (p > 100) p = 100;
+            int t = id(gnd_timer); if (t <= 0) t = id(relay_timer);
+            return t * p / 100;
+      - delay: !lambda 'int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);'
+      - light.turn_off:
+          id: gnd_light
+          transition_length: 0s
+
+  # Hit dispatcher. Every hit source funnels through here (run_hit_script in
+  # main.yaml), and it returns immediately, so it is always free to take the
+  # next hit — the long-running work is in the two sequences below.
+  #   water drop showing + arm delay passed  -> second hit (mister)
+  #   nothing running                        -> first hit (fan)
+  #   anything else (arm delay, spray in progress, cooldown) -> ignored
+  - id: target_hit_script
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: 'return id(mister_window_open) && (millis() - id(fan_hit_ms)) >= ${mister_arm_delay};'
+          then:
+            - if:
+                condition:
+                  not:
+                    script.is_running: mister_hit_sequence
+                then:
+                  - script.execute: mister_hit_sequence
+          else:
+            - if:
+                condition:
+                  not:
+                    script.is_running: fan_hit_sequence
+                then:
+                  - script.execute: fan_hit_sequence
+
+  # Mister relay pulse — the relay's counterpart to gnd_pulse. Holds the relay
+  # on for relay_timer, independent of the spray and of the hit window. mode:
+  # restart so another second hit while the mister is running restarts its timer.
+  - id: mister_relay_pulse
+    mode: restart
+    then:
+      - switch.turn_on: relay_1
+      - delay: !lambda 'return id(relay_timer);'
+      - switch.turn_off: relay_1
+
+  # Second hit — landed while the water drop was showing. Announces it to Home
+  # Assistant, starts the mister (relay) and shows the spray for mister_time.
+  # fan_hit_sequence waits for this to finish before it starts the cooldown, so
+  # a hit in the last moment of the window still gets its full spray.
+  - id: mister_hit_sequence
+    mode: single
+    then:
+      - script.execute: esphome_second_hit_event_script
+      - script.execute: mister_relay_pulse
+      - lambda: |-
+          id(mister_active) = true;
+          ESP_LOGI("target_hit", "Second hit - mister! Player: %d", id(ir_command));
+      - delay: ${mister_time}ms
+      - lambda: 'id(mister_active) = false;'
+
+  # First hit — the standard hit sequence, plus the second-hit window.
+  - id: fan_hit_sequence
+    mode: single  # Prevent overlapping hits
+    then:
+      # Tell Home Assistant FIRST — before any LED / relay / servo work (and
+      # before the Strobe Flash branch's 150 ms hold) so an HA-driven sound
+      # starts as early as possible. One non-blocking API write; a no-op stub
+      # in the standalone and No-HA configs.
+      - script.execute: esphome_hit_event_script
+      - logger.log: "Target hit detected - processing..."
+      # Open the second-hit window. Unlike the standard script IR is NOT gated
+      # off here — it stays armed until the window closes below.
+      - lambda: |-
+          id(fan_hit_ms) = millis();
+          id(mister_window_open) = true;
+
+      # Disable auto-save during hit processing to prevent overwriting saved effect
+      - globals.set:
+          id: hit_processing
+          value: 'true'
+
+      # Log hit information and increment hit counter
+      - lambda: |-
+          id(hit_count)++;
+          ESP_LOGI("target_hit", "Hit detected - Player: %d, Points: %d, Total hits: %d", id(ir_command), id(target_points), id(hit_count));
+      # Push the new count to HA / web UI immediately (sensor is not polled)
+      - component.update: hit_count_sensor
+
+      # Save current effect index
+      - lambda: |-
+          std::string current_effect = id(led_strip).get_effect_name();
+          int effect_index = 0;
+          if (current_effect == "Rainbow Effect") effect_index = 1;
+          else if (current_effect == "Color Wipe Effect") effect_index = 2;
+          else if (current_effect == "Scanner Effect") effect_index = 3;
+          else if (current_effect == "Twinkle Effect") effect_index = 4;
+          else if (current_effect == "Heartbeat Effect") effect_index = 5;
+          id(saved_effect_index) = effect_index;
+          // Capture pre-hit brightness so effects that override it (e.g. the
+          // full-brightness Strobe Flash) can restore the user's level afterward.
+          id(saved_brightness) = id(led_strip).remote_values.get_brightness();
+          ESP_LOGI("target_hit", "Saved effect index: %d, brightness: %.2f", effect_index, (float)id(saved_brightness));
+
+      # Apply hit effect
+      - if:
+          condition:
+            lambda: 'return id(hit_effect_select).current_option() == "Strobe Flash";'
+          then:
+            # Single full-brightness strobe in the selected solid color, then dark.
+            # Stopping the running effect must be its OWN light call first (the
+            # combined set_effect+set_rgb call does not render while an effect is
+            # active — same reason the Solid Color path below uses two calls).
+            # Instant (0s) transitions make it snap on/off like a camera flash.
+            - light.turn_on:
+                id: led_strip
+                effect: "None"
+            - lambda: |-
+                std::string c = id(led_strip_color_preset).current_option();
+                float r = 1.0f, g = 1.0f, b = 1.0f;
+                if (c == "Red")         { r = 1.0f; g = 0.0f; b = 0.0f; }
+                else if (c == "Green")  { r = 0.0f; g = 1.0f; b = 0.0f; }
+                else if (c == "Blue")   { r = 0.0f; g = 0.0f; b = 1.0f; }
+                else if (c == "Yellow") { r = 1.0f; g = 1.0f; b = 0.0f; }
+                else if (c == "Purple") { r = 1.0f; g = 0.0f; b = 1.0f; }
+                else if (c == "Cyan")   { r = 0.0f; g = 1.0f; b = 1.0f; }
+                else if (c == "White")  { r = 1.0f; g = 1.0f; b = 1.0f; }
+                else if (c == "Orange") { r = 1.0f; g = 0.5f; b = 0.0f; }
+                else if (c == "Pink")   { r = 1.0f; g = 0.2f; b = 0.5f; }
+                // A detected team color takes over the flash color. The preset
+                // itself is untouched and is put back at the end of the hit.
+                if (id(team_detected) && id(team_color_enabled)) {
+                  r = id(team_r); g = id(team_g); b = id(team_b);
+                  id(team_color_applied) = true;
+                  c = "team color";
+                }
+                auto call = id(led_strip).turn_on();
+                call.set_transition_length(0);
+                call.set_brightness(1.0f);
+                call.set_rgb(r, g, b);
+                call.perform();
+                ESP_LOGI("target_hit", "Strobe flash: %s", c.c_str());
+            - delay: 150ms
+            - light.turn_off:
+                id: led_strip
+                transition_length: 0s
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(hit_effect_select).current_option() == "Solid Color";'
+                then:
+                  - light.turn_on:
+                      id: led_strip
+                      effect: "None"
+                  - if:
+                      condition:
+                        lambda: 'return id(team_detected) && id(team_color_enabled);'
+                      then:
+                        # Hold the detected team color for the hit window. The
+                        # user's preset is restored when the hit ends, so the
+                        # resting/saved color never changes.
+                        - lambda: |-
+                            auto call = id(led_strip).turn_on();
+                            call.set_rgb(id(team_r), id(team_g), id(team_b));
+                            call.perform();
+                            id(team_color_applied) = true;
+                            ESP_LOGI("target_hit", "Solid Color hit in team color");
+                      else:
+                        - select.set:
+                            id: led_strip_color_preset
+                            option: !lambda 'return id(led_strip_color_preset).current_option();'
+                else:
+                  - light.turn_on:
+                      id: led_strip
+                      effect: !lambda 'return id(hit_effect_select).current_option();'
+
+      # Apply LED Strip 2 hit effect (mirrors the main strip). "Solid Color" and
+      # "Strobe Flash" both resolve to the LED Strip 2 Solid Color preset; every
+      # other option is a native led_strip2 effect. Strip 2 goes dark together
+      # with the main strip at cooldown below (no per-strip save/restore).
+      - if:
+          condition:
+            lambda: |-
+              auto o = id(led_strip2_hit_effect).current_option();
+              return o == "Solid Color" || o == "Strobe Flash";
+          then:
+            - light.turn_on:
+                id: led_strip2
+                effect: "None"
+            - select.set:
+                id: led_strip2_color_preset
+                option: !lambda 'return id(led_strip2_color_preset).current_option();'
+          else:
+            - light.turn_on:
+                id: led_strip2
+                effect: !lambda 'return id(led_strip2_hit_effect).current_option();'
+
+      # Activate outputs. The fan is on the GND switch, which ramps and holds
+      # on its own timer via gnd_pulse (gnd_timer == 0 follows relay_timer).
+      # The relay is NOT switched here — it is the mister, and only a second
+      # hit turns it on (mister_relay_pulse).
+      - script.execute: gnd_pulse
+      # Start configured servo PWM effect (see servo_pwm_script substitution)
+      - script.execute: ${servo_pwm_script}
+      - script.execute: servo_go_hit
+
+      # Trigger the linked Audio-50 POST AFTER the visual hit effect is on screen
+      # (the HA event already went out at the top of this script).
+      # In networked mode esphome_hit_script does a *blocking* http_request.post to
+      # the Audio-50; ESPHome's http_request is synchronous and freezes the main
+      # loop for the whole round-trip. The delay yields one frame so the LED flash,
+      # relay and servo have actually rendered/actuated before that block lands —
+      # the freeze then happens harmlessly during the relay-hold window below,
+      # instead of delaying the effect. In standalone mode esphome_hit_script is a
+      # no-op stub, so this costs nothing there.
+      - delay: 20ms
+      - script.execute: esphome_hit_script
+
+      # Hold for the Relay Timer while the hit effect displays (the relay itself
+      # is not on unless a second hit started it — this is just the servo PWM
+      # effect's window).
+      - delay: !lambda 'return id(relay_timer);'
+
+      # GND switch and relay are owned by gnd_pulse / mister_relay_pulse (their
+      # own timers) and are deliberately NOT turned off here.
+      # Stop servo PWM effect and zero the output (no-op on servo-less boards)
+      - script.stop: ${servo_pwm_script}
+      - script.execute: servo_pwm_zero
+
+      # Continue displaying hit effect until total hit_display_time is reached
+      - delay: !lambda |-
+          int remaining_display = ${hit_display_time} - id(relay_timer);
+          return std::max(0, remaining_display);
+
+      # Close the second-hit window and gate IR off for the cooldown. If a spray
+      # is still showing, let it finish first.
+      - lambda: 'id(mister_window_open) = false;'
+      - globals.set:
+          id: ir_enabled
+          value: 'false'
+      - script.wait: mister_hit_sequence
+
+      # LEDs off during cooldown; start servo return
+      - light.turn_off: led_strip
+      - light.turn_off: led_strip2
+      - script.execute: servo_go_idle
+
+      # Final cooldown period
+      - delay: !lambda 'return id(cooldown_timer);'
+
+      # Restore original effect (index 0 = solid color, i.e. no effect)
+      - lambda: |-
+          std::string effect_name = "Scanner Effect";  // Default fallback
+          switch (id(saved_effect_index)) {
+            case 0: effect_name = "None"; break;
+            case 1: effect_name = "Rainbow Effect"; break;
+            case 2: effect_name = "Color Wipe Effect"; break;
+            case 3: effect_name = "Scanner Effect"; break;
+            case 4: effect_name = "Twinkle Effect"; break;
+            case 5: effect_name = "Heartbeat Effect"; break;
+            default:
+              ESP_LOGW("target_hit", "Unknown effect index: %d, using default", id(saved_effect_index));
+              break;
+          }
+          float brightness = id(saved_brightness);
+          if (brightness <= 0.0f) brightness = 0.5f;  // never restore fully dark
+          auto call = id(led_strip).turn_on();
+          call.set_effect(effect_name);
+          call.set_brightness(brightness);
+          call.perform();
+          ESP_LOGI("target_hit", "Restored effect: %s, brightness: %.2f", effect_name.c_str(), brightness);
+
+      # If the flash used a team color, put the user's "Target LEDs Solid Color"
+      # preset back. Re-selecting the preset re-runs its set_action, which
+      # re-applies the RGB — no second copy of the color table needed. Skipped
+      # when Capture Mode is about to adopt the team color below (restoring the
+      # old color first would only be overwritten a moment later).
+      #
+      # This runs while hit_processing is still true, so the strip's on_state
+      # auto-save is skipped for the team color and only ever records the preset;
+      # that is what keeps a plain team hit from changing the resting/boot color.
+      - if:
+          condition:
+            lambda: 'return id(team_color_applied) && !(id(team_detected) && id(capture_mode_enabled));'
+          then:
+            - select.set:
+                id: led_strip_color_preset
+                option: !lambda 'return id(led_strip_color_preset).current_option();'
+      - lambda: 'id(team_color_applied) = false;'
+
+      # Re-enable auto-save and IR
+      - globals.set:
+          id: hit_processing
+          value: 'false'
+
+      # CAPTURE MODE - adopt the team's color as the new resting color.
+      # Runs AFTER hit_processing is cleared, deliberately: the strip's auto-save
+      # is live again, so the captured color is persisted and survives a reboot
+      # (that is the whole point — the round is scored by what color each target
+      # is holding at the end).
+      - if:
+          condition:
+            lambda: 'return id(team_detected) && id(capture_mode_enabled);'
+          then:
+            - select.set:
+                id: led_strip_color_preset
+                option: !lambda 'return id(team_name);'
+            - logger.log:
+                format: "Capture mode: target taken by %s"
+                args: ['id(team_name).c_str()']
+
+      # Consume the team flag so a later non-IR trigger (GPIO25, Test Hit) cannot
+      # reuse a stale team from a previous hit.
+      - lambda: 'id(team_detected) = false;'
+
+      - globals.set:
+          id: ir_enabled
+          value: 'true'
+      - logger.log: "Target hit processing complete"
+
+
+  # ==========================================================================
+  # MASTER ENABLE / DISABLE — driven by the "Target Enabled" switch
+  # (boards/common/common.yaml) and by the boot handler in that same file.
+  # ==========================================================================
+
+  # Apply the DISABLED state: abort any hit in flight, release every output and
+  # take both strips dark. mode: restart so repeated toggles are harmless.
+  - id: target_disable_apply
+    mode: restart
+    then:
+      # Kill a hit mid-flight — otherwise its pending delays would re-light the
+      # strips and drop the relay seconds after the target was disabled.
+      - script.stop: target_hit_script
+      - script.stop: fan_hit_sequence
+      - script.stop: mister_hit_sequence
+      - script.stop: mister_relay_pulse
+      - script.stop: gnd_pulse
+      - script.stop: ${servo_pwm_script}
+      - script.execute: servo_pwm_zero
+      # Clear the hit's latched flags. ir_enabled is restored on re-enable, not
+      # here: leaving it false is a second, harmless layer of "ignore IR".
+      - globals.set:
+          id: hit_processing
+          value: 'false'
+      - globals.set:
+          id: team_detected
+          value: 'false'
+      - globals.set:
+          id: team_color_applied
+          value: 'false'
+      - lambda: |-
+          id(mister_window_open) = false;
+          id(mister_active) = false;
+      # Outputs off. 0s transitions so a disable is immediate, not a fade.
+      - switch.turn_off: relay_1
+      - light.turn_off:
+          id: gnd_light
+          transition_length: 0s
+      - light.turn_off:
+          id: led_strip
+          transition_length: 0s
+      - light.turn_off:
+          id: led_strip2
+          transition_length: 0s
+      - script.execute: servo_go_idle
+      - logger.log: "Target disabled - outputs released, LEDs dark"
+
+  # Apply the ENABLED state: re-arm IR and restore the saved idle look — the
+  # same brightness / color / effect the board's boot sequence restores, so an
+  # enable and a reboot leave the target looking identical. LED Strip 2 stays
+  # off on purpose: it only lights during a hit.
+  - id: target_enable_apply
+    mode: restart
+    then:
+      - globals.set:
+          id: hit_processing
+          value: 'false'
+      - globals.set:
+          id: team_detected
+          value: 'false'
+      - globals.set:
+          id: team_color_applied
+          value: 'false'
+      - lambda: |-
+          id(mister_window_open) = false;
+          id(mister_active) = false;
+      # A hit killed by target_disable_apply may have left IR gated off — it is
+      # normally re-armed at the end of fan_hit_sequence, which never ran.
+      - globals.set:
+          id: ir_enabled
+          value: 'true'
+      - lambda: |-
+          std::string effect_name = "None";
+          switch (id(saved_effect_index)) {
+            case 1: effect_name = "Rainbow Effect"; break;
+            case 2: effect_name = "Color Wipe Effect"; break;
+            case 3: effect_name = "Scanner Effect"; break;
+            case 4: effect_name = "Twinkle Effect"; break;
+            case 5: effect_name = "Heartbeat Effect"; break;
+            default: break;  // 0 (or unknown) = solid color, no effect
+          }
+          float brightness = id(saved_brightness);
+          if (brightness <= 0.0f) brightness = 0.5f;  // never restore fully dark
+          auto call = id(led_strip).turn_on();
+          call.set_brightness(brightness);
+          call.set_rgb(id(saved_red), id(saved_green), id(saved_blue));
+          call.set_effect(effect_name);
+          call.perform();
+          ESP_LOGI("target_enable", "Enabled - restored effect: %s, brightness: %.2f",
+                   effect_name.c_str(), brightness);
+      - script.execute: servo_go_idle
+
+
+  # No-op stub — active when no servo PWM effect is configured (default)
+  - id: servo_pwm_none
+    mode: single
+    then: []

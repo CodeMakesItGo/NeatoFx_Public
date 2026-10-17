@@ -1,13 +1,16 @@
 # NeatoFx Display 7
 
-> **7" (800x480) Waveshare ESP32-S3-Touch-LCD-7B variant** of the NeatoFx game display.
+> **7" Waveshare variant** of the NeatoFx game display. Builds for two boards,
+> selected in the `packages:` block of `main.yaml`: the **ESP32-S3-Touch-LCD-7B**
+> (1024x600, 16MB — the default) and the **ESP32-S3-Touch-LCD-7** (800x480, 8MB).
+> They are not interchangeable: the wrong build draws a torn, repeating picture.
 > Runs the standard shooting-gallery UI (`shot_page`). The DigTown excavator game is
 > intentionally **not** included here — it lives in `Customers/DigTown/`.
 > NOTE: this build was assembled from the 7" hardware + the shared game scripts;
 > run `esphome config Displays/NeatoDisplay7/main.yaml` and flash-test once to confirm
 > the LVGL `shot_page` widget ids line up with `scripts/game_scripts.yaml`.
 
-A modular ESPHome project for the 800×480 touch-screen game display station.
+A modular ESPHome project for the 7" touch-screen game display station.
 
 ## Folder Structure
 

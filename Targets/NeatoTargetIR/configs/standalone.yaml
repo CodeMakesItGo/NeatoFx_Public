@@ -23,3 +23,7 @@ script:
   - id: esphome_hit_event_script
     mode: parallel
     then: []
+  # And the second-hit event (scripts/hit_script_fan_mister.yaml).
+  - id: esphome_second_hit_event_script
+    mode: parallel
+    then: []

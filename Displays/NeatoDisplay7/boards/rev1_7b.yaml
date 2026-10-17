@@ -1,0 +1,288 @@
+# ==============================================================================
+# NEATO DISPLAY 7" - HARDWARE DEFINITION (7B, REV 1.X)
+# ==============================================================================
+# Waveshare ESP32-S3-Touch-LCD-7B
+# - ESP32-S3-WROOM-1-N16R8 (16MB flash, 8MB PSRAM octal)
+# - 1024x600 RGB parallel display (built-in mipi_rgb driver)
+# - GT911 capacitive touchscreen via I2C
+# - CH32V003 IO expander via I2C (0x24) - backlight PWM + touch reset
+#
+# NOT the same board as boards/rev1.yaml. That one is the 800x480
+# ESP32-S3-Touch-LCD-7 (no "B"): different panel timings, a CH422G expander and
+# 8MB flash. Flashing either build onto the other board gives a torn, repeating
+# picture, because the panel is clocked for the wrong resolution.
+#
+# Pair this board with boards/common/image_layout_default_7b.yaml in main.yaml -
+# the 800x480 layout's coordinates do not line up on this panel.
+#
+# Touch pins:
+#   GPIO4  = TP_IRQ  (interrupt)
+#   GPIO8  = TP_SDA  (I2C data)
+#   GPIO9  = TP_SCL  (I2C clock)
+#   EXIO1  = TP_RST  (reset, via CH32V003 pin 1)
+#
+# Pin source: https://docs.waveshare.com/ESP32-S3-Touch-LCD-7B
+#
+# Included by: main.yaml
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS
+# ==============================================================================
+substitutions:
+  project_version: "3.2.0"
+  # Override common.yaml: a distinct project name keeps a 7B binary from ever
+  # being mistaken for the 800x480 one.
+  project_name: "NeatoFX.Display7B"
+  device_description: "1024x600 Touch Screen"
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  common_components: !include common/common.yaml
+
+# ==============================================================================
+# CORE CONFIGURATION
+# ==============================================================================
+esphome:
+  min_version: 2025.8.2
+  on_boot:
+    - priority: 300
+      then:
+        - logger.log: "Booting up..."
+        - lvgl.page.show: shot_page
+        # Boot PARKED on the game over screen, exactly as boards/rev1.yaml does -
+        # see the note there for why. All four overlapping objs start visible,
+        # so every one of them is placed explicitly.
+        - lvgl.widget.hide: boot_screen
+        - lvgl.widget.hide: game_screen
+        - lvgl.widget.hide: game_shot_screen
+        - lvgl.widget.show: game_over_screen
+        - globals.set:
+            id: game_over_active
+            value: 'true'
+    # Re-send the backlight state once the boot fade has finished. The
+    # CH32V003 was seen to boot with the backlight dark while the light entity
+    # reported ON at 100% and the expander reported no I2C error: a write was
+    # lost, and nothing sends it again. Each command goes out exactly once, so
+    # repeat the two that matter - EXIO2 (enable) and the final PWM level.
+    - priority: -100
+      then:
+        - repeat:
+            count: 2
+            then:
+              - delay: 3s
+              - if:
+                  condition:
+                    light.is_on: backlight
+                  then:
+                    - lambda: 'id(wave_io).digital_write(2, true);'
+                    - light.turn_on:
+                        id: backlight
+                        transition_length: 0s
+
+# ==============================================================================
+# ESP32-S3 FRAMEWORK
+# ==============================================================================
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      # KEEP THIS LIST MINIMAL. boards/rev1.yaml's extra cache / PSRAM options
+      # were found on this board (DigTown 7B build) to crash-loop or blank the
+      # panel with mipi_rgb's PSRAM framebuffer - do NOT copy them over:
+      #   CONFIG_ESP32S3_DATA_CACHE_64KB / _LINE_64B -> reboot loop
+      #   CONFIG_SPIRAM_FETCH_INSTRUCTIONS / CONFIG_SPIRAM_RODATA -> blank/garbled panel
+      # Also tried here and rejected:
+      #   CONFIG_LCD_RGB_RESTART_IN_VSYNC -> flicker got worse, not better
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+# ==============================================================================
+# IO EXPANDER - CH32V003 (controls backlight PWM and touch reset)
+# ==============================================================================
+waveshare_io_ch32v003:
+  - id: wave_io
+    address: 0x24
+    i2c_id: bus_a
+
+# ==============================================================================
+# OUTPUTS - Backlight PWM via IO expander (EXIO2)
+# ==============================================================================
+power_supply:
+  - id: wave_io_backlight_enable
+    pin:
+      waveshare_io_ch32v003: wave_io
+      number: 2
+      mode:
+        output: true
+    enable_time: 0ms
+    keep_on_time: 0ms
+
+output:
+  - platform: waveshare_io_ch32v003
+    id: pwm_backlight_output
+    power_supply: wave_io_backlight_enable
+    inverted: true
+    zero_means_zero: true
+    safe_pwm_levels:
+      min_value: 1
+      max_value: 247
+
+# ==============================================================================
+# LIGHTING - Dimmable display backlight
+# ==============================================================================
+light:
+  - platform: monochromatic
+    output: pwm_backlight_output
+    name: Backlight
+    id: backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 750ms
+
+# ==============================================================================
+# FONTS
+# ==============================================================================
+# Same faces and digit-only glyph sets as boards/rev1.yaml; the sizes come from
+# the selected image_layout package, which scales them with the artwork.
+font:
+  - file: "fonts/arialbd.ttf"
+    id: score_font
+    size: ${score_font_size}
+    glyphs: "-0123456789"
+
+  - file: "fonts/arialbd.ttf"
+    id: hit_font
+    size: ${hits_font_size}
+    glyphs: "-0123456789"
+
+  - file: "fonts/arialbd.ttf"
+    id: shot_font
+    size: ${shots_font_size}
+    glyphs: "-0123456789"
+
+  - file: "fonts/arialbd.ttf"
+    id: final_score_font
+    size: ${final_score_font_size}
+    glyphs: "-0123456789"
+
+  - file: "fonts/arial.ttf"
+    id: small_font
+    size: 24
+
+# ==============================================================================
+# I2C - GT911 Touchscreen + CH32V003 Bus
+# ==============================================================================
+i2c:
+  - id: bus_a
+    sda: GPIO8
+    scl: GPIO9
+    # 100kHz, not rev1.yaml's 400kHz: the GT911 must be read within ~56ms of
+    # its reset, and at 400kHz that read intermittently NACKs on a cold boot of
+    # this board, leaving touch dead until a power cycle.
+    frequency: 100kHz
+
+touchscreen:
+  platform: gt911
+  id: my_touchscreen
+  display: my_display
+  i2c_id: bus_a
+  interrupt_pin: GPIO4
+  reset_pin:
+    waveshare_io_ch32v003: wave_io
+    number: 1
+    mode: OUTPUT
+  transform:
+    mirror_x: false
+    mirror_y: false
+  on_touch:
+    - logger.log:
+        format: Touch at (%d, %d)
+        args: [touch.x, touch.y]
+
+# ==============================================================================
+# DISPLAY - RGB Parallel 1024x600
+# Pin source: https://docs.waveshare.com/ESP32-S3-Touch-LCD-7B
+# Timings: proven on this board by the DigTown 7B build.
+# ==============================================================================
+display:
+  - platform: mipi_rgb
+    model: RPI
+    id: my_display
+    update_interval: never
+    auto_clear_enabled: false
+    color_order: RGB
+    byte_order: big_endian
+    dimensions:
+      width: 1024
+      height: 600
+    de_pin: GPIO5
+    hsync_pin:
+      number: GPIO46
+      ignore_strapping_warning: true
+    vsync_pin:
+      number: GPIO3
+      ignore_strapping_warning: true
+    pclk_pin: GPIO7
+    # 40MHz was too fast on this panel: jumpy (DMA underrun) and shifted
+    # sideways. 30MHz and 25MHz boot reliably but still jitter under load.
+    # 22MHz nearly cured the jitter but booted blank most of the time.
+    # TRIAL: keep the 25MHz clock that boots, and stretch each line with a
+    # longer hsync_front_porch below so pixel data is fetched from PSRAM at
+    # the same rate as it was at 22MHz.
+    pclk_frequency: 25MHz
+    pclk_inverted: true
+    # No reset_pin: the panel free-runs fine, and driving reset over the
+    # CH32V003 expander risks holding it in reset (blank/white screen).
+    hsync_pulse_width: 162
+    hsync_front_porch: 237   # stock 48; +189 gives 22MHz's line rate at 25MHz (see pclk note)
+    hsync_back_porch: 152
+    vsync_pulse_width: 45
+    vsync_front_porch: 3
+    vsync_back_porch: 13
+    data_pins:
+      red:
+        - GPIO1   # R3
+        - GPIO2   # R4
+        - GPIO42  # R5
+        - GPIO41  # R6
+        - GPIO40  # R7
+      green:
+        - GPIO39  # G2
+        - GPIO0   # G3
+        - GPIO45  # G4
+        - GPIO48  # G5
+        - GPIO47  # G6
+        - GPIO21  # G7
+      blue:
+        - GPIO14  # B3
+        - GPIO38  # B4
+        - GPIO18  # B5
+        - GPIO17  # B6
+        - GPIO10  # B7
+
+# ==============================================================================
+# SWITCH - Flip Screen (runtime setting)
+# ==============================================================================
+# Rotates the UI 180 degrees for units mounted upside down. Same switch as
+# boards/rev1.yaml - see the note there. This panel has no hardware rotation
+# either, so LVGL rotates each buffer in software.
+switch:
+  - platform: template
+    name: "Flip Screen"
+    id: flip_screen
+    icon: "mdi:screen-rotation"
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - lvgl.display.set_rotation: 180
+    turn_off_action:
+      - lvgl.display.set_rotation: 0

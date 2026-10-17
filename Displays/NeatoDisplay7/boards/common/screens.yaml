@@ -1,7 +1,9 @@
 # ==============================================================================
-# NEATO DISPLAY - SCREENS & UI (7" 800x480)
+# NEATO DISPLAY - SCREENS & UI (7" 800x480 and 7B 1024x600)
 # ==============================================================================
-# LVGL pages and widgets for the Waveshare 7" 800x480 landscape display.
+# LVGL pages and widgets for the Waveshare 7" landscape displays. Nothing in
+# here is panel-specific: sizes and coordinates come from the image_layout
+# package selected in main.yaml.
 #
 # Pages:
 #   shot_page      - Shooting game UI (boot, game, shots, game-over screens)
@@ -31,7 +33,12 @@ sensor:
 # ==============================================================================
 # IMAGES - Screen Backgrounds
 # ==============================================================================
-# Artwork lives in images/ pre-sized to EXACTLY 800x480, the panel resolution.
+# ${images_dir} and ${image_resize} come from the selected image_layout
+# package: images/ at 800x480 for the 800x480 board, images_7b/ at 1024x600 for
+# the 7B. `resize:` only ever shrinks, so it cannot scale the 800x480 set up -
+# that is why the 7B has its own pre-scaled files.
+#
+# Artwork lives in ${images_dir} pre-sized to EXACTLY the panel resolution.
 # That is deliberate and must stay true: ESPHome's `resize:` preserves aspect
 # ratio (it fits within the box, it does not fill it), so art at any other
 # ratio gets letterboxed and the plate coordinates below stop lining up. The
@@ -50,25 +57,25 @@ image:
     file: "${images_dir}/GAME_START_${color}.png"
     id: boot_logo
     type: RGB565
-    resize: 800x480
+    resize: ${image_resize}
     transparency: opaque
 
   - platform: file
     file: "${images_dir}/GAME_PLAY_${color}.png"
     id: shots_background
     type: RGB565
-    resize: 800x480
+    resize: ${image_resize}
     transparency: opaque
 
   - platform: file
     file: "${images_dir}/GAME_OVER.png"
     id: game_over_background
     type: RGB565
-    resize: 800x480
+    resize: ${image_resize}
     transparency: opaque
 
 # ==============================================================================
-# LVGL - Touch UI (800x480 landscape)
+# LVGL - Touch UI (landscape)
 # ==============================================================================
 lvgl:
   on_idle:
@@ -108,10 +115,7 @@ lvgl:
               # The "SHOTS LEFT" / "SCORE" / "HITS" captions are part of the
               # artwork now, so only the numbers are LVGL labels.
               - image:
-                  x: 0
-                  y: 0
-                  width: 100%
-                  height: 100%
+                  align: CENTER
                   src: shots_background
               # Geometry comes from the selected image_layout package, so the
               # coordinates travel with the artwork they were measured against
@@ -191,8 +195,8 @@ lvgl:
               - button:
                   x: 0
                   y: 0
-                  width: 800
-                  height: 480
+                  width: 100%
+                  height: 100%
                   checkable: false
                   bg_color: 0x000000
                   bg_opa: TRANSP

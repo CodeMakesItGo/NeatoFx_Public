@@ -1,8 +1,9 @@
 # ==============================================================================
 # NEATO DISPLAY 7" - MAIN CONFIGURATION FILE
 # ==============================================================================
-# Primary config for the 7" (800x480) touch-screen game display. Assembles the
-# Waveshare ESP32-S3-Touch-LCD-7B hardware, network config, game scripts, and
+# Primary config for the 7" touch-screen game display. Assembles the Waveshare
+# ESP32-S3-Touch-LCD-7B (1024x600) hardware - or the 800x480 ESP32-S3-Touch-LCD-7,
+# selected in the packages block below - network config, game scripts, and
 # the LVGL shooting-gallery UI. This is the general product build — it does NOT
 # include the DigTown excavator game (that lives in Customers/DigTown/).
 #
@@ -49,18 +50,26 @@ packages:
   # the directory its PNGs come from, so the coordinates and the artwork travel
   # together — one line picks both and they cannot drift apart.
   #
-  # Only one layout exists for this product. Display 4's Temecula "Gunslinger
-  # Jacks" set is 1024x1024 square artwork for a 480x480 panel and does not fit
-  # this 800x480 landscape screen, so there is no 7" equivalent to select. Add
-  # a second image_layout_*.yaml here when 800x480 customer artwork exists.
+  # Only one artwork set exists for this product, in one layout per panel size.
+  # Display 4's Temecula "Gunslinger Jacks" set is 1024x1024 square artwork for
+  # a 480x480 panel and does not fit a landscape screen, so there is no 7"
+  # equivalent to select. Add another image_layout_*.yaml here when landscape
+  # customer artwork exists.
   #
   # Do not define images_dir or the geometry in this file. Substitutions here
   # override those from a package, so a copy at this level would win over
   # whichever layout is selected.
-  image_layout: !include boards/common/image_layout_default.yaml       # stock "Target Shootout" — images/
+  #
+  # The layout must match the board below: the _7b layout uses the same artwork
+  # pre-scaled to 1024x600 (images_7b/), and only fits the 7B's 16MB flash.
+  image_layout: !include boards/common/image_layout_default_7b.yaml    # stock "Target Shootout" on the 7B (1024x600)
+  # image_layout: !include boards/common/image_layout_default.yaml       # stock "Target Shootout" on the 800x480 board
 
-  # Hardware board definition
-  board: !include boards/rev1.yaml
+  # ---- HARDWARE BOARD ----
+  # Two different Waveshare boards, NOT interchangeable - the wrong build gives
+  # a torn, repeating picture. Check the silkscreen: "7B" is the 1024x600 one.
+  board: !include boards/rev1_7b.yaml                                  # ESP32-S3-Touch-LCD-7B, 1024x600, 16MB
+  # board: !include boards/rev1.yaml                                     # ESP32-S3-Touch-LCD-7, 800x480, 8MB
 
   # Network configuration (WiFi, API, web server)
   config: !include configs/networked.yaml

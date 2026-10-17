@@ -65,8 +65,12 @@ packages:
   # discover the selectable artwork by scanning these commented include lines,
   # which a computed path would hide from both.
 
-  # Hardware board definition
-  board: !include boards/rev1.yaml
+  # ---- HARDWARE BOARD — select exactly ONE ----
+  # Two different 480x480 boards, NOT interchangeable: the wrong build boots
+  # and joins WiFi but the screen stays dark. Both use the same artwork and
+  # image_layout, so this is the only line to change between them.
+  #board: !include boards/rev1.yaml                                     # Guition board — backlight on GPIO38, relay on GPIO40
+  board: !include boards/rev2_waveshare.yaml                          # Waveshare ESP32-S3-Touch-LCD-4, hardware V4.0
 
   # Network configuration (WiFi, API, web server)
   config: !include configs/networked.yaml

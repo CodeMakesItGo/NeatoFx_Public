@@ -33,11 +33,11 @@ script:
   # command steps the DFPlayer's DAC output to the new level, and an unmuted amp
   # reproduces that step as an audible pop.
   #
-  # LATENCY: the amp IS put to sleep between sounds (an idle amp hisses), but
-  # waking it costs nothing measurable, so there is no separate settle wait.
-  # Wake and the volume write go out together, ONE 30 ms gap covers both the
-  # amp coming up and the DFPlayer consuming the volume frame before the play
-  # frame, then unmute and play back-to-back. The DFPlayer needs 100+ ms to
+  # LATENCY: the amp IS put to sleep between sounds (an idle amp hisses), so
+  # every play is a cold wake. Wake, 50 ms settle (dropping this wait caused a
+  # loud pop at the start of playback), volume write, a 30 ms gap for the
+  # DFPlayer to consume the volume frame before the play frame, then unmute
+  # and play back-to-back. The DFPlayer needs 100+ ms to
   # seek the file, so the amp is awake and unmuted well before audio reaches
   # it. The volume is still written before EVERY play: a DFPlayer that has
   # brown-out reset comes back at 30 = max and would blow the speaker; nobody
@@ -56,6 +56,7 @@ script:
                 format: "play_sound: playing MP3 %d"
                 args: ['mp3']
             - output.turn_on: amp_wake     # Wake amp (still muted)
+            - delay: 50ms                  # Let amp settle — unmuting too soon pops
             - dfplayer.set_volume:         # While still muted — see above
                 id: dfplayer1
                 volume: !lambda 'return (int)id(dfplayer_volume).state;'
@@ -127,6 +128,7 @@ script:
       # unmuted amp) and is re-sent before every play because a reset DFPlayer
       # comes back at 30 = max.
       - output.turn_on: amp_wake
+      - delay: 50ms   # Let amp settle — unmuting too soon pops
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
@@ -146,6 +148,7 @@ script:
       # amp) and re-sent before every play because a reset DFPlayer comes back
       # at 30 = max.
       - output.turn_on: amp_wake    # Wake amp (still muted)
+      - delay: 50ms                 # Let amp settle — unmuting too soon pops
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
@@ -172,6 +175,7 @@ script:
       # amp) and re-sent before every play because a reset DFPlayer comes back
       # at 30 = max.
       - output.turn_on: amp_wake    # Wake amp (still muted)
+      - delay: 50ms                 # Let amp settle — unmuting too soon pops
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
@@ -241,6 +245,7 @@ script:
       # amp) and re-sent before every play because a reset DFPlayer comes back
       # at 30 = max.
       - output.turn_on: amp_wake    # Wake amp (still muted)
+      - delay: 50ms                 # Let amp settle — unmuting too soon pops
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
@@ -300,6 +305,7 @@ script:
     then:
       # Wake + volume (while muted), one gap, unmute — see play_sound_script
       - output.turn_on: amp_wake
+      - delay: 50ms   # Let amp settle — unmuting too soon pops
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
@@ -325,6 +331,7 @@ script:
     then:
       # Wake + volume (while muted), one gap, unmute — see play_sound_script
       - output.turn_on: amp_wake
+      - delay: 50ms   # Let amp settle — unmuting too soon pops
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
@@ -350,6 +357,7 @@ script:
     then:
       # Wake + volume (while muted), one gap, unmute — see play_sound_script
       - output.turn_on: amp_wake
+      - delay: 50ms   # Let amp settle — unmuting too soon pops
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'
@@ -375,6 +383,7 @@ script:
     then:
       # Wake + volume (while muted), one gap, unmute — see play_sound_script
       - output.turn_on: amp_wake
+      - delay: 50ms   # Let amp settle — unmuting too soon pops
       - dfplayer.set_volume:
           id: dfplayer1
           volume: !lambda 'return (int)id(dfplayer_volume).state;'

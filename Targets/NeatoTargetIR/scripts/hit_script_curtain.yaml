@@ -1,0 +1,125 @@
+# ==============================================================================
+# TARGET HIT SCRIPTS - WINDOW CURTAIN variant (LCD face + Home Assistant only)
+# ==============================================================================
+# Drop-in replacement for scripts/hit_script.yaml. In main.yaml swap the include:
+#
+#   packages:
+#     #hit_script: !include scripts/hit_script.yaml           # standard hit
+#     hit_script: !include scripts/hit_script_curtain.yaml    # curtain sun / moon
+#
+# Include EXACTLY ONE hit script — they all define the same script ids
+# (target_hit_script, gnd_pulse, target_disable_apply, target_enable_apply).
+#
+# REQUIRES
+#   boards/rev3_lcd_1_1.yaml    — this file replaces that board's display lambda
+#                                 (`!extend lcd_display`) and removes its "LCD
+#                                 Hit Effect" select, which this face ignores.
+#   configs/home_assistant.yaml — the curtain state is read from Home Assistant
+#                                 over the native API, which the standalone and
+#                                 No-HA configs do not have.
+#
+# BEHAVIOR
+#   The hit itself is the STANDARD hit, unchanged — this file pulls in
+#   scripts/hit_script.yaml as a package and only swaps the LCD face:
+#     curtain open   -> yellow sun
+#     curtain closed -> grey moon
+#   Both are static: the panel is painted once per state change and never
+#   redrawn in between, so the LCD costs the LED animation nothing.
+#
+#   "opening" counts as open and "closing" as closed, so the face flips the
+#   moment the curtain starts to move rather than when it arrives. While the
+#   state is unknown / unavailable the last known face is kept; before the first
+#   state arrives (boot, HA not connected yet) the face is an empty grey ring.
+#
+# MOVING THE CURTAIN
+#   The target only READS the cover. To make a hit move it, let Home Assistant
+#   react to the esphome.target-hit event this target already fires
+#   (configs/home_assistant.yaml), e.g. an automation that calls cover.toggle
+#   when event data `address` matches this target's Device ID. A device-side
+#   homeassistant.action is deliberately not used: HA drops those silently
+#   unless "Allow the device to perform Home Assistant actions" is switched on
+#   for the device, and that option can revert on re-provisioning.
+#
+# TUNING
+#   curtain_entity is a substitution (compile-time) — override it in main.yaml.
+# ------------------------------------------------------------------------------
+substitutions:
+  curtain_entity: "cover.wifi_smart_curtain_robot"
+
+packages:
+  # The standard hit, as-is (LED effects, relay, GND switch, servo, cooldown).
+  standard_hit: !include hit_script.yaml
+
+# ==============================================================================
+# CURTAIN STATE - mirrored from Home Assistant
+# ==============================================================================
+# A cover's state is one of: open / opening / closed / closing (or unknown /
+# unavailable). No trigger is needed — the LCD lambda below polls .state on its
+# own 100 ms tick and repaints only when the face actually changes.
+text_sensor:
+  - platform: homeassistant
+    id: curtain_state
+    entity_id: ${curtain_entity}
+    internal: true
+
+# Drop the LCD board's "LCD Hit Effect" select — the curtain face ignores it.
+select:
+  - id: !remove lcd_hit_effect_select
+
+# ==============================================================================
+# LCD FACE - sun (open) / moon (closed)
+# ==============================================================================
+# Replaces the bullseye lambda in boards/rev3_lcd_1_1.yaml. auto_clear stays
+# false there, so each face paints its own background — once, on entry. Every
+# other tick returns with the buffer untouched, which means no SPI flush.
+display:
+  - id: !extend lcd_display
+    lambda: |-
+      auto BLACK = Color(0,   0,   0);
+      auto SUN   = Color(255, 210, 0);
+      auto MOON  = Color(150, 150, 150);
+      const float TAU = 6.2831853f;
+
+      // Last face the cover reported: 3 = none yet, 1 = sun, 2 = moon.
+      // Anything else (unknown / unavailable / not connected) keeps it.
+      static int known = 3;
+      const std::string &s = id(curtain_state).state;
+      if (s == "open" || s == "opening")        known = 1;
+      else if (s == "closed" || s == "closing") known = 2;
+
+      // 0 disabled, 1 sun, 2 moon, 3 no state yet
+      int state = id(target_enabled) ? known : 0;
+      static int last_state = -1;
+      if (state == last_state) return;          // static faces: nothing to redraw
+      last_state = state;
+
+      // Every face starts from black. For DISABLED that is the whole face (the
+      // module has no BL pin, so black pixels are as dark as it gets).
+      it.fill(BLACK);
+
+      if (state == 1) {
+        // ── SUN — curtain open ───────────────────────────────────────────────
+        // Twelve tapered rays around a solid disc.
+        for (int i = 0; i < 12; i++) {
+          float ang = i * (TAU / 12.0f);
+          float c = cosf(ang), sn = sinf(ang);
+          it.filled_triangle(
+              120 + (int)(106.0f * c),           120 + (int)(106.0f * sn),
+              120 + (int)(66.0f * c - 9.0f * sn), 120 + (int)(66.0f * sn + 9.0f * c),
+              120 + (int)(66.0f * c + 9.0f * sn), 120 + (int)(66.0f * sn - 9.0f * c),
+              SUN);
+        }
+        it.filled_circle(120, 120, 54, SUN);
+
+      } else if (state == 2) {
+        // ── MOON — curtain closed ────────────────────────────────────────────
+        // Crescent: a grey disc with an offset black disc bitten out of it.
+        it.filled_circle(108, 120, 84, MOON);
+        it.filled_circle(146, 96,  72, BLACK);
+
+      } else if (state == 3) {
+        // ── NO STATE YET — empty ring until Home Assistant reports the cover ─
+        it.circle(120, 120, 99, MOON);
+        it.circle(120, 120, 98, MOON);
+        it.circle(120, 120, 97, MOON);
+      }

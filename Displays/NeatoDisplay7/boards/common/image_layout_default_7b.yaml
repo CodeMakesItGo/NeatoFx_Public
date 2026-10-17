@@ -1,0 +1,56 @@
+# ==============================================================================
+# NEATO DISPLAY 7 - IMAGE TEXT LAYOUT: "Target Shootout" on the 7B (1024x600)
+# ==============================================================================
+# The stock artwork from image_layout_default.yaml, scaled to fill the 1024x600
+# Waveshare 7B panel. Select it together with boards/rev1_7b.yaml in main.yaml.
+#
+# images_7b/ holds the stock 800x480 PNGs from images/ resampled to exactly
+# 1024x600, the 7B panel resolution. They are pre-scaled files, not a
+# `resize:` of the originals, because ESPHome's `resize:` only ever shrinks -
+# asking it for a larger size leaves the image at 800x480. Regenerate them
+# from images/ (Lanczos, 1024x600) whenever the stock artwork changes.
+#
+# 800x480 is 5:3 and 1024x600 is not quite, so the scale differs per axis.
+# Every coordinate below is the value from image_layout_default.yaml put
+# through that transform:
+#
+#     x' = 1.28 * x      y' = 1.25 * y      w' = 1.28 * w      h', font' = 1.25 * value
+#
+# If the stock layout's numbers change, change these to match.
+#
+# FLASH: three 1024x600 RGB565 images are 1,228,800 bytes each. That only fits
+# because the 7B has 16MB flash - this layout cannot be used on the 8MB board.
+#
+# Do NOT also define these in main.yaml - see image_layout_default.yaml.
+# ==============================================================================
+
+substitutions:
+  images_dir: "images_7b"
+  image_resize: "1024x600"
+
+  shots_x: "408"
+  shots_y: "280"
+  shots_w: "425"
+  shots_h: "63"
+  shots_font_size: "55"
+
+  score_x: "408"
+  score_y: "369"
+  score_w: "425"
+  score_h: "63"
+  score_font_size: "55"
+
+  hits_x: "408"
+  hits_y: "459"
+  hits_w: "425"
+  hits_h: "63"
+  hits_font_size: "55"
+
+  play_value_color: "${font_color}"
+
+  final_score_x: "306"
+  final_score_y: "428"
+  final_score_w: "412"
+  final_score_h: "96"
+  final_score_font_size: "85"
+  final_score_color: "${font_color}"

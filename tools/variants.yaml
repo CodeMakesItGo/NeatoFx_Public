@@ -47,6 +47,13 @@ devices:
         hit_script: scripts/hit_script_fuse.yaml
       hit_lightning:            # xLights lightning-storm port (left cloud)
         hit_script: scripts/hit_script_lightning.yaml
+      hit_fan_mister:           # LCD fan icon; 2nd hit on the water drop = mister
+        board: boards/rev3_lcd_1_1.yaml
+        hit_script: scripts/hit_script_fan_mister.yaml
+      hit_curtain:              # LCD sun / moon mirroring a Home Assistant cover
+        board: boards/rev3_lcd_1_1.yaml
+        config: configs/home_assistant.yaml
+        hit_script: scripts/hit_script_curtain.yaml
 
   motor:
     path: Controllers/NeatoMotor/main.yaml
@@ -136,10 +143,17 @@ devices:
                                # from the matrix rather than failing on it.
         _requires: ../Customers/temecula/images_mobile
         image_layout: boards/common/image_layout_gunslinger.yaml
+      waveshare_lcd4:          # Waveshare ESP32-S3-Touch-LCD-4 V4.0 (CH32V003 expander)
+        board: boards/rev2_waveshare.yaml
+      rev1:                    # original Guition board (GPIO backlight + relay)
+        board: boards/rev1.yaml
 
   display7:
     path: Displays/NeatoDisplay7/main.yaml
     label: "Neato Display 7"
     substitutions: { color: "YLW", font_color: "0xFFE000" }
     variants:
-      default: {}
+      default: {}   # rev1_7b (1024x600 7B) + stock artwork scaled to 1000x600
+      lcd7_800x480:            # 800x480 ESP32-S3-Touch-LCD-7 (8MB) + native artwork
+        board: boards/rev1.yaml
+        image_layout: boards/common/image_layout_default.yaml

@@ -173,3 +173,16 @@ update:
     id: firmware_update_check
     name: "Firmware Update"
     source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/audio50/manifest.json
+
+# A failed update check (no internet at the site, DNS, TLS) sets the ERROR flag
+# on firmware_update_check, and status_led fast-blinks for any ERROR — so an
+# HA-only site with no internet looked permanently faulted. Clear just this
+# component's flag; a real failure anywhere else still fast-blinks the LED.
+# The failure is still logged ([E] "... set Error flag: ...") and the next
+# scheduled check runs as normal, so sites with internet are unaffected.
+interval:
+  - interval: 250ms
+    then:
+      - lambda: |-
+          if (id(firmware_update_check)->status_has_error())
+            id(firmware_update_check)->status_clear_error();

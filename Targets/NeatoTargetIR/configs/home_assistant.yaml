@@ -94,6 +94,19 @@ script:
             address: !lambda 'return id(device_id);'
             player: !lambda 'return id(ir_command);'
             points: !lambda 'return std::to_string(id(target_points));'
+
+  # Second hit inside the hit window — only scripts/hit_script_fan_mister.yaml
+  # calls this (the water-drop / mister shot). A separate event name on
+  # purpose: scoring automations count every esphome.target-hit.
+  - id: esphome_second_hit_event_script
+    mode: parallel
+    then:
+      - homeassistant.event:
+          event: esphome.target-second-hit
+          data:
+            address: !lambda 'return id(device_id);'
+            player: !lambda 'return id(ir_command);'
+            points: !lambda 'return std::to_string(id(target_points));'
 improv_serial:
 
 # ==============================================================================

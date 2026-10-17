@@ -1,0 +1,245 @@
+# ==============================================================================
+# NEATO DISPLAY - HARDWARE DEFINITION (REV 2.X, WAVESHARE)
+# ==============================================================================
+# Waveshare ESP32-S3-Touch-LCD-4, hardware V4.0 ("V4.0" on the back of the PCB)
+# - ESP32-S3-WROOM-1-N16R8 (16MB flash, 8MB octal PSRAM)
+# - ST7701 480x480 RGB display, initialised over 3-wire SPI
+# - GT911 capacitive touchscreen via I2C
+# - CH32V003 IO expander via I2C (0x24) - backlight PWM, LCD reset, touch
+#   reset, system power enable, buzzer
+#
+# V4.0 ONLY. Earlier revisions of this board (V3 and older) carry a TCA9554
+# expander at 0x20 with a different pin map and are not covered by this file.
+#
+# NOT the same board as boards/rev1.yaml. Same panel size and controller, but
+# every pin is different and the backlight and resets sit behind the expander.
+# A rev1 build flashed onto this board boots and joins WiFi with a dark screen:
+# the backlight is never enabled and the panel is never taken out of reset.
+#
+# Same 480x480 resolution as rev1, so the image_layout_*.yaml files and the
+# artwork are shared - only this board line changes in main.yaml.
+#
+# Difference from rev1 that is not just pins: there is no relay. rev1's
+# internal_relay_1 (GPIO40) has no equivalent here.
+#
+# CH32V003 pins:
+#   EXIO1 = TP_RST    (1 releases reset)
+#   EXIO2 = TP_INT    (GT911 interrupt line - see the touchscreen block)
+#   EXIO3 = LCD_RST   (1 releases reset)
+#   EXIO5 = SYS_EN    (1 enables the board's power rails - must stay high)
+#   EXIO6 = BEE_EN    (1 sounds the buzzer)
+#   EXIO7 = RTC_INT   (input)
+#   PWM   = backlight, INVERTED (0 brightest, 255 off). Waveshare's ioexpander
+#           README says the opposite; their BSP flips the value before writing
+#           it, and the board agrees with the BSP.
+#
+# Pin source: Waveshare's V4.0 examples and schematic,
+# https://github.com/waveshareteam/ESP32-S3-Touch-LCD-4 - and ESPHome's
+# built-in mipi_rgb model WAVESHARE-4-480X480, which supplies the same RGB
+# data, sync, clock and CS pins those examples use.
+#
+# Included by: main.yaml
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS
+# ==============================================================================
+substitutions:
+  project_version: "3.2.0"
+  # Override common.yaml: a distinct project name keeps a Waveshare binary from
+  # ever being mistaken for the rev1 one.
+  project_name: "NeatoFX.Display4W"
+
+# ==============================================================================
+# EXTERNAL PACKAGES
+# ==============================================================================
+packages:
+  # Include common components shared across all display revisions
+  common_components: !include common/common.yaml
+
+# ==============================================================================
+# CORE CONFIGURATION - Boot Sequence
+# ==============================================================================
+esphome:
+  min_version: 2025.8.2
+  # MUST stay a LIST (leading "-") - see the note in boards/rev1.yaml.
+  on_boot:
+    - priority: 300   # Let LVGL and the display initialize first
+      then:
+        - logger.log: "Booting up..."
+        # Boot PARKED on the game over screen, exactly as boards/rev1.yaml does -
+        # see the note there for why.
+        - lvgl.widget.hide: boot_screen
+        - lvgl.widget.hide: game_screen
+        - lvgl.widget.hide: game_shot_screen
+        - lvgl.widget.show: game_over_screen
+        - globals.set:
+            id: game_over_active
+            value: 'true'
+
+# ==============================================================================
+# ESP32-S3 FRAMEWORK
+# ==============================================================================
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      # KEEP THIS LIST MINIMAL. rev1.yaml's extra cache / PSRAM options crash-
+      # looped or blanked the panel with mipi_rgb's PSRAM framebuffer on the
+      # 7B (see NeatoDisplay7/boards/rev1_7b.yaml), and this board uses the
+      # same driver.
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+# ==============================================================================
+# I2C - GT911 Touchscreen + CH32V003 Bus
+# ==============================================================================
+i2c:
+  - id: bus_a
+    sda: GPIO15
+    scl: GPIO7
+    # Lists every address found at boot: expect the expander (0x24), the
+    # GT911 (0x5D or 0x14) and the RTC (0x51).
+    scan: true
+
+# ==============================================================================
+# IO EXPANDER - CH32V003 (backlight PWM, resets, system power, buzzer)
+# ==============================================================================
+waveshare_io_ch32v003:
+  - id: wave_io
+    address: 0x24
+    i2c_id: bus_a
+
+# ==============================================================================
+# OUTPUTS - Backlight PWM and Buzzer
+# ==============================================================================
+output:
+  - platform: waveshare_io_ch32v003
+    id: pwm_backlight_output
+    # The register is inverted: 0 is full brightness, 255 is off. Without
+    # `inverted` a light at 100% writes 255 and the picture is there but dark.
+    inverted: true
+    # Widened from the component's default 1..247 so both ends of the range
+    # reach the register, as they do in Waveshare's BSP.
+    safe_pwm_levels:
+      min_value: 0
+      max_value: 255
+
+  # Not used by the game. Declared so the pin is driven low at boot, which is
+  # what keeps the buzzer silent.
+  - platform: gpio
+    id: buzzer
+    pin:
+      waveshare_io_ch32v003: wave_io
+      number: 6
+      mode:
+        output: true
+
+# ==============================================================================
+# LIGHTING - Dimmable display backlight
+# ==============================================================================
+light:
+  - platform: monochromatic
+    output: pwm_backlight_output
+    name: Backlight
+    id: backlight
+    restore_mode: ALWAYS_ON
+
+# ==============================================================================
+# FONTS
+# ==============================================================================
+# Same faces as boards/rev1.yaml; the sizes come from the selected image_layout
+# package - see the note there.
+font:
+  - file: "fonts/Roboto-Bold.ttf"
+    id: shot_font
+    size: ${shots_font_size}
+
+  - file: "fonts/Roboto-Bold.ttf"
+    id: hit_font
+    size: ${hits_font_size}
+
+  - file: "fonts/Roboto-Bold.ttf"
+    id: score_font
+    size: ${score_font_size}
+
+  - file: "fonts/Roboto-Bold.ttf"
+    id: final_score_font
+    size: ${final_score_font_size}
+
+  - file: "fonts/Roboto-Regular.ttf"
+    id: small_font
+    size: 24
+
+# ==============================================================================
+# TOUCHSCREEN - GT911
+# ==============================================================================
+touchscreen:
+  platform: gt911
+  id: my_touchscreen
+  display: my_display
+  i2c_id: bus_a
+  # TP_INT is on the expander, not an ESP32 GPIO, so the GT911 is polled
+  # rather than interrupt-driven. The pin still has to be declared: the
+  # expander component drives every pin HIGH at setup, and left undeclared it
+  # holds TP_INT high - the GT911 then answers on I2C but its config reads
+  # back as zeros and it never reports a touch. Declared, the driver holds it
+  # low through reset, as Waveshare's own code does.
+  interrupt_pin:
+    waveshare_io_ch32v003: wave_io
+    number: 2
+    mode: OUTPUT
+  reset_pin:
+    waveshare_io_ch32v003: wave_io
+    number: 1
+    mode: OUTPUT
+  transform:
+    mirror_x: false
+    mirror_y: false
+  on_touch:
+    - logger.log:
+        format: Touch at (%d, %d)
+        args: [touch.x, touch.y]
+
+# ==============================================================================
+# SPI + DISPLAY - ST7701 480x480
+# ==============================================================================
+# The SPI bus only carries the ST7701 init sequence; pixels go out over the
+# parallel RGB pins. GPIO1/GPIO2 are shared with the SD card slot, which this
+# build does not use.
+spi:
+  - id: lcd_spi
+    clk_pin: GPIO2
+    mosi_pin: GPIO1
+
+display:
+  - platform: mipi_rgb
+    # Supplies CS, DE, HSYNC, VSYNC, PCLK, the 16 RGB data pins, the ST7701
+    # init sequence and colour inversion for this board.
+    model: WAVESHARE-4-480X480
+    id: my_display
+    update_interval: never
+    auto_clear_enabled: false
+    # SYS_EN. Raised before the panel is reset and initialised.
+    enable_pin:
+      waveshare_io_ch32v003: wave_io
+      number: 5
+      mode: OUTPUT
+    reset_pin:
+      waveshare_io_ch32v003: wave_io
+      number: 3
+      mode: OUTPUT
+    # Timings from Waveshare's V4.0 examples.
+    pclk_frequency: 12MHz
+    hsync_pulse_width: 8
+    hsync_front_porch: 10
+    hsync_back_porch: 50
+    vsync_pulse_width: 8
+    vsync_front_porch: 10
+    vsync_back_porch: 20

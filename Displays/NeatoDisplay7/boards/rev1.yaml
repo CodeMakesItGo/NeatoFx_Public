@@ -1,7 +1,8 @@
 # ==============================================================================
 # NEATO DISPLAY 7" - HARDWARE DEFINITION (REV 1.X)
 # ==============================================================================
-# Waveshare ESP32-S3-Touch-LCD-7B
+# Waveshare ESP32-S3-Touch-LCD-7 (800x480). NOT the 1024x600 "7B" - that board
+# is boards/rev1_7b.yaml, and this build draws a torn picture on it.
 # - ESP32-S3R8 (8MB PSRAM octal)
 # - 800x480 RGB parallel display (built-in rpi_dpi_rgb driver)
 # - GT911 capacitive touchscreen via I2C
@@ -12,7 +13,7 @@
 #   GPIO9  = TP_SCL  (I2C clock)
 #   EXIO1  = TP_RST  (reset, via CH422G pin 1)
 #
-# Pin source: https://docs.waveshare.com/ESP32-S3-Touch-LCD-7B
+# Pin source: https://docs.waveshare.com/ESP32-S3-Touch-LCD-7
 #
 # Included by: main.yaml
 # ==============================================================================
@@ -177,7 +178,7 @@ touchscreen:
 
 # ==============================================================================
 # DISPLAY - RGB Parallel 800x480
-# Pin source: https://docs.waveshare.com/ESP32-S3-Touch-LCD-7B
+# Pin source: https://docs.waveshare.com/ESP32-S3-Touch-LCD-7
 # ==============================================================================
 display:
   - platform: rpi_dpi_rgb
@@ -223,3 +224,30 @@ display:
         - GPIO18  # B5
         - GPIO17  # B6
         - GPIO10  # B7
+
+# ==============================================================================
+# SWITCH - Flip Screen (runtime setting)
+# ==============================================================================
+# Rotates the UI 180 degrees for units mounted upside down (cable exit on the
+# other side). A runtime switch rather than a compile-time `rotation:` so one
+# binary serves both mountings; the state is saved to flash and survives reboot.
+#
+# The rotation is set on LVGL, not on the display: ESPHome rejects `rotation:`
+# in the display config when LVGL is in use. This panel has no hardware
+# rotation, so LVGL rotates each buffer in software. Touch coordinates are
+# rotated by LVGL as well, so the gt911 `transform` above stays as it is.
+#
+# The switch restores at HARDWARE priority, before LVGL sets up, so a flipped
+# unit draws its first frame the right way up rather than flipping after boot.
+switch:
+  - platform: template
+    name: "Flip Screen"
+    id: flip_screen
+    icon: "mdi:screen-rotation"
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - lvgl.display.set_rotation: 180
+    turn_off_action:
+      - lvgl.display.set_rotation: 0

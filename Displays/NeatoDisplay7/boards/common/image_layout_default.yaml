@@ -37,6 +37,8 @@ substitutions:
   # Artwork this layout belongs to. Resolved relative to the directory holding
   # main.yaml, NOT this file — so "images" means Displays/NeatoDisplay7/images/.
   images_dir: "images"
+  # Size the PNGs are compiled at. Native here; the 7B layout scales them up.
+  image_resize: "800x480"
 
   shots_x: "319"
   shots_y: "224"

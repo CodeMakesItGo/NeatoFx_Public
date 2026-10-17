@@ -39,9 +39,9 @@ packages:
 
   # Change this manually when changing golf_type:
   # - For standalone: uncomment the next line
-  config: !include configs/standalone.yaml
+  #config: !include configs/standalone.yaml
   # - For networked: uncomment the next two lines
-  #config: !include configs/networked.yaml
+  config: !include configs/networked.yaml
 
   # Falcon Player Packages (only for networked golf devices)
   # Uncomment BOTH lines below to enable FPP support

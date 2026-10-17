@@ -1,0 +1,219 @@
+# ==============================================================================
+# NEATO TARGET IR - HARDWARE DEFINITION (REV 3.X + HOLOGRAM FAN 1.0)
+# ==============================================================================
+# Hardware: a standard Rev 3.x target (boards/rev3.yaml, pulled in unchanged
+#           below) plus an IR LED aimed at a hologram fan's remote receiver.
+#
+# The fan is loaded with a playlist that alternates idle / hit / idle / hit ...
+# and runs in single-loop mode (REPEAT 1), which loops whatever video is
+# current — so the target steps it explicitly in both directions:
+#   Aux Pwr ON (fan powers up)  -> wait fan boot -> REPEAT 1
+#                                  (idle video loops)
+#   Relay 1 ON (hit)            -> FORWARD  -> HIT video (loops)
+#   "Hit Video Length" later    -> FORWARD  -> next IDLE video
+#                               -> REPEAT 1 -> re-asserted, so single-loop is
+#                                              known to be on for the idle video
+#
+# Hooking relay_1's own on_turn_on and aux_pwr's on_turn_on (same pattern as
+# common/aux_power.yaml) means every hit script — standard / fuse / lightning —
+# drives the fan with no per-script code. The hit sequence is independent of the
+# Relay Timer; its length comes from the "Hit Video Length" number in the web
+# UI — how long the hit video is shown before stepping back to idle.
+#
+# Aux Power Mode should be "On" for this board: "Follow Relay" power-cycles the
+# fan on every hit.
+#
+# A hit that arrives while the fan sequence is still running is ignored by the
+# fan (the target itself still scores it): a second FORWARD mid-sequence would
+# throw the hit / idle alternation out of step.
+#
+# If the fan ever drifts out of step (e.g. it was power-cycled on its own), use
+# the "Hologram Fan Forward" / "Hologram Fan Repeat 1" buttons in the web UI to
+# put it back on a looping idle video.
+#
+# IR LED wiring: ir_tx_gpio below (GPIO17, right-side connector). GPIO17's
+# digital-input sensor from rev3.yaml is removed since the pin is now an output.
+#
+# Included by: main.yaml
+# ==============================================================================
+
+substitutions:
+  ir_tx_gpio: GPIO17             # IR LED to the hologram fan, direct drive via ~100 Ω (~2" range)
+  hw_version: "Rev 3 Fan 1.0"    # Overrides rev3.yaml for the version readout
+  default_hit_video_time: "5000" # How long the hit video shows, in ms (UI-adjustable)
+  fan_boot_time: 3s              # Fan start-up time after Aux Pwr ON before it takes IR
+
+  # Hologram fan remote — NEC, captured from the fan's remote with dump: nec.
+  # ESPHome logs the 16-bit command field (command + its inverse), so these are
+  # sent back exactly as recorded.
+  fan_nec_address: "0xFF00"
+  fan_nec_forward: "0xBC43"
+  fan_nec_repeat_1: "0xE916"
+  # Unused today, kept for reference:
+  #   Rewind   0xBB44
+  #   Pause    0xF30C
+  #   Play     0xA15E
+
+packages:
+  rev3_base: !include rev3.yaml
+
+# ==============================================================================
+# IR TRANSMITTER - Hologram fan
+# ==============================================================================
+remote_transmitter:
+  id: fan_ir_tx
+  pin: ${ir_tx_gpio}
+  carrier_duty_percent: 50%
+  # Explicit (matches the ESPHome 2026 default; unset emits a warning). The
+  # fan_send script waits out the frame itself, so async TX is safe.
+  non_blocking: true
+
+# GPIO17 is the IR LED output now, not an input.
+binary_sensor:
+  - id: !remove gpio17_digital
+
+# ==============================================================================
+# FAN CONTROL
+# ==============================================================================
+script:
+  # Send one remote button press (NEC command) to the fan.
+  #
+  # The target's own IR receiver treats ANY NEC frame as a hit, and the fan's
+  # 0xFF00 codes are NEC — a reflection off the fan or the face would land back
+  # on the receiver and fire another hit. So the receiver is blanked via
+  # ir_enabled (the gate on_nec already checks) for the duration of the frame,
+  # then restored to whatever it was.
+  #
+  # repeat: 1 on purpose — ESPHome repeats re-send the whole frame, and the
+  # fan would treat each one as another press.
+  # mode: queued so presses that land close together are sent one after the
+  # other rather than dropped.
+  - id: fan_send
+    mode: queued
+    max_runs: 4
+    parameters:
+      command: int
+    then:
+      - globals.set:
+          id: fan_ir_was_enabled
+          value: !lambda 'return id(ir_enabled);'
+      - globals.set:
+          id: ir_enabled
+          value: 'false'
+      - remote_transmitter.transmit_nec:
+          transmitter_id: fan_ir_tx
+          address: ${fan_nec_address}
+          command: !lambda 'return (uint16_t) command;'
+          repeat: 1
+      - lambda: 'ESP_LOGI("fan", "Hologram fan: sent 0x%04X", command);'
+      # One NEC frame is ~68 ms; leave room for it to finish and any echo to
+      # die out, and give the fan time to register before a queued next press.
+      - delay: 250ms
+      - globals.set:
+          id: ir_enabled
+          value: !lambda 'return id(fan_ir_was_enabled);'
+
+  # Hit sequence: FORWARD to the hit video (it loops, single-loop is on), hold
+  # it for "Hit Video Length", then FORWARD to the next idle video and REPEAT 1
+  # again so single-loop is known to be on. mode: single — a re-hit
+  # mid-sequence is dropped for the fan (see the header). fan_send is queued,
+  # so the back-to-back FORWARD + REPEAT 1 go out in order, 250 ms apart.
+  - id: fan_hit_sequence
+    mode: single
+    then:
+      - logger.log: "Hologram fan -> hit video"
+      - script.execute:
+          id: fan_send
+          command: ${fan_nec_forward}
+      - delay: !lambda 'return (uint32_t) id(hit_video_time_control).state;'
+      - logger.log: "Hologram fan -> idle video, single-loop"
+      - script.execute:
+          id: fan_send
+          command: ${fan_nec_forward}
+      - script.execute:
+          id: fan_send
+          command: ${fan_nec_repeat_1}
+
+  # Fan power-up: aux_pwr feeds the fan, so each time it comes on the fan has
+  # rebooted into its default play mode. Wait for it to start, then turn
+  # single-loop on so the idle video loops. mode: restart — a quick off/on
+  # restarts the wait.
+  - id: fan_power_on_sequence
+    mode: restart
+    then:
+      - delay: ${fan_boot_time}
+      - logger.log: "Hologram fan powered up -> single-loop"
+      - script.execute:
+          id: fan_send
+          command: ${fan_nec_repeat_1}
+
+globals:
+  - id: fan_ir_was_enabled
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+# Hit hook — appended to relay_1's existing triggers (common.yaml).
+# Gated on startup_complete: relay_1 publishes its ALWAYS_OFF state during boot,
+# and nothing at boot should press buttons on the fan.
+switch:
+  - id: !extend relay_1
+    on_turn_on:
+      - if:
+          condition:
+            lambda: 'return id(startup_complete);'
+          then:
+            - if:
+                condition:
+                  script.is_running: fan_hit_sequence
+                then:
+                  - logger.log: "Hologram fan: hit video still playing - fan not advanced"
+                else:
+                  - script.execute: fan_hit_sequence
+
+  # Fan power-up hook — appended to aux_pwr (rev3.yaml). NOT gated on
+  # startup_complete: boot stage 3 is exactly when the fan first gets power.
+  # Power dropping cancels a pending power-up REPEAT 1 and any hit sequence in
+  # flight — the fan is off, and comes back up at the start of its playlist.
+  - id: !extend aux_pwr
+    on_turn_on:
+      - script.execute: fan_power_on_sequence
+    on_turn_off:
+      - script.stop: fan_power_on_sequence
+      - script.stop: fan_hit_sequence
+
+# How long the (looping) hit video is shown before stepping to the idle video.
+number:
+  - platform: template
+    name: "Hit Video Length"
+    id: hit_video_time_control
+    min_value: 500
+    max_value: 60000
+    step: 100
+    restore_value: true
+    optimistic: true
+    initial_value: ${default_hit_video_time}
+    icon: "mdi:movie-open-outline"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: 'ESP_LOGI("config", "Hit video length set to: %d ms", (int) x);'
+
+# Manual step / resync from the web UI.
+button:
+  - platform: template
+    name: "Hologram Fan Forward"
+    id: fan_forward_button
+    icon: "mdi:skip-next"
+    on_press:
+      - script.execute:
+          id: fan_send
+          command: ${fan_nec_forward}
+
+  - platform: template
+    name: "Hologram Fan Repeat 1"
+    id: fan_repeat_1_button
+    icon: "mdi:repeat-once"
+    on_press:
+      - script.execute:
+          id: fan_send
+          command: ${fan_nec_repeat_1}

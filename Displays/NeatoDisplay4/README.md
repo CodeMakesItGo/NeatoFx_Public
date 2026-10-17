@@ -9,6 +9,7 @@ Displays/NeatoDisplay4/
 ├── main.yaml                          ← Entry point — set station ID and color here
 ├── boards/
 │   ├── rev1.yaml                      ← Hardware: ESP32-S3, ST7701S display, GT911 touch
+│   ├── rev2_waveshare.yaml            ← Hardware: Waveshare ESP32-S3-Touch-LCD-4 V4.0 (select in main.yaml)
 │   └── common/
 │       ├── common.yaml                ← Shared: ESPHome config, OTA, external components
 │       └── screens.yaml               ← LVGL UI, screen definitions, template sensors
