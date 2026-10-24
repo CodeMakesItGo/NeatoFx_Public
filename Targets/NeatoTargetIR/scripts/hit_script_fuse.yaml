@@ -80,16 +80,7 @@
 #   2500 ms over 3 m is a brisk ~1.2 m/s. Match it to the length of the fuse
 #   portion of your MP3 — that is what makes the bang land on the sound.
 #
-# SERVO PIN PWM EFFECT
-# By default the servo pin is unused during a hit. To drive a device on the
-# servo pin when a target is hit, add to main.yaml:
-#   packages:
-#     servo_pwm_effects: !include scripts/servo_pwm_effects.yaml
-#   substitutions:
-#     servo_pwm_script: "servo_pwm_sawzall"   # or servo_pwm_flicker
-# ------------------------------------------------------------------------------
 substitutions:
-  servo_pwm_script: "servo_pwm_none"   # no-op default
 
   # --- Fuse tuning ------------------------------------------------------------
   # fuse_burn_ms is the INITIAL value for the "Fuse Burn Time" number; after that
@@ -549,8 +540,6 @@ script:
       # drives a vibration for a different time. gnd_timer == 0 follows relay_timer.
       # gnd_light is PWM-backed on Rev 3.x, a no-op on Rev 1.x.
       - script.execute: gnd_pulse
-      # Start configured servo PWM effect (see servo_pwm_script substitution)
-      - script.execute: ${servo_pwm_script}
       - script.execute: servo_go_hit
 
       # Hold relay for configured time while the embers die out
@@ -561,9 +550,6 @@ script:
       # GND switch is owned by gnd_pulse (its own timer) and is deliberately NOT
       # turned off here — that lets the GND window run longer or shorter than the
       # relay. In follow mode (gnd_timer == 0) gnd_pulse releases at ~relay_timer.
-      # Stop servo PWM effect and zero the output (no-op on servo-less boards)
-      - script.stop: ${servo_pwm_script}
-      - script.execute: servo_pwm_zero
 
       # Continue displaying the hit effect until total hit_display_time is
       # reached. NOTE: total hit length is now fuse_burn + hit_display_time —
@@ -669,8 +655,6 @@ script:
       - script.stop: target_hit_script
       - script.stop: hit_pulse
       - script.stop: gnd_pulse
-      - script.stop: ${servo_pwm_script}
-      - script.execute: servo_pwm_zero
       # Clear the hit's latched flags. ir_enabled is restored on re-enable, not
       # here: leaving it false is a second, harmless layer of "ignore IR".
       - globals.set:
@@ -738,9 +722,3 @@ script:
           ESP_LOGI("target_enable", "Enabled - restored effect: %s, brightness: %.2f",
                    effect_name.c_str(), brightness);
       - script.execute: servo_go_idle
-
-
-  # No-op stub — active when no servo PWM effect is configured (default)
-  - id: servo_pwm_none
-    mode: single
-    then: []

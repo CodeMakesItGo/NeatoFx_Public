@@ -163,4 +163,4 @@ These already hold today and are the basis for the rules above:
 - **Substitutions** `name` / `name_add_mac_suffix` / `friendly_name` / `runtime_id*` + `project: NeatoFX.<Device>`. No build-time `id`.
 - **Safe-state `on_boot`**, `WARN` logging, improv + dashboard_import for MFE, `custom_ui.js` web UI.
 - **IR devices** (Target, Blaster) share the `protocols/` set (`ir_nec`, `ir_raw`, `ir_laser_tag`, `ir_custom`) and `integrations/` FPP.
-- **Servo/effect devices** (Target, Golf) share `scripts/servo_movement_script.yaml`, `servo_stubs.yaml`, `servo_pwm_effects.yaml`, `color_controls.yaml`.
+- **Servo/effect devices** (Target, Golf) share `scripts/servo_movement_script.yaml`, `servo_stubs.yaml`, `color_controls.yaml`. Output effects (GND flicker / sawzall) are hit-script variants layered on `hit_script.yaml`, not servo-pin packages.

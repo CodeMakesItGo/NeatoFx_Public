@@ -479,7 +479,7 @@ number:
     name: "Cooldown Timer"
     id: target_cooldown_control
     min_value: 0
-    max_value: 60000
+    max_value: 600000     # 10 minutes
     step: 100
     restore_value: true
     optimistic: true

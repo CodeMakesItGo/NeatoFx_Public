@@ -58,16 +58,7 @@
 #   and lightning scripts: adding restore_value globals reindexes the flash
 #   preference table on deployed targets. Override them in main.yaml.
 #
-# SERVO PIN PWM EFFECT
-# By default the servo pin is unused during a hit. To drive a device on the
-# servo pin when a target is hit, add to target_main.yaml:
-#   packages:
-#     servo_pwm_effects: !include scripts/servo_pwm_effects.yaml
-#   substitutions:
-#     servo_pwm_script: "servo_pwm_sawzall"   # or servo_pwm_flicker
-# ------------------------------------------------------------------------------
 substitutions:
-  servo_pwm_script: "servo_pwm_none"   # no-op default
 
   # --- Fan / mister tuning ----------------------------------------------------
   mister_time: "1000"        # ms the spray shows; hits landing during it are ignored
@@ -481,8 +472,6 @@ script:
       # The relay is NOT switched here — it is the mister, and only a second
       # hit turns it on (mister_relay_pulse).
       - script.execute: gnd_pulse
-      # Start configured servo PWM effect (see servo_pwm_script substitution)
-      - script.execute: ${servo_pwm_script}
       - script.execute: servo_go_hit
 
       # Trigger the linked Audio-50 POST AFTER the visual hit effect is on screen
@@ -498,15 +487,12 @@ script:
       - script.execute: esphome_hit_script
 
       # Hold for the Relay Timer while the hit effect displays (the relay itself
-      # is not on unless a second hit started it — this is just the servo PWM
-      # effect's window).
+      # is not on unless a second hit started it — this keeps the standard
+      # script's timeline, so the servo and LEDs behave as on every other build).
       - delay: !lambda 'return id(relay_timer);'
 
       # GND switch and relay are owned by gnd_pulse / mister_relay_pulse (their
       # own timers) and are deliberately NOT turned off here.
-      # Stop servo PWM effect and zero the output (no-op on servo-less boards)
-      - script.stop: ${servo_pwm_script}
-      - script.execute: servo_pwm_zero
 
       # Continue displaying hit effect until total hit_display_time is reached
       - delay: !lambda |-
@@ -617,8 +603,6 @@ script:
       - script.stop: mister_hit_sequence
       - script.stop: mister_relay_pulse
       - script.stop: gnd_pulse
-      - script.stop: ${servo_pwm_script}
-      - script.execute: servo_pwm_zero
       # Clear the hit's latched flags. ir_enabled is restored on re-enable, not
       # here: leaving it false is a second, harmless layer of "ignore IR".
       - globals.set:
@@ -691,9 +675,3 @@ script:
           ESP_LOGI("target_enable", "Enabled - restored effect: %s, brightness: %.2f",
                    effect_name.c_str(), brightness);
       - script.execute: servo_go_idle
-
-
-  # No-op stub — active when no servo PWM effect is configured (default)
-  - id: servo_pwm_none
-    mode: single
-    then: []

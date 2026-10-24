@@ -1,9 +1,9 @@
 # ==============================================================================
 # SERVO STUBS - No-op placeholders for targets without servo movement
 # ==============================================================================
-# Include this when servo_movement_script.yaml is NOT active, so that
-# target_hit_script.yaml's direct calls to servo_go_hit / servo_go_idle
-# always resolve to a valid script ID.
+# Include this when servo_movement_script.yaml is NOT active, so that the hit
+# scripts' direct calls to servo_go_hit / servo_go_idle always resolve to a
+# valid script ID.
 #
 # Swap in target_main.yaml:
 #   servo_scripts: !include scripts/servo_stubs.yaml           (no servo)
@@ -16,9 +16,5 @@ script:
     then: []
 
   - id: servo_go_idle
-    mode: single
-    then: []
-
-  - id: servo_pwm_zero
     mode: single
     then: []

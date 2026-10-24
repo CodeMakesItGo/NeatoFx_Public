@@ -81,7 +81,6 @@
 #   on deployed targets. Override them in main.yaml and recompile.
 # ------------------------------------------------------------------------------
 substitutions:
-  servo_pwm_script: "servo_pwm_none"   # no-op default
 
   # --- Lightning tuning -------------------------------------------------------
   lightning_seq_ms: "12805"       # sequence length (xLights sequenceDuration) — hold dark to here
@@ -327,7 +326,6 @@ script:
           effect: "Lightning Effect"
       - script.execute: lightning_relay
       - script.execute: lightning_gnd
-      - script.execute: ${servo_pwm_script}
       - script.execute: servo_go_hit
 
       # Hold through the whole sequence (last light event ends at 9.25 s; the
@@ -339,8 +337,6 @@ script:
       - light.turn_off:
           id: gnd_light
           transition_length: 0s
-      - script.stop: ${servo_pwm_script}
-      - script.execute: servo_pwm_zero
       - light.turn_off: led_strip
       - light.turn_off: led_strip2
       - script.execute: servo_go_idle
@@ -416,8 +412,6 @@ script:
       - script.stop: lightning_relay
       - script.stop: lightning_gnd
       - script.stop: gnd_pulse
-      - script.stop: ${servo_pwm_script}
-      - script.execute: servo_pwm_zero
       - globals.set:
           id: hit_processing
           value: 'false'
@@ -476,13 +470,6 @@ script:
           ESP_LOGI("target_enable", "Enabled - restored effect: %s, brightness: %.2f",
                    effect_name.c_str(), brightness);
       - script.execute: servo_go_idle
-
-
-  # No-op stub — active when no servo PWM effect is configured (default)
-  - id: servo_pwm_none
-    mode: single
-    then: []
-
 
 # ==============================================================================
 # HIDE THE DEAD "Target LEDs Hit Effect" SELECT

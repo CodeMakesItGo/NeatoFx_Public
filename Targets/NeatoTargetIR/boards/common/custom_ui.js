@@ -46,7 +46,7 @@
 
     // ── Base Target Events ──
     hit_points:     { type: NUM, name: 'Hit Points',    label: 'Hit Points', min: 10, max: 100, step: 10, unit: 'pts', section: 'base' },
-    cooldown_timer: { type: NUM, name: 'Cooldown Timer', label: 'Cooldown',  min: 0, max: 10000, step: 100, unit: 'ms', section: 'base' },
+    cooldown_timer: { type: NUM, name: 'Cooldown Timer', label: 'Cooldown',  min: 0, max: 600000, step: 100, unit: 'ms', section: 'base' },
     relay_timer:    { type: NUM, name: 'Relay Timer',   label: 'Relay Timer', min: 100, max: 10000, step: 100, unit: 'ms', section: 'base' },
     gnd_timer:      { type: NUM, name: 'GND Timer',     label: 'GND Timer (0 = follow relay)', min: 0, max: 3000, step: 100, unit: 'ms', section: 'base' },
     idle_effect:    { type: SEL, name: 'Target LEDs Idle Effect', label: 'Idle LED Effect',  options: IDLE_EFFECTS, section: 'base' },
@@ -90,6 +90,9 @@
     // ── Servo ──
     servo_idle: { type: NUM, name: 'Servo Idle Position', label: 'Servo Idle', min: 0, max: 180, step: 1, unit: '°', section: 'servo' },
     servo_hit:  { type: NUM, name: 'Servo Hit Position',  label: 'Servo Hit',  min: 0, max: 180, step: 1, unit: '°', section: 'servo' },
+    // scripts/servo_chomp.yaml only — pruned on every other build. On that build
+    // Test Servo Hit chomps for 3 s instead of swinging once.
+    chomp_interval: { type: NUM, name: 'Chomp Interval', label: 'Chomp Interval (per half-move)', min: 100, max: 2000, step: 50, unit: 'ms', section: 'servo' },
 
     // ── Reset (collapsible, bottom) ──
     wifi_reset:    { type: BTN, name: 'WiFi Reset',    label: 'Reset WiFi',     btnText: 'Reset', danger: true,

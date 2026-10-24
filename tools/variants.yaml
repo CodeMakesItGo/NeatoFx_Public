@@ -29,7 +29,7 @@ devices:
         board: boards/rev3_lcd_1_1.yaml
         ir_receiver: protocols/ir_laser_tag.yaml
         fpp_file: integrations/target_fpp.yaml
-        servo_pwm_effects: scripts/servo_pwm_effects.yaml
+        hit_script: scripts/hit_script_gnd_flicker.yaml
       custom_ir:
         ir_receiver: protocols/ir_custom.yaml
       ha_nec:                  # Home Assistant LAN mode + classic NEC protocol
@@ -43,6 +43,8 @@ devices:
         board: boards/rev3_lcd_1_1.yaml
       hit_standard:             # standard hit effect (no fuse / lightning)
         hit_script: scripts/hit_script.yaml
+      hit_gnd_sawzall:          # standard hit, GND switch revs a motor (sawzall)
+        hit_script: scripts/hit_script_gnd_sawzall.yaml
       hit_fuse:                 # fuse burns down LED Strip 2, then explodes
         hit_script: scripts/hit_script_fuse.yaml
       hit_lightning:            # xLights lightning-storm port (left cloud)

@@ -86,16 +86,3 @@ script:
       - servo.write:
           id: servo1
           level: !lambda 'return (id(g_servo_idle_pos) - 90.0f) / 90.0f;'
-
-  # Zero the servo PWM output (called by hit_script after effects stop).
-  # servo_stubs.yaml provides the no-op twin for boards without a servo.
-  # NOTE: this drives the servo signal to 0% duty (no pulse). It exists to clean
-  # up after a servo-pin PWM *effect* (sawzall/flicker). With no effect active
-  # (servo_pwm_script = servo_pwm_none, the default) it is pointless and can leave
-  # the servo limp/desynced from the servo component's tracked position.
-  - id: servo_pwm_zero
-    mode: single
-    then:
-      - output.set_level:
-          id: pwm_output
-          level: 0.0

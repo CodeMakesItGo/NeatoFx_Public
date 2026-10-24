@@ -1,0 +1,110 @@
+# ==============================================================================
+# TARGET HIT SCRIPTS - GND FLICKER variant
+# ==============================================================================
+# The standard hit (scripts/hit_script.yaml) with ONE change: during the GND
+# window the GND switch flickers like a failing fluorescent tube instead of switching on solid. Everything else —
+# LEDs, relay, servo, audio, cooldown, enable/disable — IS the standard script,
+# included below as a package, so this file can never drift from it.
+#
+# In main.yaml pick EXACTLY ONE hit script:
+#   hit_script: !include scripts/hit_script_gnd_flicker.yaml
+#
+# WIRING
+#   The GND switch (GPIO33, PWM-capable on Rev 3.x) sinks the load's ground:
+#   a lamp or LED driver that should flicker on the hit. On Rev 1.x the GND output is a no-op stub, so this build behaves
+#   exactly like the standard hit there.
+#
+# TIMING
+#   Runs for the GND window — GND Timer, or the Relay Timer when GND Timer is 0
+#   — the same window the solid pulse it replaces would hold for. GND Ramp has
+#   no effect on this build: the effect owns the output level.
+#
+# HOW THE OVERRIDE WORKS
+#   ESPHome packages CONCATENATE lists, so a plain second `- id: gnd_pulse` would
+#   be a duplicate id. `- id: !remove gnd_pulse` deletes the standard pulse
+#   first, the replacement below is then the only one, and `!extend` appends
+#   the effect's stop to target_disable_apply so a disable mid-effect releases
+#   the output. (Both tags are resolved after all packages are merged.)
+# ==============================================================================
+
+packages:
+  standard_hit: !include hit_script.yaml
+
+script:
+  # Replace the standard solid GND pulse with the effect for the same window.
+  - id: !remove gnd_pulse
+  - id: gnd_pulse
+    mode: restart
+    then:
+      - script.execute: gnd_flicker
+      - delay: !lambda 'int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);'
+      - script.stop: gnd_flicker
+      # The effect was stopped mid-step at an arbitrary level — release the load.
+      - output.set_level:
+          id: gnd_output
+          level: 0.0
+
+  # Disable mid-effect: the standard script stops gnd_pulse and turns gnd_light
+  # off, but the effect drives the output directly, so stop it here too.
+  - id: !extend target_disable_apply
+    then:
+      - script.stop: gnd_flicker
+      - output.set_level:
+          id: gnd_output
+          level: 0.0
+
+  # ===========================================================================
+  # FLUORESCENT LIGHT FLICKER
+  # Solid on at 90% with irregular blackouts, partial-brightness dips, and
+  # rapid double-flicker bursts. Loops until script.stop is called.
+  # ===========================================================================
+  - id: gnd_flicker
+    mode: restart
+    then:
+      - while:
+          condition:
+            lambda: 'return true;'
+          then:
+            # Solid on
+            - output.set_level:
+                id: gnd_output
+                level: 0.9
+            - delay: !lambda 'return 80  + (rand() % 200);'  # 80-280 ms
+
+            # Single brief blackout
+            - output.set_level:
+                id: gnd_output
+                level: 0.0
+            - delay: !lambda 'return 15  + (rand() % 35);'   # 15-50 ms
+
+            # Back to full brightness
+            - output.set_level:
+                id: gnd_output
+                level: 0.9
+            - delay: !lambda 'return 150 + (rand() % 350);'  # 150-500 ms
+
+            # Partial-brightness dip (dim flicker)
+            - output.set_level:
+                id: gnd_output
+                level: !lambda 'return 0.2f + (rand() % 40) / 100.0f;'  # 20-60 %
+            - delay: !lambda 'return 20  + (rand() % 40);'   # 20-60 ms
+
+            # Rapid double-flicker burst
+            - output.set_level:
+                id: gnd_output
+                level: 0.0
+            - delay: 12ms
+            - output.set_level:
+                id: gnd_output
+                level: 0.9
+            - delay: !lambda 'return 30  + (rand() % 60);'   # 30-90 ms
+            - output.set_level:
+                id: gnd_output
+                level: 0.0
+            - delay: !lambda 'return 8   + (rand() % 20);'   # 8-28 ms
+
+            # Long solid-on period before next cycle
+            - output.set_level:
+                id: gnd_output
+                level: 0.9
+            - delay: !lambda 'return 200 + (rand() % 500);'  # 200-700 ms

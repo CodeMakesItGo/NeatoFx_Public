@@ -27,9 +27,6 @@ substitutions:
   name_add_mac_suffix: "true"
   friendly_name: "NeatoFx Target"
   runtime_name_label: "Target Name"
-  # Servo PWM effect — only used when servo_pwm_effects package is enabled below
-  # Options: servo_pwm_sawzall | servo_pwm_flicker
-  # servo_pwm_script: "servo_pwm_flicker"
 
 # ==============================================================================
 # EXTERNAL PACKAGES
@@ -68,17 +65,16 @@ packages:
   # Uncomment BOTH lines below to enable FPP support
   #fpp_file: !include integrations/target_fpp.yaml
 
-  # Servo movement — include EXACTLY ONE of these two:
-  servo_scripts: !include scripts/servo_movement_script.yaml  # with servo
+  # Servo movement — include EXACTLY ONE of these:
+  servo_scripts: !include scripts/servo_movement_script.yaml  # with servo: swing to hit angle, back to idle
   #servo_scripts: !include scripts/servo_stubs.yaml           # no servo
-
-  # Servo Pin PWM Effects - uncomment to enable a device effect on hit
-  # Also uncomment + set servo_pwm_script in substitutions below
-  #servo_pwm_effects: !include scripts/servo_pwm_effects.yaml
+  #servo_scripts: !include scripts/servo_chomp.yaml            # animated jaw: chomps hit<->idle while the relay is on
 
   # Hit behavior script - defines what happens when the target is hit.
   # Include EXACTLY ONE — they all define the same script ids.
   hit_script: !include scripts/hit_script.yaml       # standard hit
+  #hit_script: !include scripts/hit_script_gnd_flicker.yaml  # standard hit, GND switch flickers like a failing fluorescent tube
+  #hit_script: !include scripts/hit_script_gnd_sawzall.yaml  # standard hit, GND switch revs a motor like a reciprocating saw
   #hit_script: !include scripts/hit_script_fuse.yaml   # fuse burns down LED Strip 2, then explodes
   #hit_script: !include scripts/hit_script_lightning.yaml  # xLights lightning-storm port (left cloud)
   #hit_script: !include scripts/hit_script_fan_mister.yaml  # LCD board only: fan icon, 2nd hit on the water drop = mister

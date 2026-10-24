@@ -1,0 +1,172 @@
+# ==============================================================================
+# SERVO CHOMP - animated jaw (fish mouth) that chomps while the relay is on
+# ==============================================================================
+# A third option for the servo_scripts slot. In main.yaml pick EXACTLY ONE:
+#
+#   servo_scripts: !include scripts/servo_movement_script.yaml  # swing once per hit
+#   servo_scripts: !include scripts/servo_stubs.yaml            # no servo
+#   servo_scripts: !include scripts/servo_chomp.yaml            # chomp while relay is on
+#
+# Nothing else to enable. This file is servo_movement_script.yaml plus the
+# chomp: the same "Servo Idle Position" / "Servo Hit Position" controls (same
+# ids, so calibration carries over when you swap variants), the same script ids
+# the hit scripts and board call, and one extra control, "Chomp Interval".
+#
+# BEHAVIOR
+#   Hit        -> the hit script turns Relay 1 on, then calls servo_go_hit. Here
+#                 that starts the chomp: jaw to Hit Position, back to Idle
+#                 Position, repeat, one half-move per Chomp Interval
+#   Relay off  -> the chomp sees the relay drop (checked before every half-move)
+#                 and closes the jaw, holding it shut under power. The Relay
+#                 Timer IS the chomp duration.
+#   Disabled   -> target_disable_apply calls servo_go_idle: chomp stopped, jaw
+#                 closed. Same at boot.
+#   Test       -> "Test Servo Hit" chomps for 3 s with the relay OFF, then closes
+#
+# WORKS WITH every hit script: they all call servo_go_hit after switching the
+# relay on, and servo_go_idle at the end of the hit. (Exception: the fan/mister
+# script, where the relay belongs to the second hit — there the jaw just stays
+# closed, since the relay is off on the first hit.)
+#
+# Chomp Interval must be long enough for the servo to actually reach the other
+# angle, or it shudders mid-travel instead of chomping. A typical hobby servo
+# needs ~250-400 ms for 90 degrees under a light jaw.
+# ==============================================================================
+
+substitutions:
+  chomp_interval_default: "350"   # ms per half-move, first boot only (web UI value persists)
+
+globals:
+  - id: g_servo_idle_pos
+    type: int
+    restore_value: true
+    initial_value: '0'
+
+  - id: g_servo_hit_pos
+    type: int
+    restore_value: true
+    initial_value: '90'
+
+  # True only while the test button is driving the chomp (relay is off then).
+  - id: chomp_test_running
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+number:
+  - platform: template
+    name: "Servo Idle Position"
+    id: servo_slider
+    min_value: 0
+    max_value: 180
+    step: 1
+    initial_value: 0
+    restore_value: true
+    optimistic: true
+    icon: "mdi:restore"
+    unit_of_measurement: "°"
+    set_action:
+      - globals.set:
+          id: g_servo_idle_pos
+          value: !lambda 'return (int)x;'
+      - servo.write:
+          id: servo1
+          level: !lambda 'return (x - 90.0f) / 90.0f;'
+
+  - platform: template
+    name: "Servo Hit Position"
+    id: servo_hit_pos_ctrl
+    min_value: 0
+    max_value: 180
+    step: 1
+    initial_value: 90
+    restore_value: true
+    optimistic: true
+    icon: "mdi:target"
+    unit_of_measurement: "°"
+    set_action:
+      - globals.set:
+          id: g_servo_hit_pos
+          value: !lambda 'return (int)x;'
+      # Move there immediately so the open angle can be calibrated live; the
+      # idle control moves it back.
+      - servo.write:
+          id: servo1
+          level: !lambda 'return (x - 90.0f) / 90.0f;'
+
+  # Time for one half-move (open OR close). Read before every move, so a change
+  # takes effect on the next chomp. Persisted.
+  - platform: template
+    name: "Chomp Interval"
+    id: chomp_interval
+    icon: "mdi:fish"
+    unit_of_measurement: "ms"
+    optimistic: true
+    restore_value: true
+    initial_value: ${chomp_interval_default}
+    min_value: 100
+    max_value: 2000
+    step: 50
+
+button:
+  # Bench test from the web UI Test card: 3 s of chomping with the relay off.
+  - platform: template
+    name: "Test Servo Hit"
+    id: test_servo_hit_button
+    icon: "mdi:cog-play"
+    on_press:
+      - globals.set:
+          id: chomp_test_running
+          value: 'true'
+      - script.execute: servo_chomp
+      - delay: 3s
+      - globals.set:
+          id: chomp_test_running
+          value: 'false'
+      - script.execute: servo_go_idle
+
+script:
+  # The chomp loop. Runs while Relay 1 is on (or the test button is holding it),
+  # checking before each half-move so it stops within one interval of the relay
+  # dropping, then parks the jaw closed.
+  - id: servo_chomp
+    mode: restart
+    then:
+      - while:
+          condition:
+            lambda: 'return id(relay_1).state || id(chomp_test_running);'
+          then:
+            # Open
+            - servo.write:
+                id: servo1
+                level: !lambda 'return (id(g_servo_hit_pos) - 90.0f) / 90.0f;'
+            - delay: !lambda 'return (int) id(chomp_interval).state;'
+            # Close — only if we are still meant to be chomping
+            - if:
+                condition:
+                  lambda: 'return id(relay_1).state || id(chomp_test_running);'
+                then:
+                  - servo.write:
+                      id: servo1
+                      level: !lambda 'return (id(g_servo_idle_pos) - 90.0f) / 90.0f;'
+                  - delay: !lambda 'return (int) id(chomp_interval).state;'
+      # Relay dropped: close and hold
+      - servo.write:
+          id: servo1
+          level: !lambda 'return (id(g_servo_idle_pos) - 90.0f) / 90.0f;'
+
+  # Called by every hit script right after the relay turns on.
+  - id: servo_go_hit
+    mode: restart
+    then:
+      - script.execute: servo_chomp
+
+  # Called at the end of the hit, on disable, and at boot: stop any chomp in
+  # progress and close.
+  - id: servo_go_idle
+    mode: restart
+    then:
+      - script.stop: servo_chomp
+      - servo.write:
+          id: servo1
+          level: !lambda 'return (id(g_servo_idle_pos) - 90.0f) / 90.0f;'
