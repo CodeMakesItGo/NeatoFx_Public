@@ -96,7 +96,7 @@ number:
     name: "Extend Time"
     id: la_extend_time
     min_value: 1
-    max_value: 10
+    max_value: 60
     step: 1
     initial_value: 10
     restore_value: true
@@ -109,7 +109,7 @@ number:
     name: "Retract Time"
     id: la_retract_time
     min_value: 1
-    max_value: 10
+    max_value: 60
     step: 1
     initial_value: 10
     restore_value: true
