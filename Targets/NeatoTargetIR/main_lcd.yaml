@@ -1,11 +1,11 @@
 # ==============================================================================
-# NEATO TARGET IR LCD - MAIN CONFIGURATION FILE
+# NEATO TARGET LCD - MAIN CONFIGURATION FILE
 # ==============================================================================
 # Rev 3.x target with the GC9A01 round LCD face (face 1.1).
 #
 # One main per hardware type — see base.yaml for the list. Each has its own
 # hostname, web UI title and firmware update channel
-# (firmware/target-ir-lcd/manifest.json), so an online update only ever installs
+# (firmware/target-lcd/manifest.json), so an online update only ever installs
 # firmware built for this hardware. Everything else is ONE binary per hardware:
 # IR protocol, hit style, servo, GPIO modes and LED Strip 2 length are set in
 # the web UI and kept across updates. There is no per-unit build.
@@ -44,20 +44,19 @@
 # ==============================================================================
 
 substitutions:
-  # ESPHome appends the MAC suffix to the hostname at runtime, giving each unit
-  # a unique, permanent hostname (target-ir-lcd-a1b2c3). Logical identity is the
+  # ESPHome appends the MAC suffix to the hostname at runtime (name_add_mac_suffix,
+  # "true" by default in _shared/esphome_base.yaml), giving each unit
+  # a unique, permanent hostname (target-lcd-a1b2c3). Logical identity is the
   # runtime Device ID, set from the web UI.
-  name: target-ir-lcd
-  name_add_mac_suffix: "true"
-  friendly_name: "NeatoFx Target IR LCD"
-  runtime_name_label: "Target Name"
+  name: target-lcd
+  friendly_name: "NeatoFx Target LCD"
   # Firmware update channel: firmware/<update_channel>/manifest.json
   # (configs/home_assistant.yaml), and the file the ESPHome dashboard adopts.
-  update_channel: target-ir-lcd
+  update_channel: target-lcd
   main_file: main_lcd.yaml
   # ESPHome project name — what the ESPHome device builder matches on when it
   # offers to adopt a unit, so each hardware type has its own.
-  project_name: "NeatoFX.TargetIR-LCD"
+  project_name: "NeatoFX.TargetLCD"
 
 packages:
   # Hardware: Rev 3.x + GC9A01 LCD face 1.1 (LED CTRL GPIO5, RST GPIO32, IR GPIO35)
@@ -72,8 +71,9 @@ packages:
   # "IR Protocol" select in the web UI.
   ir_receiver: !include protocols/ir.yaml
 
-  # Falcon Player integration (networked targets only). Also uncomment the
-  # fpp_start_playlist line in base.yaml's run_hit_script.
+  # Falcon Player integration: starts an FPP playlist on every hit. Settings
+  # are in the web UI's FPP card. Needs home_assistant or networked config —
+  # it will not build with standalone.yaml.
   #fpp_file: !include integrations/target_fpp.yaml
 
   # Servo — Off / Hold / Cycle chosen at runtime ("Servo Mode" select).

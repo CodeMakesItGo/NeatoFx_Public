@@ -48,7 +48,6 @@ substitutions:
   # each unit a unique, permanent hostname. Logical identity is the runtime
   # Device ID, assigned from the web UI and stored in flash.
   name: whisper
-  name_add_mac_suffix: "true"
   friendly_name: "NeatoFx Audio Whisper"
   runtime_name_label: "Whisper Name"
 

@@ -3,9 +3,9 @@
 # ==============================================================================
 # One main per hardware type, each picking its board and update channel:
 #   main_ir.yaml    Target IR            Rev 3.x standard IR target (and Rev 1.x)
-#   main_lcd.yaml   Target IR LCD        Rev 3.x + GC9A01 LCD face
-#   main_hit.yaml   Target IR Hit        Rev 3.x + push-button hit face (no IR)
-#   main_fan.yaml   Target IR Hologram   Rev 3.x + hologram fan IR LED
+#   main_lcd.yaml   Target LCD        Rev 3.x + GC9A01 LCD face
+#   main_hit.yaml   Target Hit        Rev 3.x + push-button hit face (no IR)
+#   main_hologram.yaml   Target Hologram   Rev 3.x + hologram fan IR LED
 # Everything they have in common lives here: runtime identity, the master hit
 # gate, the web UI and logging.
 #
@@ -13,6 +13,15 @@
 # settings here override the shared network bases (see the note in the mains). Behavior (IR protocol, hit style, servo, GPIO
 # modes, LED Strip 2 length) is chosen at runtime in the web UI, not here.
 # ==============================================================================
+
+substitutions:
+  # Label of the read-only identity sensor that _shared/runtime_id.yaml creates.
+  # That package defaults it to "Device Name"; this value replaces the default
+  # because base.yaml is the file that includes runtime_id.yaml (the including
+  # file always wins over what it includes, wherever base sits in a main).
+  # The sensor's VALUE is "<name>-<Device ID>", e.g. "target-lcd-7", so in Home
+  # Assistant it reads  Target Name: target-lcd-7  on every hardware type.
+  runtime_name_label: "Target Name"
 
 packages:
   # Runtime identity — here, not in the network configs, so a standalone build
@@ -47,16 +56,23 @@ script:
             - logger.log: "Target disabled - hit ignored"
           else:
             - script.execute: target_hit_script
-            # Uncomment the next line when FPP package is enabled above
-            #- script.execute: fpp_start_playlist
+            - script.execute: hit_hooks
       # NOTE: esphome_hit_script (the audio / HA trigger) is intentionally NOT
       # launched here. In networked mode it makes a *blocking* http_request.post
       # to the Audio-50, which freezes the single-threaded main loop and stalls
       # the LED hit effect. It is now fired from INSIDE target_hit_script, AFTER
       # the visual effect has rendered — see scripts/hit_script.yaml.
 
+  # Extension point: run on every accepted hit, alongside target_hit_script.
+  # Empty here; optional packages append to it with `- id: !extend hit_hooks`
+  # (integrations/target_fpp.yaml starts the FPP playlist this way), so
+  # enabling one is a single line in the main — nothing to uncomment here.
+  - id: hit_hooks
+    mode: parallel
+    then: []
+
 # ==============================================================================
-# DEBUGGING
+# WEB SERVER - custom web UI
 # ==============================================================================
 # Custom UI only (boards/common/custom_ui.js), embedded so it works with no
 # internet. local: false / js_url "" keep the default ESPHome UI out entirely —
@@ -67,7 +83,41 @@ web_server:
   js_url: ""
   js_include: "boards/common/custom_ui.js"
 
+# ==============================================================================
+# DEBUGGING - log level
+# ==============================================================================
+# Two settings:
+#   level          what is COMPILED IN. Messages below it are stripped from the
+#                  firmware and can never be shown without a reflash. DEBUG
+#                  keeps the troubleshooting detail available in the field.
+#   initial_level  what the unit RUNS at after every boot. Shipped firmware
+#                  must be WARN — tools/lint_repo.py fails any other value.
+#
+# To troubleshoot a unit, pick a louder level from the "Log Level" dropdown
+# (web UI › Debug) and watch the Device Log panel under it — the web server
+# streams the log to the page in every network mode, no USB or internet needed
+# (`esphome logs main_ir.yaml --device <ip>` also works on Home Assistant
+# builds). It drops back to WARN on the next reboot. No reflash needed.
+#
+# Levels, quietest first — each shows its own messages plus every one above it.
+# Select EXACTLY ONE for initial_level:
+#   NONE          nothing at all — no log output
+#   ERROR         errors only: things that failed
+#   WARN          SHIPPED: errors + warnings — quiet, and enough to diagnose a fault
+#   INFO          + normal events (hits, mode changes, WiFi connect)
+#   CONFIG        + each component's settings, printed at boot
+#   DEBUG         + detailed troubleshooting (IR frames, every state change) —
+#                 busy; streaming it can slow the web UI on phones
+#   VERBOSE       + internal component chatter — very busy (needs level: VERBOSE)
+#   VERY_VERBOSE  + everything, incl. low-level traffic — floods the log and can
+#                 disturb timing (needs level: VERY_VERBOSE)
 logger:
-  #level: WARN  # Reduced from DEBUG to prevent mobile browser overload
-  level: DEBUG
+  level: DEBUG          # compiled in: up to DEBUG is available at runtime
+  initial_level: WARN   # runs at after every boot — keep WARN for shipped firmware
 
+# "Log Level" dropdown — changes the running level on the spot (options run
+# NONE..DEBUG, up to the compiled level). Not saved: every boot starts at
+# initial_level.
+select:
+  - platform: logger
+    name: "Log Level"

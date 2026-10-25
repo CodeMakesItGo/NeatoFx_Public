@@ -4,7 +4,7 @@ Standards every device in this repo follows so they stay consistent, buildable, 
 
 ## 1. One entry point per shippable hardware type (the core rule)
 
-A device has **one entry point per hardware type it ships as** — normally a single `main.yaml`. A product sold in several hardware forms that must not receive each other's firmware gets **one `main_<hw>.yaml` per form instead, and no `main.yaml`** (Target IR: `main_ir.yaml`, `main_lcd.yaml`, `main_hit.yaml`, `main_fan.yaml`). Each `main_<hw>.yaml` sets its own `name`, `friendly_name`, `project_name`, `update_channel` (→ `firmware/<channel>/manifest.json`) and `main_file` (its own file name, for `dashboard_import`), so an online update only ever installs firmware built for that hardware. What the mains share goes in a package next to them (Target IR: `base.yaml`).
+A device has **one entry point per hardware type it ships as** — normally a single `main.yaml`. A product sold in several hardware forms that must not receive each other's firmware gets **one `main_<hw>.yaml` per form instead, and no `main.yaml`** (Target IR: `main_ir.yaml`, `main_lcd.yaml`, `main_hit.yaml`, `main_hologram.yaml`). Each `main_<hw>.yaml` sets its own `name`, `friendly_name`, `project_name`, `update_channel` (→ `firmware/<channel>/manifest.json`) and `main_file` (its own file name, for `dashboard_import`), so an online update only ever installs firmware built for that hardware. What the mains share goes in a package next to them (Target IR: `base.yaml`).
 
 Split into per-hardware mains **only** for a hardware difference that would brick or break a unit if it got the other build (different pins or display). Everything else is one binary: behavior is a runtime setting (see *Runtime over build-time* below), and the remaining build choices are selected by un-commenting one line inside the main, grouped with a clear "select exactly ONE" comment. No `main_winch.yaml` / `main_ac.yaml` style files for options that are not separately shipped hardware.
 
@@ -86,7 +86,6 @@ Each entry point (`main.yaml` / `main_<hw>.yaml`) defines:
 ```yaml
 substitutions:
   name: "<device>"
-  name_add_mac_suffix: "true"
   friendly_name: "NeatoFx <Device>"
   runtime_id: player_id          # or device_id — see below
   runtime_id_label: "Player ID"
@@ -94,7 +93,7 @@ substitutions:
   runtime_name_label: "<Device> Name"
 ```
 
-**ONE BINARY per product.** There is no `id` substitution and no `-s id <N>`;
+**ONE BINARY per product.** `name_add_mac_suffix` defaults to `"true"` in `_shared/esphome_base.yaml`, so mains don't set it — and lint fails a main that sets it to `"false"`. There is no `id` substitution and no `-s id <N>`;
 `tools/lint_repo.py` fails a main that reintroduces one. ESPHome appends
 the MAC suffix to the hostname at runtime, and logical identity is a restoring
 global from `_shared/runtime_id.yaml`, assigned once from the web UI. Swapping a
@@ -127,7 +126,7 @@ whole line; hardware revision is the separate `hw_version` substitution.
 - If a device has `configs/home_assistant.yaml`, every main's **active** (uncommented) `config:` package must point to it. Units are pre-flashed straight from their main, and Made for ESPHome requires HA support (the native `api:`, plus `esphome.<device>-hit`-style events) to work the moment a customer powers the unit on — `networked.yaml` (No-HA LAN) and `standalone.yaml` (AP-only) stay available as commented alternatives for installs that intentionally don't want a Home Assistant server, but they must never be the shipped default once `home_assistant.yaml` exists. (This is the bug ESPHome's review caught on the NeatoTargetIR submission — `main.yaml` and the docs `config.yaml` had both drifted to `networked.yaml`.)
 - The `firmware_update` package + `update:` block are included where a published manifest exists at `firmware/<product>/manifest.json` (or `firmware/${update_channel}/manifest.json`, one per hardware main). When a new product or hardware type is published, add the manifest, the `tools/release.py` PRODUCTS entry and the `tools/variants.yaml` device.
 - `logger.baud_rate` must be non-zero when improv_serial is used (never `baud_rate: 0` in a device that can run the networked config).
-- `logger.level: WARN` for production (`INFO`/`DEBUG` for troubleshooting).
+- Shipped firmware **runs** at WARN — enforced by `tools/lint_repo.py`. Either `logger: level: WARN`, or compile in more detail with `level: DEBUG` (never louder) plus `initial_level: WARN` and a `select: - platform: logger` "Log Level" dropdown, so a unit can be raised to INFO/DEBUG in the field without a reflash and drops back to WARN on reboot (Target IR does this). No per-tag `logs:` louder than WARN, and a level must be set (ESPHome defaults to DEBUG).
 - `on_boot`: force hardware to a safe state at the earliest priority (e.g. 900); do status-LED/ready actions last (negative priority).
 - `web_server` uses `js_include: "boards/common/custom_ui.js"` where the device ships a custom web UI.
 
@@ -159,11 +158,11 @@ If CI is red, the change does not merge. If a new variant axis is added to a mai
 
 These already hold today and are the basis for the rules above:
 
-- **One entry point per shipped hardware type** assembling packages via `!include` — a single `main.yaml` for every device except Target IR, which has `main_ir` / `main_lcd` / `main_hit` / `main_fan` (rule 1).
+- **One entry point per shipped hardware type** assembling packages via `!include` — a single `main.yaml` for every device except Target IR, which has `main_ir` / `main_lcd` / `main_hit` / `main_hologram` (rule 1).
 - **`boards/rev<N>.yaml` → `boards/common/common.yaml`** hardware→logic split.
 - **`configs/networked.yaml` + `configs/standalone.yaml`** operating-mode pair.
 - **`_shared/` bases** (`esphome_base`, `networked_base`, `standalone_base`, `network_sensors`, `firmware_update`) with the fixed include depths above.
 - **Substitutions** `name` / `name_add_mac_suffix` / `friendly_name` / `runtime_id*` + `project: NeatoFX.<Device>`. No build-time `id`.
 - **Safe-state `on_boot`**, `WARN` logging, improv + dashboard_import for MFE, `custom_ui.js` web UI.
 - **Runtime over build-time:** a behavior choice that does not change the hardware (IR protocol, servo mode, hit style, relay / GND modes, GPIO pin modes, LED Strip 2 count) is a persisted `select` in one package, not a separate `!include` variant — one binary per board, and the choice survives firmware updates. Only hardware (the board file) and network mode stay build choices. Target: `protocols/ir.yaml`, `scripts/servo.yaml`, `scripts/hit_script.yaml` + `scripts/hit_styles/`, `boards/common/gpio_io.yaml`.
-- **Servo/effect devices** (Target, Golf) share `color_controls.yaml`; `servo_stubs.yaml` remains for boards with no servo hardware (Target Rev 1.x).
+- **Servo/effect devices** (Target, Golf) share `color_controls.yaml`. A board missing hardware the shared packages drive gets a do-nothing `platform: template` output for it (Target Rev 1.x: `gnd_output`, `servo1`) and hides the related controls with `!extend … internal: true` — no stub packages or extra build options.

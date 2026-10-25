@@ -1,9 +1,9 @@
 # ==============================================================================
 # SERVO - every servo behavior in one binary, chosen at runtime
 # ==============================================================================
-# Replaces servo_movement_script.yaml / servo_chomp.yaml / servo_stubs.yaml for
-# every board that has the servo hardware (servo1 on GPIO4: all Rev 3.x boards).
-# Rev 1.x has no servo and still uses scripts/servo_stubs.yaml.
+# Replaces servo_movement_script.yaml / servo_chomp.yaml / servo_stubs.yaml.
+# Included on every board: Rev 3.x drives servo1 on GPIO4; Rev 1.x has no servo,
+# so boards/rev1.yaml gives servo1 a do-nothing output and hides these controls.
 #
 # "Servo Mode" (persisted):
 #   Off     servo is never driven; its PWM output is detached so an unused

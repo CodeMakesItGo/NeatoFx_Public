@@ -35,6 +35,9 @@ substitutions:
   # ip_addr default (${ip_base}1) is set in _shared/networked_base.yaml. It is a
   # placeholder, not a per-unit address — override it here before enabling manual_ip.
   # Override here only if this device type needs a different subnet offset.
+  # Network mode, read by packages that need a router network
+  # (integrations/target_fpp.yaml refuses to build in standalone mode).
+  network_mode: lan
 
   # --- Direct Audio-50 trigger (no Home Assistant) ---------------------------
   # DEFAULT address of the shared Audio-50 this target plays through — it only

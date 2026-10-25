@@ -148,6 +148,16 @@
     remote_mode:  { type: SEL, name: 'Remote Audio Mode',   label: 'Remote Trigger Mode', options: ['MP3 Only', 'Input 1', 'Input 2'], section: 'audio' },
     remote_audio: { type: SW,  name: 'Remote Audio Enable', label: 'Remote Audio', section: 'audio' },
 
+    // ── FPP (collapsible) — integrations/target_fpp.yaml only; the card is
+    // pruned on builds without it. With FPP Enabled off, only that switch shows.
+    fpp_enabled:  { type: SW,    name: 'FPP Enabled', label: 'FPP Enabled',
+                    note: 'On = every hit starts the playlist below on the Falcon Player (FPP) server. Off = hits do not touch FPP.',
+                    section: 'fpp' },
+    fpp_ip:       { type: TXTIN, name: 'FPP Server IP Address', label: 'FPP Server IP', maxlen: 15, placeholder: 'e.g. 192.168.8.150', section: 'fpp' },
+    fpp_playlist: { type: TXTIN, name: 'FPP Playlist', label: 'Playlist', maxlen: 64, placeholder: 'name as shown in FPP', section: 'fpp' },
+    fpp_start:    { type: BTN,   name: 'Start FPP Playlist', label: 'Test: start playlist now', btnText: 'Start', section: 'fpp' },
+    fpp_status:   { type: TXT,   name: 'FPP Server Status', label: 'Last result', section: 'fpp' },
+
     // ── Servo ──
     servo_idle: { type: NUM, name: 'Servo Idle Position', label: 'Servo Idle', min: 0, max: 180, step: 1, unit: '°', section: 'servo' },
     servo_hit:  { type: NUM, name: 'Servo Hit Position',  label: 'Servo Hit',  min: 0, max: 180, step: 1, unit: '°', section: 'servo' },
@@ -176,7 +186,11 @@
     target_leds: { type: LT, name: 'Target LEDs', label: 'Target LEDs', section: 'test' },
     test_servo_hit: { type: BTN, name: 'Test Servo Hit', label: 'Test Servo Hit', btnText: 'Run', section: 'test' },
 
-    // ── Debug (collapsible) — all read-only ──
+    // ── Debug (collapsible) — read-only, except Log Level ──
+    log_level:    { type: SEL,  name: 'Log Level', label: 'Log Level',
+                    options: ['NONE', 'ERROR', 'WARN', 'INFO', 'CONFIG', 'DEBUG'],
+                    note: 'How much the device logs right now. WARN is normal. Pick INFO or DEBUG to troubleshoot and watch Device Log below; it returns to WARN on the next restart. DEBUG is very busy and can slow this page.',
+                    section: 'debug' },
     gpio16:       { type: BIN,  name: 'GPIO16 Digital State',       label: 'GPIO16',         section: 'debug' },
     gpio17:       { type: BIN,  name: 'GPIO17 Digital State',       label: 'GPIO17',         section: 'debug' },
     gpio25_in:    { type: BIN,  name: 'GPIO25 Digital State',       label: 'GPIO25',         section: 'debug' },
@@ -254,6 +268,9 @@
       try { applyState(JSON.parse(ev.data)); } catch (_) {}
     });
     // Sent once on connect with the device config; title is the friendly name.
+    // Every log line the device prints at its current Log Level (web_server
+    // forwards them over /events) — shown in Debug › Device Log.
+    es.addEventListener('log', function (ev) { addLogLine(ev.data); });
     es.addEventListener('ping', function (ev) {
       try { showDeviceName(JSON.parse(ev.data).title); } catch (_) {}
     });
@@ -391,6 +408,11 @@
     if (type === 'switch' || type === 'light') {
       var on = data.value === true || data.state === 'ON';
       card.classList.toggle('on', on);
+      // FPP card collapses to just its enable switch while FPP is off.
+      if (objId === 'fpp_enabled') {
+        var fppCard = card.closest('.card');
+        if (fppCard) fppCard.classList.toggle('fpp-off', !on);
+      }
     }
 
     if (type === 'number') {
@@ -632,6 +654,66 @@
     card.appendChild(btn);
     card.appendChild(body);
     return card;
+  }
+
+  // ── Device log ─────────────────────────────────────────────────────────────
+  // The web server streams each log line as an SSE "log" event, in every
+  // network mode and with no internet — so troubleshooting needs neither USB
+  // nor `esphome logs`. Lines are what the device prints at its current Log
+  // Level (WARN by default, so normally quiet); there is no history from
+  // before the page connected. Only the last LOG_MAX lines are kept, and the
+  // DOM is touched only while the Debug card is open, so a busy DEBUG stream
+  // costs a phone very little until someone looks at it.
+  var LOG_MAX = 300;
+  var logLines = [], logPaused = false, logBox = null, logDirty = false;
+
+  function addLogLine(raw) {
+    // Strip ANSI color codes; ESPHome lines look like "[W][tag:123]: message".
+    var text = String(raw).replace(/\x1b\[[0-9;]*m/g, '');
+    var m = text.match(/^\[([EWICDV])\]/);
+    logLines.push({ lvl: m ? m[1] : '', text: text });
+    if (logLines.length > LOG_MAX) logLines.shift();
+    logDirty = true;   // drawn by the timer in makeLogView, at most 4x a second
+  }
+
+  function renderLog() {
+    if (!logBox || logPaused || !logDirty || !logBox.offsetParent) return;  // hidden: render on open
+    logDirty = false;
+    var frag = document.createDocumentFragment();
+    logLines.forEach(function (l) {
+      var d = document.createElement('div');
+      d.className = 'log-line' + (l.lvl ? ' log-' + l.lvl : '');
+      d.textContent = l.text;
+      frag.appendChild(d);
+    });
+    logBox.textContent = '';
+    logBox.appendChild(frag);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  function makeLogView() {
+    var wrap = document.createElement('div');
+    wrap.className = 'log-wrap';
+    wrap.innerHTML =
+      '<div class="row"><span class="lbl-wrap"><span class="lbl">Device Log</span>' +
+        '<span class="note">Live log at the current Log Level (above). WARN shows only problems; pick INFO or DEBUG to see more. Starts empty — nothing from before this page opened.</span></span></div>' +
+      '<div class="log-box"></div>' +
+      '<div class="log-btns"><button class="act-btn log-pause">Pause</button>' +
+        '<button class="act-btn log-clear">Clear</button></div>';
+    logBox = wrap.querySelector('.log-box');
+    var pauseBtn = wrap.querySelector('.log-pause');
+    pauseBtn.addEventListener('click', function () {
+      logPaused = !logPaused;
+      pauseBtn.textContent = logPaused ? 'Resume' : 'Pause';
+      if (!logPaused) { logDirty = true; renderLog(); }
+    });
+    wrap.querySelector('.log-clear').addEventListener('click', function () {
+      logLines = []; logDirty = true; logBox.textContent = '';
+    });
+    // Redraw at most 4x a second (a DEBUG stream can be dozens of lines a
+    // second), and catch up when the Debug card is opened.
+    setInterval(renderLog, 250);
+    return wrap;
   }
 
   // ── Firmware update ────────────────────────────────────────────────────────
@@ -917,6 +999,24 @@
     '.fw-msg { font-size: 0.8rem; color: #aaa; min-height: 1.2em; }',
     '.fw-msg.err { color: #ef4444; }',
     '.fw-msg.ok  { color: #4ade80; }',
+
+    /* FPP card: only the enable switch while FPP is off */
+    '.fpp-off > [data-eid]:not([data-eid="switch-fpp_enabled"]) { display: none; }',
+
+    /* Device log */
+    '.log-box {',
+    '  height: 240px; overflow-y: auto; background: #08080f; border: 1px solid #252540;',
+    '  border-radius: 8px; padding: 6px 8px; margin: 4px 0 6px;',
+    '  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.7rem; line-height: 1.35;',
+    '}',
+    '.log-line { white-space: pre-wrap; word-break: break-word; color: #9a9ab8; }',
+    '.log-E { color: #ef4444; }',
+    '.log-W { color: #fbbf24; }',
+    '.log-I { color: #66e73a; }',
+    '.log-C { color: #8a8ab0; }',
+    '.log-D { color: #60a5fa; }',
+    '.log-V { color: #6f6f92; }',
+    '.log-btns { display: flex; gap: 8px; justify-content: flex-end; }',
   ].join('\n');
 
   // ── Build UI ───────────────────────────────────────────────────────────────
@@ -986,9 +1086,10 @@
     inner.appendChild(makeCollapsible('GPIO',
       [makeNote(GPIO_MODE_NOTE)].concat(sectionItems('gpio'))));
     inner.appendChild(makeCollapsible('Audio Trigger', sectionItems('audio')));
+    inner.appendChild(makeCollapsible('FPP',           sectionItems('fpp')));
     inner.appendChild(makeCollapsible('Servo',         sectionItems('servo')));
     inner.appendChild(makeCollapsible('Test',          sectionItems('test')));
-    inner.appendChild(makeCollapsible('Debug',         sectionItems('debug')));
+    inner.appendChild(makeCollapsible('Debug',         sectionItems('debug').concat([makeLogView()])));
     inner.appendChild(makeCollapsible('Reset',         sectionItems('reset')));
 
     inner.appendChild(makeCollapsible('Firmware Update', [makeFirmwareUpdate()]));

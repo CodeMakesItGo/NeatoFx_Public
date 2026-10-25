@@ -26,7 +26,6 @@ devices:
       rev1_standalone:
         board: boards/rev1.yaml
         config: configs/standalone.yaml
-        servo_scripts: scripts/servo_stubs.yaml
       ha:                       # Router + Home Assistant server
         config: configs/home_assistant.yaml
       lan_no_ha:                # No-HA LAN mode (router present, no HA server)
@@ -37,7 +36,7 @@ devices:
 
   target_lcd:
     path: Targets/NeatoTargetIR/main_lcd.yaml
-    label: "Neato Target IR LCD"
+    label: "Neato Target LCD"
     variants:
       default: {}
       standalone:
@@ -54,7 +53,7 @@ devices:
 
   target_hit:
     path: Targets/NeatoTargetIR/main_hit.yaml
-    label: "Neato Target IR Hit"
+    label: "Neato Target Hit"
     variants:
       default: {}
       standalone:
@@ -62,9 +61,9 @@ devices:
       lan_no_ha:
         config: configs/networked.yaml
 
-  target_fan:
-    path: Targets/NeatoTargetIR/main_fan.yaml
-    label: "Neato Target IR Hologram"
+  target_hologram:
+    path: Targets/NeatoTargetIR/main_hologram.yaml
+    label: "Neato Target Hologram"
     variants:
       default: {}
       standalone:

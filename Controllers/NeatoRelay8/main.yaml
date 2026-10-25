@@ -50,7 +50,6 @@ substitutions:
   # Device ID, assigned from the web UI and stored in flash — swapping in a
   # replacement board means setting that number and nothing else.
   name: relay8
-  name_add_mac_suffix: "true"
   friendly_name: "NeatoFx Relay 8"
   # Infrastructure product (not player-facing), so the identity global is
   # device_id — same as Target, Audio and Golf. See _shared/runtime_id.yaml.

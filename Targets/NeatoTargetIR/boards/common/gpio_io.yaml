@@ -2,7 +2,7 @@
 # RIGHT-SIDE CONNECTOR GPIO - GPIO16 / GPIO17 / GPIO25 + GPIO34 ADC (Rev 3.x)
 # ==============================================================================
 # Included by every Rev 3.x board file (rev3 / rev3_hit_1_0 / rev3_lcd_1_1, and
-# rev3_fan_1_0 through rev3). Each of the three general I/O pins has its own
+# rev3_hologram_1_0 through rev3). Each of the three general I/O pins has its own
 # persisted "GPIOxx Mode":
 #
 #   Input              read only — the pin's state shows in Debug (stock)

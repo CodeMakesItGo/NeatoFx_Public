@@ -84,15 +84,15 @@ Each target features infrared detection, customizable LED effects, relay outputs
 Targets/NeatoTargetIR/
 ├── main_ir.yaml                       ← Target IR (Rev 3.x standard, or Rev 1.x)
 ├── main.yaml                          ← Compatibility wrapper: includes main_ir.yaml (field units were built from it)
-├── main_lcd.yaml                      ← Target IR LCD (GC9A01 face)
-├── main_hit.yaml                      ← Target IR Hit (push-button face, no IR)
-├── main_fan.yaml                      ← Target IR Hologram (hologram fan IR LED)
+├── main_lcd.yaml                      ← Target LCD (GC9A01 face)
+├── main_hit.yaml                      ← Target Hit (push-button face, no IR)
+├── main_hologram.yaml                      ← Target Hologram (hologram fan IR LED)
 ├── base.yaml                          ← Shared by every main: identity, hit gate, web UI
 ├── boards/
 │   ├── rev3.yaml                      ← Rev 3.x hardware (current production)
 │   ├── rev3_lcd_1_1.yaml              ← Rev 3.x + LCD face 1.1
 │   ├── rev3_hit_1_0.yaml              ← Rev 3.x + hit face 1.0
-│   ├── rev3_fan_1_0.yaml              ← Rev 3.x + hologram fan 1.0
+│   ├── rev3_hologram_1_0.yaml         ← Rev 3.x + hologram fan 1.0
 │   ├── rev1.yaml                      ← Rev 1.x hardware (legacy)
 │   └── common/
 │       ├── common.yaml                ← Shared sensors and components
@@ -111,8 +111,7 @@ Targets/NeatoTargetIR/
 │   ├── hit_styles/                   ← Fuse, lightning, GND effects
 │   ├── hit_script_fan_mister.yaml    ← LCD board only
 │   ├── hit_script_curtain.yaml       ← LCD board + Home Assistant only
-│   ├── servo.yaml                    ← Servo Off / Hold / Cycle (runtime select)
-│   └── servo_stubs.yaml              ← Rev 1.x (no servo hardware)
+│   └── servo.yaml                    ← Servo Off / Hold / Cycle (runtime select; Rev 1.x: hidden, no servo)
 └── docs/
     ├── Smart Target Rev1.x Manual.pdf
     └── Smart Target Rev3.x Manual.pdf
@@ -134,9 +133,9 @@ Targets/NeatoTargetIR/
    | Main | Hardware | Hostname | Update channel |
    |---|---|---|---|
    | `main_ir.yaml` | Rev 3.x standard IR (or Rev 1.x) | `target-ir-xxxxxx` | `firmware/target-ir/` |
-   | `main_lcd.yaml` | Rev 3.x + LCD face | `target-ir-lcd-xxxxxx` | `firmware/target-ir-lcd/` |
-   | `main_hit.yaml` | Rev 3.x + push-button hit face | `target-ir-hit-xxxxxx` | `firmware/target-ir-hit/` |
-   | `main_fan.yaml` | Rev 3.x + hologram fan | `target-ir-fan-xxxxxx` | `firmware/target-ir-fan/` |
+   | `main_lcd.yaml` | Rev 3.x + LCD face | `target-lcd-xxxxxx` | `firmware/target-lcd/` |
+   | `main_hit.yaml` | Rev 3.x + push-button hit face | `target-hit-xxxxxx` | `firmware/target-hit/` |
+   | `main_hologram.yaml` | Rev 3.x + hologram fan | `target-hologram-xxxxxx` | `firmware/target-hologram/` |
 
    `xxxxxx` is the end of the unit's MAC address. `main.yaml` still exists and
    builds exactly `main_ir.yaml`, for targets already in the field.
@@ -159,7 +158,7 @@ Targets/NeatoTargetIR/
 
 4. **Compile and Flash**:
    ```bash
-   esphome run Targets/NeatoTargetIR/main_ir.yaml     # or main_lcd / main_hit / main_fan
+   esphome run Targets/NeatoTargetIR/main_ir.yaml     # or main_lcd / main_hit / main_hologram
    ```
 
 5. **Access Web Interface**:
@@ -172,7 +171,10 @@ For Falcon Player light show synchronization, uncomment in your main:
 ```yaml
   fpp_file: !include integrations/target_fpp.yaml
 ```
-And uncomment the `fpp_start_playlist` line in `base.yaml`'s `run_hit_script` block.
+That is the only step. The web UI then shows an **FPP** card: FPP Enabled
+(hits start the playlist), FPP Server IP Address, FPP Playlist (the name as it
+appears in FPP), a Start button to test, and the server status. FPP needs a
+router network — it does not build with `configs/standalone.yaml`.
 
 ## 🎮 Usage
 

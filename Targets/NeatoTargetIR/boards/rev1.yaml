@@ -137,6 +137,39 @@ output:
     write_action:
       - lambda: ''
 
+  # SERVO — no-op stub too (Rev 1.x has no servo hardware). scripts/servo.yaml
+  # drives servo1 on every revision; here it lands on a do-nothing output, so
+  # the servo is effectively Off whatever "Servo Mode" holds, and no pin or
+  # LEDC timer is claimed. The servo controls are hidden below.
+  - platform: template
+    id: servo_output
+    type: float
+    write_action:
+      - lambda: ''
+
+servo:
+  - id: servo1
+    output: servo_output
+
+# Hide the servo controls (scripts/servo.yaml): there is nothing to drive.
+# Internal entities never reach the web UI, which then drops the rows and the
+# empty Servo card on its own.
+select:
+  - id: !extend servo_mode
+    internal: true
+
+number:
+  - id: !extend servo_slider
+    internal: true
+  - id: !extend servo_hit_pos_ctrl
+    internal: true
+  - id: !extend cycle_interval
+    internal: true
+
+button:
+  - id: !extend test_servo_hit_button
+    internal: true
+
 light:
   - platform: monochromatic
     name: "Gnd Switch"

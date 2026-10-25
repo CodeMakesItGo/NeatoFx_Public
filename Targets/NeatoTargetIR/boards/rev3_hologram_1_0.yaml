@@ -34,7 +34,7 @@
 # IR LED wiring: ir_tx_gpio below (GPIO17, right-side connector). GPIO17's
 # digital-input sensor from rev3.yaml is removed since the pin is now an output.
 #
-# Included by: main_fan.yaml
+# Included by: main_hologram.yaml
 # ==============================================================================
 
 substitutions:

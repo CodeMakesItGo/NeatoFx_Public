@@ -47,9 +47,9 @@ PRODUCTS = {
     # One Target IR channel per hardware type — each main*.yaml sets the
     # matching update_channel, so a unit is only offered its own hardware's build.
     "target-ir": "target",
-    "target-ir-lcd": "target_lcd",
-    "target-ir-hit": "target_hit",
-    "target-ir-fan": "target_fan",
+    "target-lcd": "target_lcd",
+    "target-hit": "target_hit",
+    "target-hologram": "target_hologram",
 }
 
 # Everything the shipped products actually resolve. Nothing in this repo

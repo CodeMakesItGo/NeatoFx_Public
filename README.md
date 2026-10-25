@@ -28,7 +28,7 @@ Modular WiFi-enabled devices built on [ESPHome](https://esphome.io/) for interac
 3. Navigate to the device folder and follow its README
 
 ```bash
-# Compile and flash a Target IR (main_lcd / main_hit / main_fan for the other faces)
+# Compile and flash a Target IR (main_lcd / main_hit / main_hologram for the other faces)
 esphome run Targets/NeatoTargetIR/main_ir.yaml
 
 # Monitor live logs

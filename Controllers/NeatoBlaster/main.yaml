@@ -50,7 +50,6 @@ substitutions:
   # Player ID, assigned from the web UI and stored in flash — swapping in a
   # replacement blaster means setting that number and nothing else.
   name: blaster
-  name_add_mac_suffix: "true"
   friendly_name: "NeatoFx PumpBlaster"
   # Player-facing product: the identity global is player_id (see
   # _shared/runtime_id.yaml), matching the Display.

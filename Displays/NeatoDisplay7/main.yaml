@@ -51,7 +51,6 @@ substitutions:
   # color_lc MUST match color — program.sh sets both from one choice.
   color_lc: "ylw"                  # lowercase of ${color}: ylw | grn | blu | org | red
   name: station-${color_lc}
-  name_add_mac_suffix: "true"
   friendly_name: "NeatoFx Display"
   # Player-facing product: the identity global is player_id (see
   # _shared/runtime_id.yaml), matching the Blaster.

@@ -69,8 +69,8 @@ substitutions:
   # Player ID, assigned from the web UI and stored in flash — swapping in a
   # replacement blaster means setting that number and nothing else.
   name: blaster
-  # Overrides the "false" default that _shared/esphome_base.yaml carries for
-  # products still compiled per unit.
+  # Set here because this flattened file inlines everything and has no shared
+  # default to fall back on (main.yaml gets "true" from _shared/esphome_base.yaml).
   name_add_mac_suffix: "true"
   friendly_name: "NeatoFx PumpBlaster"
 

@@ -4,7 +4,7 @@
 # Hardware: ESP32 Mini D1 + dual WS2812 strips, servo, aux power, relay,
 #           GND switch, IR receiver, external trigger, GPIO expansion.
 #
-# Included by: main_ir.yaml (and main_fan.yaml, through boards/rev3_fan_1_0.yaml)
+# Included by: main_ir.yaml (and main_hologram.yaml, through boards/rev3_hologram_1_0.yaml)
 # ==============================================================================
 
 # ==============================================================================

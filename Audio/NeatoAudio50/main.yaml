@@ -45,7 +45,6 @@ substitutions:
   # each unit a unique, permanent hostname. Logical identity is the runtime
   # Device ID, assigned from the web UI and stored in flash.
   name: audio
-  name_add_mac_suffix: "true"
   friendly_name: "NeatoFx Audio"
   runtime_name_label: "Audio Name"
 

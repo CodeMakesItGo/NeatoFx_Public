@@ -1,11 +1,11 @@
 # ==============================================================================
-# NEATO TARGET IR HIT - MAIN CONFIGURATION FILE
+# NEATO TARGET HIT - MAIN CONFIGURATION FILE
 # ==============================================================================
 # Rev 3.x target with the push-button hit face (face 1.0) — no IR receiver.
 #
 # One main per hardware type — see base.yaml for the list. Each has its own
 # hostname, web UI title and firmware update channel
-# (firmware/target-ir-hit/manifest.json), so an online update only ever installs
+# (firmware/target-hit/manifest.json), so an online update only ever installs
 # firmware built for this hardware. Everything else is ONE binary per hardware:
 # IR protocol, hit style, servo, GPIO modes and LED Strip 2 length are set in
 # the web UI and kept across updates. There is no per-unit build.
@@ -44,20 +44,19 @@
 # ==============================================================================
 
 substitutions:
-  # ESPHome appends the MAC suffix to the hostname at runtime, giving each unit
-  # a unique, permanent hostname (target-ir-hit-a1b2c3). Logical identity is the
+  # ESPHome appends the MAC suffix to the hostname at runtime (name_add_mac_suffix,
+  # "true" by default in _shared/esphome_base.yaml), giving each unit
+  # a unique, permanent hostname (target-hit-a1b2c3). Logical identity is the
   # runtime Device ID, set from the web UI.
-  name: target-ir-hit
-  name_add_mac_suffix: "true"
-  friendly_name: "NeatoFx Target IR Hit"
-  runtime_name_label: "Target Name"
+  name: target-hit
+  friendly_name: "NeatoFx Target Hit"
   # Firmware update channel: firmware/<update_channel>/manifest.json
   # (configs/home_assistant.yaml), and the file the ESPHome dashboard adopts.
-  update_channel: target-ir-hit
+  update_channel: target-hit
   main_file: main_hit.yaml
   # ESPHome project name — what the ESPHome device builder matches on when it
   # offers to adopt a unit, so each hardware type has its own.
-  project_name: "NeatoFX.TargetIR-Hit"
+  project_name: "NeatoFX.TargetHit"
 
 packages:
   # Hardware: Rev 3.x + hit face 1.0 (push button on GPIO19, no IR receiver)

@@ -1,42 +1,42 @@
+# ==============================================================================
+# FALCON PLAYER (FPP) - start a playlist when the target is hit
+# ==============================================================================
+# Enable by un-commenting `fpp_file: !include integrations/target_fpp.yaml` in
+# the main. That is the only step: this package hooks into every hit itself
+# (`!extend hit_hooks`, base.yaml).
+#
+# Everything is set in the web UI (FPP card) and kept across reboots/updates:
+#   FPP Enabled          off = hits do not start the playlist (card collapses)
+#   FPP Server IP Address
+#   FPP Playlist         the playlist name exactly as it appears in FPP
+#   Start FPP Playlist   manual test button
+#   FPP Server Status    result of the last request
+#
+# NETWORK: FPP needs the target and the FPP server on the same router network
+# (configs/home_assistant.yaml or configs/networked.yaml). A standalone build
+# (the target's own hotspot, no router) can never reach it, so the combination
+# fails to compile — see the static_assert in fpp_start_playlist — and
+# tools/lint_repo.py flags it before you get that far.
+# ==============================================================================
 
-# ==============================================================================
-# SUBSTITUTIONS - Configuration Variables
-# ==============================================================================
 substitutions:
-  fpp_playlist_name: "test"    # Change this to your desired FPP playlist name
+  fpp_ip_default: "192.168.8.150"   # first-boot "FPP Server IP Address"
+  fpp_playlist_default: "test"      # first-boot "FPP Playlist"
 
-# ==============================================================================
-# HTTP client for FPP (Falcon Player) communication
-# ==============================================================================
+# HTTP client for the FPP API (merges with any http_request block elsewhere).
 http_request:
   useragent: esphome/device
   verify_ssl: false
-  timeout: 3s  # Shorter global timeout to prevent blocking
+  timeout: 3s  # short, so an unreachable server cannot stall the main loop long
 
-# ==============================================================================
-# TEXT SENSORS - FPP Server Status
-# ==============================================================================
-text_sensor:
-  # FPP Server status text sensor  
+switch:
   - platform: template
-    name: "FPP Server Status"
-    id: fpp_status
-    lambda: 'return {"Unknown"};'
+    name: "FPP Enabled"
+    id: fpp_enabled
+    icon: "mdi:play-network"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON   # including the package means you want it
 
-# ==============================================================================
-# Simple FPP Control - Single Test Playlist Button
-# ==============================================================================
-button:
-  - platform: template
-    id: fpp_start_button
-    name: "▶️ Start FPP Playlist"
-    icon: "mdi:play"
-    on_press:
-      - script.execute: fpp_start_playlist
-
-# ==============================================================================
-# TEXT INPUT - FPP IP Configuration
-# ==============================================================================
 text:
   - platform: template
     name: "FPP Server IP Address"
@@ -44,48 +44,89 @@ text:
     optimistic: true
     min_length: 7
     max_length: 15
-    initial_value: "192.168.8.150"
+    initial_value: ${fpp_ip_default}
     restore_value: true
     mode: text
-    set_action:
-      - lambda: |-
-          id(fpp_ip_addr) = x;
-          ESP_LOGI("FPP", "IP Address updated to: %s", x.c_str());
-          id(fpp_status).publish_state("IP Updated: " + x);
 
-# ==============================================================================
-# GLOBAL VARIABLES
-# ==============================================================================
-globals:
-  # FPP Server IP address for LED control
-  - id: fpp_ip_addr
-    type: std::string
+  - platform: template
+    name: "FPP Playlist"
+    id: fpp_playlist_input
+    optimistic: true
+    min_length: 1
+    max_length: 64
+    initial_value: ${fpp_playlist_default}
     restore_value: true
-    initial_value: '"192.168.8.150"'  # Change this to your FPP Server IP
+    mode: text
 
+button:
+  - platform: template
+    name: "Start FPP Playlist"
+    id: fpp_start_button
+    icon: "mdi:play"
+    on_press:
+      - script.execute: fpp_start_playlist
 
-# ==============================================================================
-# SCRIPTS - FPP Playlist Control
-# ==============================================================================
+text_sensor:
+  # Result of the last playlist request. Published by fpp_start_playlist only —
+  # no lambda/polling, which used to overwrite it with "Unknown" every minute.
+  - platform: template
+    name: "FPP Server Status"
+    id: fpp_status
+    icon: "mdi:server-network"
+    update_interval: never
+
 script:
-  - id: fpp_start_playlist
-    mode: single  # Prevent overlapping requests
+  # Every accepted hit (base.yaml run_hit_script) — start the playlist when FPP
+  # is enabled. Appended to the empty hit_hooks script.
+  - id: !extend hit_hooks
     then:
-      - logger.log: "🎯 Starting FPP playlist (truly non-blocking)..."
+      - if:
+          condition:
+            switch.is_on: fpp_enabled
+          then:
+            - script.execute: fpp_start_playlist
+
+  - id: fpp_start_playlist
+    mode: single  # a hit landing mid-request is dropped, not queued
+    then:
+      - lambda: |-
+          // Build-time guard: FPP cannot work on the target's own hotspot.
+          static_assert(std::string_view("${network_mode}") != std::string_view("standalone"),
+                        "integrations/target_fpp.yaml needs a router network: use "
+                        "configs/home_assistant.yaml or configs/networked.yaml, "
+                        "not configs/standalone.yaml");
       - if:
           condition:
             wifi.connected:
           then:
-            # NOTE: raw WiFiClient sockets stopped compiling on ESPHome 2026's
-            # espidf-based builds. Use the http_request component declared above
-            # instead — its 3s global timeout keeps the call from stalling the loop.
             - http_request.get:
+                # FPP command API: /api/command/Start Playlist/<name>. The
+                # playlist name is percent-encoded so spaces etc. survive.
                 url: !lambda |-
-                  return "http://" + id(fpp_ip_addr) +
-                         "/api/command/Start%20Playlist/" +
-                         std::string("${fpp_playlist_name}");
+                  std::string name = id(fpp_playlist_input).state, enc;
+                  static const char kHexDigits[] = "0123456789ABCDEF";  // not HEX: an Arduino macro
+                  for (unsigned char c : name) {
+                    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') enc += (char) c;
+                    else { enc += '%'; enc += kHexDigits[c >> 4]; enc += kHexDigits[c & 15]; }
+                  }
+                  return "http://" + id(fpp_ip_input).state +
+                         "/api/command/Start%20Playlist/" + enc;
                 capture_response: false
+                on_response:
+                  then:
+                    - lambda: |-
+                        char buf[48];
+                        if (response->status_code >= 200 && response->status_code < 300)
+                          snprintf(buf, sizeof(buf), "Started: %s", id(fpp_playlist_input).state.c_str());
+                        else
+                          snprintf(buf, sizeof(buf), "FPP error: HTTP %d", response->status_code);
+                        id(fpp_status).publish_state(buf);
+                on_error:
+                  then:
+                    - text_sensor.template.publish:
+                        id: fpp_status
+                        state: "No response from FPP server"
           else:
-            - logger.log: "❌ WiFi not connected!"
-            - lambda: |-
-                id(fpp_status).publish_state("WiFi Disconnected");
+            - text_sensor.template.publish:
+                id: fpp_status
+                state: "WiFi disconnected"
