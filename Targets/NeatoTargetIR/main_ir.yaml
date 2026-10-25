@@ -65,9 +65,9 @@ packages:
   #board: !include boards/rev1.yaml    # Rev 1.x (legacy) — also switch servo_scripts to servo_stubs.yaml
 
   # Network mode — select one:
-  config: !include configs/standalone.yaml       # Device's own AP, no router
+  #config: !include configs/standalone.yaml       # Device's own AP, no router
   #config: !include configs/networked.yaml        # Router, no HA server (No-HA LAN)
-  #config: !include configs/home_assistant.yaml    # Router + Home Assistant server
+  config: !include configs/home_assistant.yaml    # Router + Home Assistant server
 
   # IR receiver — Laser Tag and Neato Blaster (NEC), chosen at runtime with the
   # "IR Protocol" select in the web UI.
