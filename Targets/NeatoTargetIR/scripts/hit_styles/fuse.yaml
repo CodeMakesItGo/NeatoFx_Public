@@ -1,0 +1,145 @@
+# ==============================================================================
+# HIT STYLES - "Fuse + Explosion" ("Hit Style" select in scripts/hit_script.yaml)
+# ==============================================================================
+# What used to be hit_script_fuse.yaml. With Hit Style = "Fuse + Explosion" the
+# standard hit timeline (scripts/hit_script.yaml) changes in one place:
+#   hit  -> main strip shows the normal hit effect (the "you hit it")
+#        -> LED Strip 2 burns a fuse from the first LED to the last over
+#           "Fuse Burn Time" ("LED Strip 2 Hit Effect" is ignored — strip 2 IS
+#           the fuse)
+#        -> DETONATION as the flame reaches the end: relay / GND / servo fire
+#        -> then the usual relay window, display, cooldown, restore
+# Total hit length is Fuse Burn Time + the normal display window.
+#
+# The instant GPIO17 "Hit Pulse Out" that came with the fuse variant is now a
+# per-pin mode for every style — "GPIO16/17/25 Mode" = Hit Pulse Output, in
+# boards/common/gpio_io.yaml.
+#
+# POWER — draw is bounded and does not scale with strip length: only the ~10-LED
+# head and its decaying trail are ever lit (well under 1 A). There is
+# deliberately no full-strip detonation flash: 150 LEDs at full white is ~8 A,
+# far beyond the board regulator, and would brown out the ESP32 just as the
+# relay fires. Put the bang on the relay / audio instead.
+#
+# Fuse Burn Time is a DURATION, not a speed: the head covers the whole strip in
+# that time. Match it to the fuse portion of your MP3 so the bang lands on the
+# sound. The effect lambda and the hit script both read the fuse_burn global,
+# which is what keeps the flame and the detonation aligned.
+#
+# Ported from the Old Town Mining DMX_Lighting_Uno FastLED fuse.
+# ==============================================================================
+
+substitutions:
+  fuse_burn_ms: "2500"        # INITIAL "Fuse Burn Time" (the stored UI value wins after)
+  fuse_head_len: "10"         # LEDs in the glowing head
+  fuse_flicker: "30"          # +/- brightness jitter on the tip
+  fuse_ember_decay: "20"      # per-frame fade of the trail
+  fuse_fade_ms: "600"         # how long the leftover embers keep dying (ms)
+
+# Same global id as the old fuse variant, so a unit that ran it keeps its value.
+globals:
+  - id: fuse_burn
+    type: int
+    restore_value: true
+    initial_value: ${fuse_burn_ms}
+
+number:
+  - platform: template
+    name: "Fuse Burn Time"
+    id: fuse_burn_control
+    min_value: 250
+    max_value: 20000
+    step: 50
+    restore_value: true
+    optimistic: true
+    initial_value: ${fuse_burn_ms}
+    icon: "mdi:fire"
+    unit_of_measurement: "ms"
+    set_action:
+      - lambda: |-
+          int value = static_cast<int>(x);
+          if (value < 1) value = 1;   // effect divides by this
+          id(fuse_burn) = value;
+
+# `!extend` folds the effect into the existing led_strip2 (a bare `- id:` would
+# be appended as a second, platform-less light).
+light:
+  - id: !extend led_strip2
+    effects:
+      - addressable_lambda:
+          name: "Fuse Effect"
+          update_interval: 16ms
+          lambda: |-
+            // Self-contained timeline, started fresh each time the effect is
+            // selected (initial_run). Two phases:
+            //   [0, BURN)        head travels the strip, embers trail behind it
+            //   [BURN, +FADE)    head is gone; leftover embers keep dying
+            // The script fires the relay at BURN, so the bang lands as the flame
+            // reaches the end of the fuse. The strip itself never flashes.
+            static uint32_t t0 = 0;
+
+            // Live from the "Fuse Burn Time" number, not a compile-time
+            // constant — the same global target_hit_script waits on, so the
+            // detonation still lands exactly as the head reaches the last LED.
+            // Guarded because it is the divisor for `progress` below.
+            uint32_t BURN_MS = (uint32_t) id(fuse_burn);
+            if (BURN_MS < 1) BURN_MS = 1;
+            const uint32_t FADE_MS  = ${fuse_fade_ms};
+            const int      HEAD_LEN = ${fuse_head_len};
+
+            uint32_t now = millis();
+            if (initial_run || t0 == 0) {
+              t0 = now;
+              it.all() = Color::BLACK;
+            }
+            uint32_t t = now - t0;
+            int n = it.size();
+
+            if (t < BURN_MS) {
+              // Dim everything first so the head leaves a decaying ember trail.
+              it.all().fade_to_black(${fuse_ember_decay});
+
+              // The LEADING EDGE reaches the last LED exactly at BURN_MS, which
+              // is the same instant the script fires the relay — so the bang
+              // lands as the flame arrives, with the tail still glowing on the
+              // final few LEDs. (The Uno ran the head on to n + FUSE_LENGTH and
+              // detonated once it had fully cleared; that left a visible gap
+              // between the flame vanishing and the bang.)
+              float progress = (float) t / (float) BURN_MS;
+              int head = (int)(progress * (float) n);
+
+              for (int i = 0; i < HEAD_LEN; i++) {
+                int pos = head - i;
+                if (pos < 0 || pos >= n) continue;
+
+                // Only the leading pixel flickers - that is what reads as a
+                // live flame rather than a moving gradient.
+                int flicker = 0;
+                if (i == 0) {
+                  flicker = (int)(random_uint32() % (2 * ${fuse_flicker} + 1)) - ${fuse_flicker};
+                }
+                int b = 255 - (i * (255 / HEAD_LEN)) + flicker;
+                if (b < 0)   b = 0;
+                if (b > 255) b = 255;
+
+                if (i == 0) {
+                  // Leading edge: white-hot with a warm cast
+                  it[pos] = Color((uint8_t) b, (uint8_t)(b * 0.75f), (uint8_t)(b * 0.25f));
+                } else if (i <= 3) {
+                  // Just behind the tip: white -> orange
+                  it[pos] = Color((uint8_t) b, (uint8_t)(b * 0.35f), 0);
+                } else {
+                  // Trailing embers: dark red
+                  it[pos] = Color((uint8_t) b, 0, 0);
+                }
+              }
+            } else if (t < BURN_MS + FADE_MS) {
+              // The flame has run off the end. Nothing new is drawn - the trail
+              // it left behind just keeps decaying at the same rate, so the fuse
+              // dies out the way it burned rather than being cut to black.
+              it.all().fade_to_black(${fuse_ember_decay});
+            } else {
+              // Spent - hold dark until the script turns the strip off
+              it.all() = Color::BLACK;
+            }
+

@@ -1,7 +1,7 @@
 # ==============================================================================
 # TARGET HIT SCRIPTS - WINDOW CURTAIN variant (LCD face + Home Assistant only)
 # ==============================================================================
-# Drop-in replacement for scripts/hit_script.yaml. In main.yaml swap the include:
+# Drop-in replacement for scripts/hit_script.yaml. In main_lcd.yaml swap the include:
 #
 #   packages:
 #     #hit_script: !include scripts/hit_script.yaml           # standard hit
@@ -41,7 +41,7 @@
 #   for the device, and that option can revert on re-provisioning.
 #
 # TUNING
-#   curtain_entity is a substitution (compile-time) — override it in main.yaml.
+#   curtain_entity is a substitution (compile-time) — override it in main_lcd.yaml.
 # ------------------------------------------------------------------------------
 substitutions:
   curtain_entity: "cover.wifi_smart_curtain_robot"

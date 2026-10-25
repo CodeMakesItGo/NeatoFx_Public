@@ -4,6 +4,8 @@
  * Replaces the default ESPHome web UI with an audio-specific dashboard.
  * Communicates via ESPHome REST API and Server-Sent Events (/events).
  * Self-contained — no external dependencies, works in AP standalone mode.
+ * Firmware updates are installed from this page too (Firmware Update card,
+ * POST /update) — the default ESPHome UI is not needed for anything.
  */
 (function () {
   'use strict';
@@ -231,8 +233,9 @@
     };
   }
 
-  // Stop SSE permanently (used when handing the page over to the default UI,
-  // so each phone holds only one /events socket)
+  // Stop SSE (used while a firmware upload runs: it frees one of the device's
+  // few HTTP sockets for the upload, and the stream would only error when the
+  // device reboots)
   function disconnect() {
     clearTimeout(retryTimer);
     if (es) {
@@ -527,9 +530,124 @@
     return card;
   }
 
+  // ── Firmware update ────────────────────────────────────────────────────────
+  // Uploads a .bin straight to the device's own OTA endpoint (POST /update,
+  // provided by `ota: - platform: web_server`), so a firmware update needs no
+  // internet and no default ESPHome UI. The same multipart field name ("update")
+  // the default UI's form uses.
+  //
+  // The file is sanity-checked before anything is sent: an ESP32 app image
+  // starts with the 0xE9 magic byte, and a *.factory.bin (bootloader +
+  // partition table + app, for USB flashing) has the partition table magic
+  // 0xAA 0x50 at 0x8000. Flashing a factory image over OTA fails on the device
+  // anyway, but only after the whole upload; catching it here is instant.
+  function makeFirmwareUpdate() {
+    var wrap = document.createElement('div');
+    wrap.innerHTML =
+      '<div class="note">Install a firmware file from this phone or computer — no internet needed. ' +
+        'Use the OTA image (<b>firmware.ota.bin</b>, or the .bin from a NeatoFx release), not <b>*.factory.bin</b>. ' +
+        'Settings and WiFi are kept. Keep this page open until the device restarts.</div>' +
+      '<div class="row">' +
+        '<input type="file" class="fw-file" accept=".bin,application/octet-stream">' +
+        '<button class="act-btn" disabled>Install</button>' +
+      '</div>' +
+      '<div class="fw-bar"><div class="fw-fill"></div></div>' +
+      '<div class="fw-msg"></div>';
+
+    var input = wrap.querySelector('.fw-file');
+    var btn   = wrap.querySelector('button');
+    var fill  = wrap.querySelector('.fw-fill');
+    var msg   = wrap.querySelector('.fw-msg');
+
+    function say(text, cls) {
+      msg.textContent = text;
+      msg.className = 'fw-msg' + (cls ? ' ' + cls : '');
+    }
+
+    input.addEventListener('change', function () {
+      fill.style.width = '0';
+      var f = input.files[0];
+      btn.disabled = !f;
+      say(f ? f.name + ' — ' + Math.round(f.size / 1024) + ' KB' : '');
+    });
+
+    function checkImage(file) {
+      return file.slice(0, 0x8002).arrayBuffer().then(function (buf) {
+        var b = new Uint8Array(buf);
+        if (b.length < 1 || b[0] !== 0xE9) return 'This is not an ESP32 firmware image.';
+        if (b.length >= 0x8002 && b[0x8000] === 0xAA && b[0x8001] === 0x50)
+          return 'This is a factory image (for USB flashing). Choose the .ota.bin instead.';
+        return null;
+      });
+    }
+
+    // After a successful upload the device reboots. Poll until it answers
+    // again, then reload so the page reflects the new firmware.
+    function waitForReboot() {
+      var tries = 0;
+      (function poll() {
+        tries++;
+        fetch('/', { cache: 'no-store' }).then(function (r) {
+          if (r.ok) location.reload();
+          else throw 0;
+        }).catch(function () {
+          if (tries < 60) setTimeout(poll, 2000);
+          else say('Installed. The device has not come back yet — refresh this page in a moment.', 'ok');
+        });
+      })();
+    }
+
+    btn.addEventListener('click', function () {
+      var file = input.files[0];
+      if (!file) return;
+      btn.disabled = true;
+      checkImage(file).then(function (problem) {
+        if (problem) { say(problem, 'err'); btn.disabled = false; return; }
+        if (!window.confirm('Install ' + file.name + '? The device restarts when it finishes.')) {
+          btn.disabled = false;
+          return;
+        }
+        input.disabled = true;
+        disconnect();
+        setLive(false);
+
+        var form = new FormData();
+        form.append('update', file, file.name);
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/update');
+        xhr.upload.onprogress = function (e) {
+          if (!e.lengthComputable) return;
+          var pct = Math.round(e.loaded * 100 / e.total);
+          fill.style.width = pct + '%';
+          say(pct < 100 ? 'Uploading… ' + pct + '%' : 'Writing firmware…');
+        };
+        xhr.onload = function () {
+          if (xhr.status === 200 && !/fail/i.test(xhr.responseText)) {
+            fill.style.width = '100%';
+            say('Installed. Restarting…', 'ok');
+            setTimeout(waitForReboot, 4000);
+          } else {
+            fail('Update failed' + (xhr.responseText ? ': ' + xhr.responseText.trim() : ' (HTTP ' + xhr.status + ')'));
+          }
+        };
+        xhr.onerror = function () { fail('Upload interrupted — check the connection and try again.'); };
+        xhr.send(form);
+      });
+    });
+
+    function fail(text) {
+      say(text, 'err');
+      fill.style.width = '0';
+      input.disabled = false;
+      btn.disabled = false;
+      connect();
+    }
+
+    return wrap;
+  }
+
   // ── CSS ────────────────────────────────────────────────────────────────────
-  // All rules are scoped under .app so nothing leaks into the default ESPHome
-  // UI if the user switches views.
+  // All rules are scoped under .app so nothing leaks into the host page.
   var CSS = [
     '.app, .app *, .app *::before, .app *::after { box-sizing: border-box; margin: 0; padding: 0; }',
 
@@ -678,18 +796,17 @@
     '.adv-body.open { display: block; }',
     '.adv-open .chev { transform: rotate(180deg); }',
 
-    /* View switcher */
-    '.view-switch {',
-    '  display: flex; justify-content: center; padding: 8px 0 4px;',
+    /* Firmware update */
+    '.fw-file { flex: 1; min-width: 0; color: #aaa; font-size: 0.8rem; }',
+    '.fw-file::file-selector-button {',
+    '  background: #252540; color: #e0e0e0; border: 0; border-radius: 6px;',
+    '  padding: 6px 10px; margin-right: 8px; cursor: pointer;',
     '}',
-    '.orig-btn {',
-    '  background: none; border: 1px solid #252540; color: #3a3a5c;',
-    '  border-radius: 8px; padding: 5px 14px; font-size: 0.72rem;',
-    '  cursor: pointer; transition: color .2s, border-color .2s;',
-    '  -webkit-tap-highlight-color: transparent;',
-    '}',
-    '.orig-btn:hover { color: #777; border-color: #444; }',
-    '.orig-btn:disabled { opacity: .5; cursor: default; }',
+    '.fw-bar { height: 6px; background: #252540; border-radius: 3px; overflow: hidden; margin: 6px 0; }',
+    '.fw-fill { height: 100%; width: 0; background: #4ade80; transition: width .2s; }',
+    '.fw-msg { font-size: 0.8rem; color: #aaa; min-height: 1.2em; }',
+    '.fw-msg.err { color: #ef4444; }',
+    '.fw-msg.ok  { color: #4ade80; }',
   ].join('\n');
 
   // ── Build UI ───────────────────────────────────────────────────────────────
@@ -772,83 +889,7 @@
     inner.appendChild(makeCollapsible('Diagnostics', sectionItems('debug')));
     inner.appendChild(makeCollapsible('Reset',       sectionItems('reset')));
 
-    // View switcher — loads ESPHome default Lit UI; refresh to return.
-    // The default UI (all entities + OTA firmware upload) ships from the ESPHome
-    // CDN (js_url is disabled in YAML), so it only works when the PHONE viewing
-    // this page has internet. In networked mode the phone stays on its normal
-    // Wi-Fi (internet OK); in standalone mode the phone joins the device's own AP
-    // (no internet) and this button cannot reach the CDN — hence the label.
-    var viewSwitch = document.createElement('div');
-    viewSwitch.className = 'view-switch';
-    var origBtn = document.createElement('button');
-    origBtn.className   = 'orig-btn';
-    var BTN_LABEL = 'Switch to ESPHome UI (needs internet)';
-    origBtn.textContent = BTN_LABEL;
-    origBtn.addEventListener('click', function () {
-      if (origBtn.disabled) return;
-      origBtn.disabled    = true;
-      origBtn.textContent = 'Loading ESPHome UI…';
-
-      var s = document.createElement('script');
-      s.src = 'https://oi.esphome.io/v2/www.js';
-
-      // Guard so onload / onerror / timeout can only settle this once.
-      var settled = false;
-
-      // With no internet the request may neither load nor error — it just hangs
-      // (or a captive portal stalls). Time out so the button never sticks on
-      // "Loading…" forever.
-      var timer = setTimeout(failSwitch, 8000);
-
-      // Only tear down the custom UI once the default UI has actually loaded,
-      // so a failed load never leaves a blank page. Removing the <style> node
-      // matters: our dark background/reset rules would otherwise restyle the
-      // default UI into invisibility.
-      //
-      // A fired onload does NOT prove the real script loaded: in AP/standalone
-      // mode (no internet) or behind a captive portal/proxy, the request to
-      // oi.esphome.io can be redirected to this device and return its own HTML
-      // with a 200 — which fires onload but never defines <esp-app>. Tearing
-      // down the custom UI then left a blank page. So verify the custom element
-      // is actually registered before committing to the switch.
-      s.onload = function () {
-        if (settled) return;
-        if (window.customElements && customElements.get('esp-app')) {
-          settled = true;
-          clearTimeout(timer);
-          disconnect();
-          style.remove();
-          app.remove();
-        } else {
-          failSwitch();
-        }
-      };
-      s.onerror = failSwitch;
-
-      function failSwitch() {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        s.remove();
-        origBtn.disabled    = false;
-        origBtn.textContent = BTN_LABEL;
-        alert('Could not load the default ESPHome UI.\n\n' +
-              'It is served from the internet (oi.esphome.io). You are joined to ' +
-              'the device\'s Wi-Fi AP, which has no internet, so the request must ' +
-              'go over cellular instead — but your phone routed it to the AP and ' +
-              'it failed.\n\n' +
-              'Fixes:\n' +
-              '• iPhone: turn on Settings › Cellular › Wi-Fi Assist, ' +
-              'then tap again.\n' +
-              '• Or put the device on a Wi-Fi network that has internet and ' +
-              'view this page from a phone on that same network.\n\n' +
-              'The default UI has all entities plus firmware upload. The custom UI ' +
-              'here works with no internet at all.');
-      }
-      document.head.appendChild(s);
-    });
-    viewSwitch.appendChild(origBtn);
-    inner.appendChild(viewSwitch);
+    inner.appendChild(makeCollapsible('Firmware Update', [makeFirmwareUpdate()]));
 
     document.body.appendChild(app);
     console.log('[NEATO-UI] DOM ready');

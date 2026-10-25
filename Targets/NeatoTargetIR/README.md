@@ -77,33 +77,42 @@ Each target features infrared detection, customizable LED effects, relay outputs
 - **Framework**: [ESPHome](https://esphome.io/) 2025.8.0+
 - **Platform**: ESP32 Arduino
 - **Languages**: YAML configuration, C++ (lambdas), JavaScript (web UI)
-- **Protocols**: WiFi, HTTP, IR (Laser Tag, NEC, Raw), FPP
+- **Protocols**: WiFi, HTTP, IR (Laser Tag, Neato Blaster NEC), FPP
 
 ### Modular File Structure
 ```
 Targets/NeatoTargetIR/
-├── main.yaml                          ← Entry point — set ID and select options here
+├── main_ir.yaml                       ← Target IR (Rev 3.x standard, or Rev 1.x)
+├── main.yaml                          ← Compatibility wrapper: includes main_ir.yaml (field units were built from it)
+├── main_lcd.yaml                      ← Target IR LCD (GC9A01 face)
+├── main_hit.yaml                      ← Target IR Hit (push-button face, no IR)
+├── main_fan.yaml                      ← Target IR Hologram (hologram fan IR LED)
+├── base.yaml                          ← Shared by every main: identity, hit gate, web UI
 ├── boards/
 │   ├── rev3.yaml                      ← Rev 3.x hardware (current production)
+│   ├── rev3_lcd_1_1.yaml              ← Rev 3.x + LCD face 1.1
+│   ├── rev3_hit_1_0.yaml              ← Rev 3.x + hit face 1.0
+│   ├── rev3_fan_1_0.yaml              ← Rev 3.x + hologram fan 1.0
 │   ├── rev1.yaml                      ← Rev 1.x hardware (legacy)
 │   └── common/
 │       ├── common.yaml                ← Shared sensors and components
 │       ├── color_controls.yaml        ← LED color management
+│       ├── gpio_io.yaml               ← GPIO16/17/25 runtime modes + GPIO34 ADC (Rev 3.x)
 │       └── custom_ui.js               ← Web UI customization
 ├── configs/
 │   ├── networked.yaml                 ← Home Assistant integration
 │   └── standalone.yaml                ← Independent AP mode
 ├── protocols/
-│   ├── ir_laser_tag.yaml              ← Laser tag (default)
-│   ├── ir_nec.yaml                    ← NEC remotes
-│   ├── ir_raw.yaml                    ← Raw IR capture
-│   └── ir_custom.yaml                 ← Custom protocol
+│   └── ir.yaml                        ← Laser Tag / Neato Blaster (runtime select)
 ├── integrations/
 │   └── target_fpp.yaml               ← Falcon Player integration
 ├── scripts/
-│   ├── hit_script.yaml               ← Hit behavior
-│   ├── servo_movement_script.yaml    ← Servo drop movement
-│   └── servo_stubs.yaml              ← No-servo stub
+│   ├── hit_script.yaml               ← Hit behavior: style / relay / GND / GPIO17 modes (runtime selects)
+│   ├── hit_styles/                   ← Fuse, lightning, GND effects
+│   ├── hit_script_fan_mister.yaml    ← LCD board only
+│   ├── hit_script_curtain.yaml       ← LCD board + Home Assistant only
+│   ├── servo.yaml                    ← Servo Off / Hold / Cycle (runtime select)
+│   └── servo_stubs.yaml              ← Rev 1.x (no servo hardware)
 └── docs/
     ├── Smart Target Rev1.x Manual.pdf
     └── Smart Target Rev3.x Manual.pdf
@@ -118,46 +127,52 @@ Targets/NeatoTargetIR/
 
 ### Quick Start
 
-1. **Configure Target ID** — the default is `1`; override on the command line:
+1. **Pick the main for your hardware** — each builds one binary for every unit
+   of that type and has its own firmware update channel, so an online update
+   only ever installs firmware for the same hardware:
+
+   | Main | Hardware | Hostname | Update channel |
+   |---|---|---|---|
+   | `main_ir.yaml` | Rev 3.x standard IR (or Rev 1.x) | `target-ir-xxxxxx` | `firmware/target-ir/` |
+   | `main_lcd.yaml` | Rev 3.x + LCD face | `target-ir-lcd-xxxxxx` | `firmware/target-ir-lcd/` |
+   | `main_hit.yaml` | Rev 3.x + push-button hit face | `target-ir-hit-xxxxxx` | `firmware/target-ir-hit/` |
+   | `main_fan.yaml` | Rev 3.x + hologram fan | `target-ir-fan-xxxxxx` | `firmware/target-ir-fan/` |
+
+   `xxxxxx` is the end of the unit's MAC address. `main.yaml` still exists and
+   builds exactly `main_ir.yaml`, for targets already in the field.
+
+2. **Choose Operating Mode** in that main — Home Assistant is the shipping default:
+   ```yaml
+     #config: !include configs/standalone.yaml       # Device's own AP, no router
+     #config: !include configs/networked.yaml        # Router, no HA server
+     config: !include configs/home_assistant.yaml    # Router + Home Assistant server
+   ```
+
+3. **IR protocol, servo and hit behavior are set in the web UI**, not at build
+   time — the *Target Behavior* card holds IR Protocol (Laser Tag / Neato
+   Blaster), Hit Style (Standard / Fuse / Lightning), Relay Mode (Hold / Toggle),
+   GND Effect (Ramp / Flicker / Throttle) and Servo Mode (Off / Hold / Cycle).
+   The *GPIO* card sets GPIO16, GPIO17 and GPIO25 each to Input, Hit Trigger
+   Input or Hit Pulse Output; GPIO34 is a voltage readout under Debug. LED
+   Strip 2's LED count is set in its card too. Everything is saved on the
+   device and kept across firmware updates.
+
+4. **Compile and Flash**:
    ```bash
-   esphome -s id 1 compile Targets/NeatoTargetIR/main.yaml
+   esphome run Targets/NeatoTargetIR/main_ir.yaml     # or main_lcd / main_hit / main_fan
    ```
 
-2. **Select Hardware Revision** — edit `main.yaml` and uncomment the correct board:
-   ```yaml
-   packages:
-     target_rev_file: !include boards/rev3.yaml    # Rev 3.x (current production)
-     #target_rev_file: !include boards/rev1.yaml   # Rev 1.x (legacy)
-   ```
-
-3. **Choose Operating Mode** — default is networked (Home Assistant):
-   ```yaml
-     #config: !include configs/standalone.yaml
-     config:  !include configs/networked.yaml
-   ```
-
-4. **Select IR Protocol** — default is laser tag:
-   ```yaml
-     ir_receiver: !include protocols/ir_laser_tag.yaml
-     #ir_receiver: !include protocols/ir_nec.yaml
-     #ir_receiver: !include protocols/ir_raw.yaml
-   ```
-
-5. **Compile and Flash**:
-   ```bash
-   esphome -s id 1 run Targets/NeatoTargetIR/main.yaml
-   ```
-
-6. **Access Web Interface**:
-   - Browse to `http://target-1.local` (replace `1` with your ID)
-   - Use the FIRE button to test target functionality
+5. **Access Web Interface**:
+   - Browse to `http://target-ir-xxxxxx.local` (or the unit's IP)
+   - Set the **Device ID**, then use **Test Hit** to check the target
+   - Firmware updates install from the **Firmware Update** card — no internet needed
 
 ### Optional: FPP Integration
-For Falcon Player light show synchronization, uncomment in `main.yaml`:
+For Falcon Player light show synchronization, uncomment in your main:
 ```yaml
   fpp_file: !include integrations/target_fpp.yaml
 ```
-And uncomment the `fpp_start_playlist` line in the `run_hit_script` block.
+And uncomment the `fpp_start_playlist` line in `base.yaml`'s `run_hit_script` block.
 
 ## 🎮 Usage
 

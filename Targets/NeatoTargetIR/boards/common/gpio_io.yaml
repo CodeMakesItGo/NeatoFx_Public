@@ -1,0 +1,327 @@
+# ==============================================================================
+# RIGHT-SIDE CONNECTOR GPIO - GPIO16 / GPIO17 / GPIO25 + GPIO34 ADC (Rev 3.x)
+# ==============================================================================
+# Included by every Rev 3.x board file (rev3 / rev3_hit_1_0 / rev3_lcd_1_1, and
+# rev3_fan_1_0 through rev3). Each of the three general I/O pins has its own
+# persisted "GPIOxx Mode":
+#
+#   Input              read only — the pin's state shows in Debug (stock)
+#   Hit Trigger Input  pulling the pin to GND scores a hit, like an IR shot
+#                      (the old "GPIO25 Hit Trigger" switch, now on any pin)
+#   Hit Pulse Output   on every hit the pin waits its Pulse Delay, then goes
+#                      HIGH (3.3 V) for its Pulse Width — for an external
+#                      controller, sound board or a second relay board
+#
+# Pulse Delay / Pulse Width are per pin and only used in Hit Pulse Output mode.
+# With Pulse Delay 0 the pin goes high in the same main-loop iteration as the
+# hit, before any LED work — the instant signal the relay cannot give when a
+# Hit Style delays it (the fuse fires the relay at detonation).
+#
+# HOW OUTPUT WORKS AT RUNTIME
+#   ESPHome binds a pin to one component at build time, and the input sensor
+#   has to exist for the Input / Hit Trigger modes. Output mode re-points the
+#   same pin with the ESP-IDF GPIO driver (INPUT_OUTPUT, so the sensor keeps
+#   reading the level that is driven). Board files give each pin's number as
+#   gpioNN_num; a board where a pin is spoken for sets it to -1 and hides that
+#   pin's controls (the hologram fan uses GPIO17 for its IR LED).
+#
+# GPIO34 is input-only on the ESP32 (no pull resistors, no output driver) and
+# sits on ADC1, so it is a voltage readout: "GPIO34 Voltage", 0-3.3 V.
+# ==============================================================================
+
+select:
+  - platform: template
+    name: "GPIO16 Mode"
+    id: gpio16_mode
+    icon: "mdi:pin"
+    options: &gpio_mode_options
+      - "Input"
+      - "Hit Trigger Input"
+      - "Hit Pulse Output"
+    initial_option: "Input"
+    optimistic: true
+    restore_value: true
+    on_value:
+      - script.execute: { id: gpio_apply_mode, idx: 0 }
+
+  - platform: template
+    name: "GPIO17 Mode"
+    id: gpio17_mode
+    icon: "mdi:pin"
+    options: *gpio_mode_options
+    initial_option: "Input"
+    optimistic: true
+    restore_value: true
+    on_value:
+      - script.execute: { id: gpio_apply_mode, idx: 1 }
+
+  - platform: template
+    name: "GPIO25 Mode"
+    id: gpio25_mode
+    icon: "mdi:pin"
+    options: *gpio_mode_options
+    initial_option: "Input"
+    optimistic: true
+    restore_value: true
+    on_value:
+      - script.execute: { id: gpio_apply_mode, idx: 2 }
+
+number:
+  - platform: template
+    name: "GPIO16 Pulse Delay"
+    id: gpio16_pulse_delay
+    icon: "mdi:timer-sand"
+    unit_of_measurement: "ms"
+    min_value: 0
+    max_value: 20000
+    step: 10
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+  - platform: template
+    name: "GPIO16 Pulse Width"
+    id: gpio16_pulse_width
+    icon: "mdi:flash-outline"
+    unit_of_measurement: "ms"
+    min_value: 10
+    max_value: 10000
+    step: 10
+    initial_value: 200
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "GPIO17 Pulse Delay"
+    id: gpio17_pulse_delay
+    icon: "mdi:timer-sand"
+    unit_of_measurement: "ms"
+    min_value: 0
+    max_value: 20000
+    step: 10
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+  - platform: template
+    name: "GPIO17 Pulse Width"
+    id: gpio17_pulse_width
+    icon: "mdi:flash-outline"
+    unit_of_measurement: "ms"
+    min_value: 10
+    max_value: 10000
+    step: 10
+    initial_value: 200
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "GPIO25 Pulse Delay"
+    id: gpio25_pulse_delay
+    icon: "mdi:timer-sand"
+    unit_of_measurement: "ms"
+    min_value: 0
+    max_value: 20000
+    step: 10
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+  - platform: template
+    name: "GPIO25 Pulse Width"
+    id: gpio25_pulse_width
+    icon: "mdi:flash-outline"
+    unit_of_measurement: "ms"
+    min_value: 10
+    max_value: 10000
+    step: 10
+    initial_value: 200
+    optimistic: true
+    restore_value: true
+
+# Bench test of each output. Only does anything in Hit Pulse Output mode; the
+# state reads back the real pin level.
+switch:
+  - platform: template
+    name: "GPIO16 Output"
+    id: gpio16_output
+    icon: "mdi:flash"
+    restore_mode: ALWAYS_OFF
+    lambda: 'return id(gpio_is_output)(0) && gpio_get_level((gpio_num_t) ${gpio16_num});'
+    turn_on_action:  [ lambda: 'id(gpio_drive)(0, true);' ]
+    turn_off_action: [ lambda: 'id(gpio_drive)(0, false);' ]
+  - platform: template
+    name: "GPIO17 Output"
+    id: gpio17_output
+    icon: "mdi:flash"
+    restore_mode: ALWAYS_OFF
+    lambda: 'return id(gpio_is_output)(1) && gpio_get_level((gpio_num_t) ${gpio17_num});'
+    turn_on_action:  [ lambda: 'id(gpio_drive)(1, true);' ]
+    turn_off_action: [ lambda: 'id(gpio_drive)(1, false);' ]
+  - platform: template
+    name: "GPIO25 Output"
+    id: gpio25_output
+    icon: "mdi:flash"
+    restore_mode: ALWAYS_OFF
+    lambda: 'return id(gpio_is_output)(2) && gpio_get_level((gpio_num_t) ${gpio25_num});'
+    turn_on_action:  [ lambda: 'id(gpio_drive)(2, true);' ]
+    turn_off_action: [ lambda: 'id(gpio_drive)(2, false);' ]
+
+# Pin inputs. INPUT_PULLUP + inverted: pulling the pin to GND reads ON.
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: ${io16_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    id: gpio16_digital
+    name: "GPIO16 Digital State"
+    filters:
+      - delayed_on: 5ms
+      - delayed_off: 50ms
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(gpio16_mode).current_option() == "Hit Trigger Input";'
+          then:
+            - logger.log: "GPIO16 hit trigger fired"
+            - script.execute: run_hit_script
+
+  - platform: gpio
+    pin:
+      number: ${io17_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    id: gpio17_digital
+    name: "GPIO17 Digital State"
+    filters:
+      - delayed_on: 5ms
+      - delayed_off: 50ms
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(gpio17_mode).current_option() == "Hit Trigger Input";'
+          then:
+            - logger.log: "GPIO17 hit trigger fired"
+            - script.execute: run_hit_script
+
+  - platform: gpio
+    pin:
+      number: ${io25_gpio}
+      mode: INPUT_PULLUP
+      inverted: true
+    id: gpio25_digital
+    name: "GPIO25 Digital State"
+    filters:
+      - delayed_on: 5ms
+      - delayed_off: 50ms
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(gpio25_mode).current_option() == "Hit Trigger Input";'
+          then:
+            - logger.log: "GPIO25 hit trigger fired"
+            - script.execute: run_hit_script
+
+sensor:
+  - platform: adc
+    id: gpio34_voltage
+    pin: ${io34_gpio}
+    name: "GPIO34 Voltage"
+    attenuation: 12db      # full 0-3.3 V range
+    update_interval: 2s
+    accuracy_decimals: 2
+    unit_of_measurement: "V"
+
+# Small helpers shared by the lambdas above and the scripts below, so the pin
+# table lives in one place. Index: 0 = GPIO16, 1 = GPIO17, 2 = GPIO25.
+globals:
+  - id: gpio_is_output
+    type: std::function<bool(int)>
+    restore_value: no
+    initial_value: |-
+      [](int idx) -> bool {
+        static const int PIN[3] = {${gpio16_num}, ${gpio17_num}, ${gpio25_num}};
+        if (idx < 0 || idx > 2 || PIN[idx] < 0) return false;
+        // initial_value is plain C++, not an ESPHome lambda, so no id():
+        // the component pointers are referenced by their generated names.
+        select::Select *m[3] = {gpio16_mode, gpio17_mode, gpio25_mode};
+        return m[idx]->current_option() == "Hit Pulse Output";
+      }
+
+  - id: gpio_drive
+    type: std::function<void(int, bool)>
+    restore_value: no
+    initial_value: |-
+      [](int idx, bool on) {
+        static const int PIN[3] = {${gpio16_num}, ${gpio17_num}, ${gpio25_num}};
+        if (!gpio_is_output->value()(idx)) return;
+        gpio_set_level((gpio_num_t) PIN[idx], on ? 1 : 0);
+      }
+
+script:
+  # Point one pin at its selected mode. Runs on a mode change and at boot.
+  - id: gpio_apply_mode
+    mode: queued
+    parameters:
+      idx: int
+    then:
+      - lambda: |-
+          static const int PIN[3] = {${gpio16_num}, ${gpio17_num}, ${gpio25_num}};
+          if (idx < 0 || idx > 2 || PIN[idx] < 0) return;
+          gpio_num_t g = (gpio_num_t) PIN[idx];
+          if (id(gpio_is_output)(idx)) {
+            gpio_set_level(g, 0);
+            gpio_set_direction(g, GPIO_MODE_INPUT_OUTPUT);
+            gpio_set_pull_mode(g, GPIO_FLOATING);
+            ESP_LOGI("gpio", "GPIO%d: hit pulse output", PIN[idx]);
+          } else {
+            gpio_set_direction(g, GPIO_MODE_INPUT);
+            gpio_set_pull_mode(g, GPIO_PULLUP_ONLY);
+            ESP_LOGI("gpio", "GPIO%d: input", PIN[idx]);
+          }
+
+  # One hit pulse on one pin. An `if` with a false condition runs through
+  # inline (a 0 ms delay would still go through the scheduler), so with Pulse
+  # Delay 0 the pin goes high in the hit's own main-loop iteration.
+  - id: gpio_pulse
+    mode: parallel
+    max_runs: 6
+    parameters:
+      idx: int
+    then:
+      - if:
+          condition:
+            lambda: |-
+              number::Number *d[3] = {id(gpio16_pulse_delay), id(gpio17_pulse_delay), id(gpio25_pulse_delay)};
+              return idx >= 0 && idx <= 2 && d[idx]->state > 0;
+          then:
+            - delay: !lambda |-
+                number::Number *d[3] = {id(gpio16_pulse_delay), id(gpio17_pulse_delay), id(gpio25_pulse_delay)};
+                return (uint32_t) d[idx]->state;
+      - lambda: 'id(gpio_drive)(idx, true);'
+      - delay: !lambda |-
+          number::Number *w[3] = {id(gpio16_pulse_width), id(gpio17_pulse_width), id(gpio25_pulse_width)};
+          return (uint32_t) w[idx]->state;
+      - lambda: 'id(gpio_drive)(idx, false);'
+
+  # Fired FIRST by target_hit_script: pulse every pin in Hit Pulse Output mode.
+  - id: gpio_hit_outputs
+    mode: parallel
+    then:
+      - lambda: |-
+          for (int i = 0; i < 3; i++)
+            if (id(gpio_is_output)(i)) id(gpio_pulse).execute(i);
+
+  # Target disabled: cancel pending pulses and drop every output low.
+  - id: gpio_outputs_off
+    mode: restart
+    then:
+      - script.stop: gpio_pulse
+      - lambda: 'for (int i = 0; i < 3; i++) id(gpio_drive)(i, false);'
+
+esphome:
+  on_boot:
+    # Late, so it runs after the input sensors have configured their pins.
+    - priority: -100
+      then:
+        - script.execute: { id: gpio_apply_mode, idx: 0 }
+        - script.execute: { id: gpio_apply_mode, idx: 1 }
+        - script.execute: { id: gpio_apply_mode, idx: 2 }

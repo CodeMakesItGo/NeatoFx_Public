@@ -1,0 +1,73 @@
+# ==============================================================================
+# NEATO TARGET IR - SHARED BASE (every hardware main includes this)
+# ==============================================================================
+# One main per hardware type, each picking its board and update channel:
+#   main_ir.yaml    Target IR            Rev 3.x standard IR target (and Rev 1.x)
+#   main_lcd.yaml   Target IR LCD        Rev 3.x + GC9A01 LCD face
+#   main_hit.yaml   Target IR Hit        Rev 3.x + push-button hit face (no IR)
+#   main_fan.yaml   Target IR Hologram   Rev 3.x + hologram fan IR LED
+# Everything they have in common lives here: runtime identity, the master hit
+# gate, the web UI and logging.
+#
+# Each main includes this as its LAST package, so the web_server / logger
+# settings here override the shared network bases (see the note in the mains). Behavior (IR protocol, hit style, servo, GPIO
+# modes, LED Strip 2 length) is chosen at runtime in the web UI, not here.
+# ==============================================================================
+
+packages:
+  # Runtime identity — here, not in the network configs, so a standalone build
+  # gets the Device ID and Target Name too. Pure globals/template entities, no
+  # api: dependency.
+  runtime_id: !include ../../_shared/runtime_id.yaml
+
+# ==============================================================================
+# BLE PROVISIONING — no longer compiled in
+# ==============================================================================
+# _shared/networked_base.yaml used to enable esp32_improv (BLE), which forced
+# WiFi modem sleep (laggy HA -> target traffic) and did not fit next to the
+# GC9A01 framebuffer on LCD builds. It has been removed from the base for every
+# product, so LCD builds no longer need an `esp32_improv: !remove` here.
+# Provisioning: improv_serial over USB (configs/*.yaml) or the setup hotspot.
+
+# ==============================================================================
+# TARGET HIT SCRIPTS - what to do when target is hit
+# ==============================================================================
+script:
+  # Main Hit Script - do these things when target is hit
+  - id: run_hit_script
+    mode: parallel
+    then:
+      # MASTER ENABLE GATE — every hit source funnels through this script (IR
+      # protocols, GPIO25, the external trigger, the Test Target Hit switch), so
+      # gating here is what makes a disabled target ignore all of them.
+      - if:
+          condition:
+            lambda: 'return !id(target_enabled);'
+          then:
+            - logger.log: "Target disabled - hit ignored"
+          else:
+            - script.execute: target_hit_script
+            # Uncomment the next line when FPP package is enabled above
+            #- script.execute: fpp_start_playlist
+      # NOTE: esphome_hit_script (the audio / HA trigger) is intentionally NOT
+      # launched here. In networked mode it makes a *blocking* http_request.post
+      # to the Audio-50, which freezes the single-threaded main loop and stalls
+      # the LED hit effect. It is now fired from INSIDE target_hit_script, AFTER
+      # the visual effect has rendered — see scripts/hit_script.yaml.
+
+# ==============================================================================
+# DEBUGGING
+# ==============================================================================
+# Custom UI only (boards/common/custom_ui.js), embedded so it works with no
+# internet. local: false / js_url "" keep the default ESPHome UI out entirely —
+# firmware updates install from the custom UI's Firmware Update card
+# (POST /update, ota: web_server in _shared/esphome_base.yaml).
+web_server:
+  local: false
+  js_url: ""
+  js_include: "boards/common/custom_ui.js"
+
+logger:
+  #level: WARN  # Reduced from DEBUG to prevent mobile browser overload
+  level: DEBUG
+

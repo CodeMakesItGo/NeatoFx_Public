@@ -2,22 +2,24 @@
 """NEATO-FX repo lint — enforces DESIGN_RULES.md automatically.
 
 Checks (per device):
-  1. Standard layout: main.yaml, boards/, configs/networked.yaml, README.md,
+  1. Standard layout: an entry point (main.yaml, or one main_<hw>.yaml per
+     hardware type), boards/, configs/networked.yaml, README.md,
      .gitignore present; standalone.yaml present unless device is in
      NETWORKED_ONLY.
   2. Naming: no product-name prefixes on standard files; lower_snake_case;
      no 'Smart' branding anywhere in yaml.
   3. Include depth: ../../../_shared/ from device root subdirs,
      ../../../../_shared/ from boards/common/; every !include target exists.
-  4. main.yaml has substitutions name/name_add_mac_suffix/friendly_name
+  4. Every main*.yaml has substitutions name/name_add_mac_suffix/friendly_name
      (NO `id`: every product ships one binary; identity is runtime).
   5. networked.yaml has improv_serial + dashboard_import, and the
-     dashboard_import URL points at THIS device's main.yaml.
+     dashboard_import URL points at THIS device's main.yaml — or at
+     ${main_file}, which every main_<hw>.yaml must set to its own file name.
   6. logger baud_rate must not be 0 in any device that has a networked config.
-  7. Every package option in every main.yaml is enabled by at least one
+  7. Every package option in every main*.yaml is enabled by at least one
      variant in tools/variants.yaml.
   8. No secrets.yaml tracked in git.
-  9. If configs/home_assistant.yaml exists for a device, main.yaml's ACTIVE
+  9. If configs/home_assistant.yaml exists for a device, every main*.yaml's ACTIVE
      (uncommented) 'config:' package must point to it — units ship
      pre-flashed from main.yaml, and Made for ESPHome requires HA support
      enabled out of the box (see DESIGN_RULES.md #7).
@@ -69,9 +71,24 @@ def yaml_files(root: Path):
     return [p for p in root.rglob("*.yaml") if ".esphome" not in p.parts]
 
 
+def mains(dev: Path):
+    """The device's entry points: main.yaml, or one main_<hw>.yaml per hardware
+    type (Target IR — each with its own update channel and project name).
+    Made for ESPHome does not require any particular file name; it requires
+    dashboard_import to point at the published config (check_networked)."""
+    return sorted(p for p in dev.glob("main*.yaml") if p.is_file()
+                  and not p.name.endswith(".flat.yaml"))
+
+
+def main_sub(main: Path, key: str):
+    m = re.search(rf"^\s+{key}:\s*\"?([^\s\"#]+)", main.read_text(), re.M)
+    return m.group(1) if m else None
+
+
 def check_layout(dev: Path, rel: str):
-    for required in ["main.yaml", "README.md", ".gitignore",
-                     "configs/networked.yaml"]:
+    if not mains(dev):
+        err(f"{rel}: missing an entry point (main.yaml or main_<hw>.yaml)")
+    for required in ["README.md", ".gitignore", "configs/networked.yaml"]:
         if not (dev / required).exists():
             err(f"{rel}: missing {required}")
     if rel not in NETWORKED_ONLY and not (dev / "configs/standalone.yaml").exists():
@@ -113,22 +130,24 @@ def check_includes(dev: Path, rel: str):
 
 
 def check_main(dev: Path, rel: str):
-    main = dev / "main.yaml"
-    if not main.exists():
-        return
+    for main in mains(dev):
+        check_one_main(main, rel)
+
+
+def check_one_main(main: Path, rel: str):
     text = main.read_text()
     for sub in ("name:", "name_add_mac_suffix:", "friendly_name:"):
         if not re.search(rf"^\s+{sub}", text, re.M):
-            err(f"{rel}/main.yaml: substitutions missing '{sub.rstrip(':')}'")
+            err(f"{rel}/{main.name}: substitutions missing '{sub.rstrip(':')}'")
     # One binary per product: no build-time `id`. Identity is the runtime
     # player_id/device_id global from _shared/runtime_id.yaml, so a build-time
     # id substitution means someone reintroduced per-unit builds.
     if re.search(r"^\s+id:\s", text, re.M):
-        err(f"{rel}/main.yaml: has a build-time 'id' substitution; products "
+        err(f"{rel}/{main.name}: has a build-time 'id' substitution; products "
             f"ship ONE binary and take identity from _shared/runtime_id.yaml")
     if re.search(r"^\s*baud_rate:\s*0\b", text, re.M) and \
-            (dev / "configs/networked.yaml").exists():
-        err(f"{rel}/main.yaml: logger baud_rate 0 conflicts with improv_serial "
+            (main.parent / "configs/networked.yaml").exists():
+        err(f"{rel}/{main.name}: logger baud_rate 0 conflicts with improv_serial "
             f"in networked config")
 
 
@@ -142,6 +161,12 @@ def check_networked(dev: Path, rel: str):
     m = re.search(r"package_import_url:\s*github://\S*?/(\S+?)@", text)
     if not m:
         err(f"{rel}/configs/networked.yaml: missing dashboard_import (MFE)")
+    elif m.group(1).endswith(f"{rel}/${{main_file}}"):
+        # Per-hardware mains: each must name itself as main_file.
+        for main in mains(dev):
+            if main_sub(main, "main_file") != main.name:
+                err(f"{rel}/{main.name}: dashboard_import uses ${{main_file}} "
+                    f"but this main does not set main_file: {main.name}")
     elif not m.group(1).endswith(f"{rel}/main.yaml"):
         err(f"{rel}/configs/networked.yaml: dashboard_import points at "
             f"'{m.group(1)}', expected '.../{rel}/main.yaml'")
@@ -168,8 +193,8 @@ def active_package(text: str, key: str):
 
 def check_made_for_esphome_default(dev: Path, rel: str):
     """A device that has configs/home_assistant.yaml is Made-for-ESPHome
-    enrolled: units are pre-flashed straight from main.yaml, so main.yaml's
-    active 'config:' package MUST default to home_assistant.yaml. Shipping
+    enrolled: units are pre-flashed straight from their main*.yaml, so each
+    main's active 'config:' package MUST default to home_assistant.yaml. Shipping
     networked.yaml (No-HA LAN) or standalone.yaml (AP-only) as the default
     means customers can't add the device to Home Assistant out of the box —
     this is exactly the regression an ESPHome reviewer caught on the
@@ -177,18 +202,16 @@ def check_made_for_esphome_default(dev: Path, rel: str):
     drifted to networked.yaml)."""
     if not (dev / "configs/home_assistant.yaml").exists():
         return  # not enrolled yet — out of scope for this check
-    main = dev / "main.yaml"
-    if not main.exists():
-        return  # already reported by check_layout
-    active = active_package(main.read_text(), "config")
-    if active is None:
-        err(f"{rel}/main.yaml: no active 'config:' package line found "
-            f"(device has configs/home_assistant.yaml — Made for ESPHome "
-            f"requires an active default)")
-    elif not active.endswith("configs/home_assistant.yaml"):
-        err(f"{rel}/main.yaml: active config is '{active}', but device has "
-            f"configs/home_assistant.yaml — it must be the default so units "
-            f"ship with Home Assistant support enabled (Made for ESPHome)")
+    for main in mains(dev):
+        active = active_package(main.read_text(), "config")
+        if active is None:
+            err(f"{rel}/{main.name}: no active 'config:' package line found "
+                f"(device has configs/home_assistant.yaml — Made for ESPHome "
+                f"requires an active default)")
+        elif not active.endswith("configs/home_assistant.yaml"):
+            err(f"{rel}/{main.name}: active config is '{active}', but device has "
+                f"configs/home_assistant.yaml — it must be the default so units "
+                f"ship with Home Assistant support enabled (Made for ESPHome)")
 
 
 MANIFEST_URL = re.compile(
@@ -225,6 +248,17 @@ def check_firmware_update(dev: Path, rel: str):
     if not m:
         err(f"{rel}/configs/home_assistant.yaml: update source is not a "
             f"raw.githubusercontent.com URL into this repo's main branch")
+    elif "${update_channel}" in m.group(1):
+        # Per-hardware channels: every main must set one whose manifest exists.
+        for main in mains(dev):
+            ch = main_sub(main, "update_channel")
+            target = m.group(1).replace("${update_channel}", ch or "")
+            if not ch:
+                err(f"{rel}/{main.name}: update source uses ${{update_channel}} "
+                    f"but this main does not set it")
+            elif not (REPO / target).exists():
+                err(f"{rel}/{main.name}: update channel '{ch}' has no "
+                    f"manifest at '{target}'")
     elif not (REPO / m.group(1)).exists():
         err(f"{rel}/configs/home_assistant.yaml: update source points at "
             f"'{m.group(1)}' which does not exist in the repo")
@@ -275,9 +309,9 @@ def check_variant_coverage():
                     err(f"variants.yaml: {dev}: option '{key}: {path}' in "
                         f"{spec['path']} is never enabled by any variant")
     for rel in DEVICES:
-        main = (REPO / rel / "main.yaml").resolve()
-        if main.exists() and main not in covered_mains:
-            err(f"variants.yaml: no device entry covers {rel}/main.yaml")
+        for main in mains(REPO / rel):
+            if main.resolve() not in covered_mains:
+                err(f"variants.yaml: no device entry covers {rel}/{main.name}")
 
 
 def check_secrets():

@@ -14,50 +14,65 @@
 # ==============================================================================
 
 devices:
+  # Neato Target IR — one main per hardware type (each has its own update
+  # channel, see tools/release.py). IR protocol, servo mode, hit style, GPIO
+  # modes and LED Strip 2 length are runtime selects, so the variants are only
+  # board revision, network mode and the LCD-face specials.
   target:
-    path: Targets/NeatoTargetIR/main.yaml
+    path: Targets/NeatoTargetIR/main_ir.yaml   # main.yaml just includes this
     label: "Neato Target IR"
     variants:
-      default: {}   # rev3 + home_assistant + ir_laser_tag + servo + hit_fuse
+      default: {}
       rev1_standalone:
         board: boards/rev1.yaml
         config: configs/standalone.yaml
-        ir_receiver: protocols/ir_raw.yaml
         servo_scripts: scripts/servo_stubs.yaml
-        hit_script: scripts/hit_script.yaml
-      lcd_lasertag_fpp:
-        board: boards/rev3_lcd_1_1.yaml
-        ir_receiver: protocols/ir_laser_tag.yaml
-        fpp_file: integrations/target_fpp.yaml
-        hit_script: scripts/hit_script_gnd_flicker.yaml
-      custom_ir:
-        ir_receiver: protocols/ir_custom.yaml
-      ha_nec:                  # Home Assistant LAN mode + classic NEC protocol
+      ha:                       # Router + Home Assistant server
         config: configs/home_assistant.yaml
-        ir_receiver: protocols/ir_nec.yaml
       lan_no_ha:                # No-HA LAN mode (router present, no HA server)
         config: configs/networked.yaml
-      rev3_hit_1_0:             # Rev 3.x + hit face 1.0 (push button target)
-        board: boards/rev3_hit_1_0.yaml
-      rev3_lcd_1_1:             # Rev 3.x + LCD face 1.1 (GC9A01 LCD)
-        board: boards/rev3_lcd_1_1.yaml
-      hit_standard:             # standard hit effect (no fuse / lightning)
-        hit_script: scripts/hit_script.yaml
-      hit_gnd_sawzall:          # standard hit, GND switch revs a motor (sawzall)
-        hit_script: scripts/hit_script_gnd_sawzall.yaml
-      hit_relay_toggle:         # standard hit, relay presses a push-on/push-off button at both ends
-        hit_script: scripts/hit_script_relay_toggle.yaml
-      hit_fuse:                 # fuse burns down LED Strip 2, then explodes
-        hit_script: scripts/hit_script_fuse.yaml
-      hit_lightning:            # xLights lightning-storm port (left cloud)
-        hit_script: scripts/hit_script_lightning.yaml
-      hit_fan_mister:           # LCD fan icon; 2nd hit on the water drop = mister
-        board: boards/rev3_lcd_1_1.yaml
+      fpp:
+        config: configs/networked.yaml
+        fpp_file: integrations/target_fpp.yaml
+
+  target_lcd:
+    path: Targets/NeatoTargetIR/main_lcd.yaml
+    label: "Neato Target IR LCD"
+    variants:
+      default: {}
+      standalone:
+        config: configs/standalone.yaml
+      lan_no_ha:
+        config: configs/networked.yaml
+      fpp:
+        fpp_file: integrations/target_fpp.yaml
+      hit_fan_mister:           # fan icon; 2nd hit on the water drop = mister
         hit_script: scripts/hit_script_fan_mister.yaml
-      hit_curtain:              # LCD sun / moon mirroring a Home Assistant cover
-        board: boards/rev3_lcd_1_1.yaml
+      hit_curtain:              # sun / moon mirroring a Home Assistant cover
         config: configs/home_assistant.yaml
         hit_script: scripts/hit_script_curtain.yaml
+
+  target_hit:
+    path: Targets/NeatoTargetIR/main_hit.yaml
+    label: "Neato Target IR Hit"
+    variants:
+      default: {}
+      standalone:
+        config: configs/standalone.yaml
+      lan_no_ha:
+        config: configs/networked.yaml
+
+  target_fan:
+    path: Targets/NeatoTargetIR/main_fan.yaml
+    label: "Neato Target IR Hologram"
+    variants:
+      default: {}
+      standalone:
+        config: configs/standalone.yaml
+      lan_no_ha:
+        config: configs/networked.yaml
+      fpp:
+        fpp_file: integrations/target_fpp.yaml
 
   motor:
     path: Controllers/NeatoMotor/main.yaml

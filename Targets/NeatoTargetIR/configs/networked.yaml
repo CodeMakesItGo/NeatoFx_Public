@@ -25,7 +25,7 @@ packages:
 # dashboard_import requires the api: component, which is removed in No-HA LAN
 # mode (see below). Re-enable together with api: for ESPHome dashboard adoption.
 #dashboard_import:
-#  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Targets/NeatoTargetIR/main.yaml@main
+#  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Targets/NeatoTargetIR/${main_file}@main
 #  import_full_config: true
 
 # ==============================================================================
@@ -55,7 +55,7 @@ substitutions:
 # not needed. _shared/networked_base.yaml provides api: (with a 5-min reboot
 # timer that would otherwise reboot this device every 5 min with no HA client);
 # !remove strips it here so this device runs pure LAN. Logs via serial or the
-# web_server console; OTA still works. To use Home Assistant, switch main.yaml to
+# web_server console; OTA still works. To use Home Assistant, switch the main*.yaml to
 # configs/home_assistant.yaml instead of this file.
 api: !remove
 
@@ -217,7 +217,7 @@ script:
 
   # Home Assistant hit event — fired FIRST by target_hit_script. There is no HA
   # server on a No-HA LAN, so this is a stub; the real one lives in
-  # configs/home_assistant.yaml. Switch main.yaml to that config to run HA.
+  # configs/home_assistant.yaml. Switch the main*.yaml to that config to run HA.
   - id: esphome_hit_event_script
     mode: parallel
     then: []
@@ -238,4 +238,4 @@ improv_serial:
 #  - platform: http_request
 #    id: firmware_update_check
 #    name: "Firmware Update"
-#    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/target-ir/manifest.json
+#    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/${update_channel}/manifest.json

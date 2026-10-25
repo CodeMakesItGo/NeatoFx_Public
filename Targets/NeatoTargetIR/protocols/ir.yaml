@@ -1,0 +1,295 @@
+# ==============================================================================
+# INFRARED RECEIVER - every protocol in one binary, chosen at runtime
+# ==============================================================================
+# Replaces the build-time protocol packages (ir_laser_tag / ir_nec). One
+# remote_receiver runs both decoders on every frame; the "IR Protocol" select
+# decides which of them is allowed to score a hit:
+#
+#   Laser Tag            on_raw  — pulse/space laser-tag team decode (adaptive
+#                                  thresholds, from the old ir_laser_tag.yaml)
+#   Neato Blaster (NEC)  on_nec  — Blaster player in the low nibble of the
+#                                  command (old ir_nec.yaml)
+#
+# The select persists, so a unit keeps its protocol across firmware updates.
+# The default ("Laser Tag") matches what the stock firmware shipped with.
+# Receiver timing is the filter 50 us / idle 10 ms both packages already used.
+#
+# TEAM / PLAYER COLOR
+#   Both decoders fill the shared team_r/g/b + team_name globals and raise
+#   team_detected (boards/common/common.yaml); target_hit_script does the
+#   painting. One pair of switches drives the two gates for every protocol:
+#     "Team Color On Hit"    -> team_color_enabled
+#     "Team Color Capture"   -> capture_mode_enabled
+#   Under NEC a "team" is the shooting player's color (Player 1-5 Color).
+#   The NEC package used to have its own "Player Color On Hit" / "Player Color
+#   Capture" switches on the same globals; they are folded into these two.
+# ==============================================================================
+
+select:
+  - platform: template
+    name: "IR Protocol"
+    id: ir_protocol
+    icon: "mdi:remote"
+    options:
+      - "Laser Tag"
+      - "Neato Blaster (NEC)"
+    initial_option: "Laser Tag"
+    optimistic: true
+    restore_value: true
+    on_value:
+      - logger.log:
+          format: "IR protocol: %s"
+          args: ['x.c_str()']
+
+  # Players 1-5 map to the five Display colors (NEC only). Defaults follow the
+  # Display build order in program.sh (YLW, GRN, BLU, ORG, RED); each is
+  # re-mappable because a Display's artwork color is a build-time choice while
+  # its Player ID is set at runtime — the two can legitimately differ.
+  - platform: template
+    name: "Player 1 Color"
+    id: player_color_1
+    icon: "mdi:palette"
+    options: &player_color_options
+      - "Yellow"
+      - "Red"
+      - "Blue"
+      - "Green"
+      - "Orange"
+    initial_option: "Yellow"
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "Player 2 Color"
+    id: player_color_2
+    icon: "mdi:palette"
+    options: *player_color_options
+    initial_option: "Green"
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "Player 3 Color"
+    id: player_color_3
+    icon: "mdi:palette"
+    options: *player_color_options
+    initial_option: "Blue"
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "Player 4 Color"
+    id: player_color_4
+    icon: "mdi:palette"
+    options: *player_color_options
+    initial_option: "Orange"
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "Player 5 Color"
+    id: player_color_5
+    icon: "mdi:palette"
+    options: *player_color_options
+    initial_option: "Red"
+    optimistic: true
+    restore_value: true
+
+text_sensor:
+  # Last decoded laser-tag team ("Unknown" for an unrecognized frame).
+  - platform: template
+    name: "Detected Team"
+    id: detected_team
+    icon: "mdi:target"
+    update_interval: never
+
+  # Which NEC player last hit this target, as a color name — the quickest way to
+  # confirm a Blaster's Player ID. "None" for an unassigned Blaster / player 6-15.
+  - platform: template
+    name: "Hit Player Color"
+    id: hit_player_color
+    icon: "mdi:palette-outline"
+    update_interval: never
+
+switch:
+  # Flash the hit in the shooter's color (laser-tag team, or NEC player color).
+  # Only the "Solid Color" / "Strobe Flash" hit effects use it — animated
+  # effects paint their own colors. The resting color is restored after the hit.
+  - platform: template
+    name: "Team Color On Hit"
+    id: team_color_on_hit_switch
+    icon: "mdi:palette"
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+    turn_on_action:
+      - globals.set:
+          id: team_color_enabled
+          value: 'true'
+    turn_off_action:
+      - globals.set:
+          id: team_color_enabled
+          value: 'false'
+
+  # CAPTURE MODE — the target keeps the color of the last team / player to hit
+  # it, so a round is scored by counting the targets in each color at the end.
+  # Set "Target LEDs Idle Effect" to "Solid Color" for it to be visible.
+  - platform: template
+    name: "Team Color Capture"
+    id: team_color_capture_switch
+    icon: "mdi:flag-checkered"
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+    turn_on_action:
+      - globals.set:
+          id: capture_mode_enabled
+          value: 'true'
+    turn_off_action:
+      - globals.set:
+          id: capture_mode_enabled
+          value: 'false'
+
+remote_receiver:
+  pin:
+    number: ${ir_gpio}
+    inverted: true      # Keep this for most IR receiver modules (TSOP, etc.)
+    mode:
+      input: true
+      pullup: ${ir_pullup}
+  tolerance: 25%
+  filter: 50us          # Filter noise
+  idle: 10ms            # Signal end detection
+  buffer_size: 10kB     # Large buffer for complex signals
+
+  # Uncomment to dump frames while bringing up a new emitter:
+  # dump: [raw, nec]
+
+  # ---------------------------------------------------------------------------
+  # NEC — Neato Blaster. Player in the low nibble of the command (0x70 | player).
+  # ---------------------------------------------------------------------------
+  on_nec:
+    then:
+      - if:
+          condition:
+            lambda: |-
+              if (!id(ir_enabled) || !id(target_enabled)) return false;
+              return id(ir_protocol).current_option() == "Neato Blaster (NEC)";
+          then:
+            - lambda: |-
+                // 0 = the blaster has no Player ID assigned; the hit still
+                // registers so HA can surface "player 0" as the anomaly.
+                int player = x.command & 0x0F;
+                ESP_LOGI("IR", "NEC - Address: 0x%04X, Command: 0x%02X, Player: %d",
+                         x.address, x.command & 0xFF, player);
+                id(ir_command) = player;
+
+                // Only players 1-5 have a color (one per Display build).
+                std::string color = "";
+                switch (player) {
+                  case 1: color = id(player_color_1).current_option(); break;
+                  case 2: color = id(player_color_2).current_option(); break;
+                  case 3: color = id(player_color_3).current_option(); break;
+                  case 4: color = id(player_color_4).current_option(); break;
+                  case 5: color = id(player_color_5).current_option(); break;
+                  default: break;
+                }
+                // RGB values match boards/common/color_controls.yaml.
+                if      (color == "Yellow") { id(team_r) = 1.0f; id(team_g) = 1.0f; id(team_b) = 0.0f; }
+                else if (color == "Red")    { id(team_r) = 1.0f; id(team_g) = 0.0f; id(team_b) = 0.0f; }
+                else if (color == "Blue")   { id(team_r) = 0.0f; id(team_g) = 0.0f; id(team_b) = 1.0f; }
+                else if (color == "Green")  { id(team_r) = 0.0f; id(team_g) = 1.0f; id(team_b) = 0.0f; }
+                else if (color == "Orange") { id(team_r) = 1.0f; id(team_g) = 0.5f; id(team_b) = 0.0f; }
+                else                        { color = ""; }
+
+                id(team_detected) = !color.empty();
+                if (id(team_detected)) id(team_name) = color;  // also a Solid Color option
+                id(hit_player_color).publish_state(color.empty() ? "None" : color);
+            - script.execute: run_hit_script
+
+  # ---------------------------------------------------------------------------
+  # RAW — laser-tag team decode.
+  # ---------------------------------------------------------------------------
+  on_raw:
+    then:
+      - if:
+          condition:
+            lambda: |-
+              if (!id(ir_enabled) || !id(target_enabled)) return false;
+              return id(ir_protocol).current_option() == "Laser Tag";
+          then:
+            - lambda: |-
+                id(ir_command) = 0;
+                const auto &raw_data = x;
+                // An NEC frame (header ~9000/4500 us) is never a laser-tag shot.
+                if (raw_data.size() >= 2 && abs(raw_data[0]) > 8000 && abs(raw_data[1]) > 4000) {
+                  ESP_LOGD("IR", "NEC-shaped frame - not laser tag");
+                  return;
+                }
+                if (raw_data.size() < 20) {
+                  ESP_LOGD("IR", "Signal too short, ignoring");
+                  return;
+                }
+
+                // Adaptive per-frame thresholds (robust to close-range AGC).
+                // Laser tag encodes bits as SHORT vs LONG, and absolute widths
+                // drift with signal strength. Classify each symbol against the
+                // midpoint of this frame's own short/long clusters so no symbol
+                // is dropped (a dropped symbol shifts every following bit and
+                // breaks the fixed-position team match). Header (>1500 us) is
+                // excluded from both the stats and the decode.
+                int p_min = 100000, p_max = 0, s_min = 100000, s_max = 0;
+                for (size_t i = 0; i + 1 < raw_data.size(); i += 2) {
+                  int p = abs(raw_data[i]);
+                  int s = abs(raw_data[i + 1]);
+                  if (p <= 1500) { if (p < p_min) p_min = p; if (p > p_max) p_max = p; }
+                  if (s <= 1500) { if (s < s_min) s_min = s; if (s > s_max) s_max = s; }
+                }
+                int thr_pulse = (p_max - p_min >= 200) ? (p_min + p_max) / 2 : 627;
+                int thr_space = (s_max - s_min >= 200) ? (s_min + s_max) / 2 : 550;
+
+                // Decode to bits, LSB-first, straight into integers. (The old
+                // packages built bit strings, reversed them, padded to hex
+                // strings and parsed those back; this is the same arithmetic.)
+                uint32_t pulse_val = 0, space_val = 0;
+                int pulse_n = 0, space_n = 0;
+                for (size_t i = 0; i + 1 < raw_data.size(); i += 2) {
+                  int pulse = abs(raw_data[i]);
+                  int space = abs(raw_data[i + 1]);
+                  if (pulse <= 1500 && pulse_n < 32) pulse_val |= (uint32_t)(pulse >= thr_pulse) << pulse_n++;
+                  if (space <= 1500 && space_n < 32) space_val |= (uint32_t)(space >= thr_space) << space_n++;
+                }
+                ESP_LOGD("IR", "Laser tag: %d/%d bits, pulse=0x%X space=0x%X (thr %d/%d)",
+                         pulse_n, space_n, (unsigned) pulse_val, (unsigned) space_val, thr_pulse, thr_space);
+
+                std::string team = "Unknown";
+                if (pulse_n >= 9 && space_n >= 9) {  // same floor as the old 3-hex-digit check
+                  // Team lives in bits 8-11 of each stream.
+                  uint8_t pp = (pulse_val >> 8) & 0xF;
+                  uint8_t sp = (space_val >> 8) & 0xF;
+                  if      (pp == 0x4 && sp == 0x0) team = "White";
+                  else if (pp == 0x8 && sp == 0x0) team = "Blue";
+                  else if (pp == 0x0 && sp == 0x8) team = "Red";
+                  else if (pp == 0x8 && sp == 0x8) team = "Green";
+                  else ESP_LOGI("IR", "Unrecognized laser tag pattern: pulse=0x%X space=0x%X", pp, sp);
+                } else {
+                  ESP_LOGI("IR", "Laser tag frame too short: %d/%d bits", pulse_n, space_n);
+                }
+                ESP_LOGI("IR", "Laser tag team: %s", team.c_str());
+                id(detected_team).publish_state(team);
+
+                // Hand the team color to target_hit_script via globals — never
+                // write it to the strip here (the running idle effect owns the
+                // pixels, and the strip's auto-save would persist the unseen
+                // color; see boards/common/common.yaml).
+                int team_id = 0;
+                if (team == "Red")        { team_id = 3; id(team_r) = 1.0f; id(team_g) = 0.0f; id(team_b) = 0.0f; }
+                else if (team == "Green") { team_id = 2; id(team_r) = 0.0f; id(team_g) = 1.0f; id(team_b) = 0.0f; }
+                else if (team == "Blue")  { team_id = 1; id(team_r) = 0.0f; id(team_g) = 0.0f; id(team_b) = 1.0f; }
+                else if (team == "White") { team_id = 4; id(team_r) = 1.0f; id(team_g) = 1.0f; id(team_b) = 1.0f; }
+                id(team_detected) = (team_id != 0);
+                if (id(team_detected)) id(team_name) = team;
+                id(ir_command) = team_id;
+            - if:
+                condition:
+                  lambda: 'return id(ir_command) != 0;'
+                then:
+                  - script.execute: run_hit_script

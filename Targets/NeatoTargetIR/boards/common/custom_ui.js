@@ -1,16 +1,21 @@
 /**
- * NeatoFx Smart Target — Custom Web Interface
+ * NeatoFx Target IR — Custom Web Interface
  *
  * Replaces the default ESPHome web UI with a target-specific dashboard.
  * Communicates via ESPHome REST API and Server-Sent Events (/events).
  * Self-contained — no external dependencies, works in AP standalone mode.
+ * Firmware updates are installed from this page too (Firmware Update card,
+ * POST /update) — the default ESPHome UI is not needed for anything.
  */
 (function () {
   'use strict';
 
   console.log('[NEATO-UI] script loaded');
 
-  const DEVICE_NAME = document.title || 'NeatoFx Target';
+  // Placeholder until the device reports its own name (the SSE "ping" event's
+  // title = friendly_name: NeatoFx Target IR / IR LCD / IR Hit / IR Hologram,
+  // per hardware main). See showDeviceName().
+  const DEVICE_NAME = 'NeatoFx Target IR';
   const WEBSITE_URL = 'https://neatofx.com';
 
   // Entity type tags (must equal the ESPHome domain used in REST/SSE paths)
@@ -24,6 +29,11 @@
   // Idle (resting) effects — same set minus the transient Strobe Flash
   const IDLE_EFFECTS = ['Rainbow Effect', 'Color Wipe Effect', 'Scanner Effect', 'Twinkle Effect', 'Heartbeat Effect', 'Solid Color'];
   const COLORS = ['White', 'Red', 'Green', 'Blue', 'Yellow', 'Purple', 'Cyan', 'Orange', 'Pink'];
+  const GPIO_MODES = ['Input', 'Hit Trigger Input', 'Hit Pulse Output'];
+  const GPIO_MODE_NOTE =
+    'Each pin: Input = reads only (state shows in Debug). Hit Trigger Input = connecting the pin to GND scores a hit, like an IR shot. ' +
+    'Hit Pulse Output = on every hit the pin waits its Pulse Delay, then goes high (3.3 V) for its Pulse Width — to trigger an external controller or sound board. ' +
+    'Pulse Delay / Width only apply in Hit Pulse Output mode; the Test switch only works in that mode too.';
 
   // ── Entity registry ────────────────────────────────────────────────────────
   // Keys are internal-only DOM ids. `name` is the exact YAML `name:` — REST URLs
@@ -44,37 +54,86 @@
                       note: 'Off = LEDs dark, outputs released, all hits ignored (IR, triggers, Test Hit). On = normal operation. Persists across reboots.',
                       section: 'base' },
 
+    // ── Target Behavior — what used to be a build choice, now a runtime one ──
+    ir_protocol: { type: SEL, name: 'IR Protocol', label: 'IR Protocol',
+                   options: ['Laser Tag', 'Neato Blaster (NEC)'],
+                   note: 'Which IR signal scores a hit. Laser Tag reads the shooting team; Neato Blaster reads the player number set on the Blaster.',
+                   section: 'mode' },
+    hit_style:   { type: SEL, name: 'Hit Style', label: 'Hit Style',
+                   options: ['Standard', 'Fuse + Explosion', 'Lightning Storm'],
+                   note: 'Standard = hit effect, relay, GND and servo fire at the hit. Fuse = LED Strip 2 burns down first, then relay / GND / servo fire. Lightning = 12.8 s storm on both strips, relay and GND (ignores the hit effects and timers).',
+                   section: 'mode' },
+    relay_mode:  { type: SEL, name: 'Relay Mode', label: 'Relay Mode', options: ['Hold', 'Toggle'],
+                   note: 'Hold = relay stays closed for the Relay Timer. Toggle = two short presses, one at the hit and one when the Relay Timer ends — for a push-on / push-off light button.',
+                   section: 'mode' },
+    gnd_effect:  { type: SEL, name: 'GND Effect', label: 'GND Effect', options: ['Ramp', 'Flicker', 'Throttle'],
+                   note: 'What the GND switch does for the GND window. Ramp = turns on, ramping up over GND Ramp % (0 % = instantly). Flicker = like a failing fluorescent tube. Throttle = a motor revved up and down.',
+                   section: 'mode' },
+    servo_mode:  { type: SEL, name: 'Servo Mode', label: 'Servo Mode', options: ['Off', 'Hold', 'Cycle'],
+                   note: 'Hold = moves to Servo Hit position at the hit, holds, then returns to Idle. Cycle = moves back and forth between Idle and Hit for the whole hit (a jaw or flapping arm). Off = servo not driven.',
+                   section: 'mode' },
+
+    // ── Hit Style Settings (collapsible) ──
+    fuse_burn:   { type: NUM, name: 'Fuse Burn Time', label: 'Fuse Burn Time', min: 250, max: 20000, step: 50, unit: 'ms',
+                   note: 'Only used when Hit Style = Fuse + Explosion. How long the fuse takes to burn from the first LED of LED Strip 2 to the last; the relay, GND and servo fire when it reaches the end.',
+                   section: 'style' },
+    relay_pulse: { type: NUM, name: 'Relay Pulse Width', label: 'Relay Pulse Width', min: 50, max: 2000, step: 50, unit: 'ms',
+                   note: 'Only used when Relay Mode = Toggle. How long each of the two button presses holds the relay closed.',
+                   section: 'style' },
+
+    // ── GPIO (collapsible) — right-side connector pins ──
+    gpio16_mode:  { type: SEL, name: 'GPIO16 Mode', label: 'GPIO16', options: GPIO_MODES, section: 'gpio' },
+    gpio16_delay: { type: NUM, name: 'GPIO16 Pulse Delay', label: 'GPIO16 Pulse Delay', min: 0, max: 20000, step: 10, unit: 'ms', section: 'gpio' },
+    gpio16_width: { type: NUM, name: 'GPIO16 Pulse Width', label: 'GPIO16 Pulse Width', min: 10, max: 10000, step: 10, unit: 'ms', section: 'gpio' },
+    gpio16_out:   { type: SW,  name: 'GPIO16 Output', label: 'Test GPIO16 Output', section: 'gpio' },
+    gpio17_mode:  { type: SEL, name: 'GPIO17 Mode', label: 'GPIO17', options: GPIO_MODES, section: 'gpio' },
+    gpio17_delay: { type: NUM, name: 'GPIO17 Pulse Delay', label: 'GPIO17 Pulse Delay', min: 0, max: 20000, step: 10, unit: 'ms', section: 'gpio' },
+    gpio17_width: { type: NUM, name: 'GPIO17 Pulse Width', label: 'GPIO17 Pulse Width', min: 10, max: 10000, step: 10, unit: 'ms', section: 'gpio' },
+    gpio17_out:   { type: SW,  name: 'GPIO17 Output', label: 'Test GPIO17 Output', section: 'gpio' },
+    gpio25_mode:  { type: SEL, name: 'GPIO25 Mode', label: 'GPIO25', options: GPIO_MODES, section: 'gpio' },
+    gpio25_delay: { type: NUM, name: 'GPIO25 Pulse Delay', label: 'GPIO25 Pulse Delay', min: 0, max: 20000, step: 10, unit: 'ms', section: 'gpio' },
+    gpio25_width: { type: NUM, name: 'GPIO25 Pulse Width', label: 'GPIO25 Pulse Width', min: 10, max: 10000, step: 10, unit: 'ms', section: 'gpio' },
+    gpio25_out:   { type: SW,  name: 'GPIO25 Output', label: 'Test GPIO25 Output', section: 'gpio' },
+
     // ── Base Target Events ──
     hit_points:     { type: NUM, name: 'Hit Points',    label: 'Hit Points', min: 10, max: 100, step: 10, unit: 'pts', section: 'base' },
     cooldown_timer: { type: NUM, name: 'Cooldown Timer', label: 'Cooldown',  min: 0, max: 600000, step: 100, unit: 'ms', section: 'base' },
     relay_timer:    { type: NUM, name: 'Relay Timer',   label: 'Relay Timer', min: 100, max: 10000, step: 100, unit: 'ms', section: 'base' },
-    // scripts/hit_script_relay_toggle.yaml only — pruned on every other build
-    relay_pulse:    { type: NUM, name: 'Relay Pulse Width', label: 'Relay Pulse Width (button press)', min: 50, max: 2000, step: 50, unit: 'ms', section: 'base' },
     gnd_timer:      { type: NUM, name: 'GND Timer',     label: 'GND Timer (0 = follow relay)', min: 0, max: 3000, step: 100, unit: 'ms', section: 'base' },
     idle_effect:    { type: SEL, name: 'Target LEDs Idle Effect', label: 'Idle LED Effect',  options: IDLE_EFFECTS, section: 'base' },
     hit_effect:     { type: SEL, name: 'Target LEDs Hit Effect',  label: 'Hit LED Effect',  options: HIT_EFFECTS, section: 'base' },
     solid_color:    { type: SEL, name: 'Target LEDs Solid Color', label: 'Solid Color',      options: COLORS,      section: 'base' },
     led_brightness: { type: NUM, name: 'Target LEDs Brightness', label: 'LED Brightness', min: 0, max: 100, step: 1, unit: '%', section: 'base' },
 
-    // ── Team Color (laser-tag protocols only; hidden on builds without them) ──
+    // ── Team Color (hidden on IR-less builds such as the hit face) ──
     // Two independent modes, deliberately worded to say what each one keeps:
-    // the flash is temporary, capture is permanent.
+    // the flash is temporary, capture is permanent. With the Neato Blaster the
+    // "team" is the shooting player's color (Blaster Player 1-5 below).
     team_color:   { type: SW, name: 'Team Color On Hit',   label: 'Flash Team Color On Hit',
-                    note: 'Hit flashes in the shooting team’s color. Solid Color / Strobe Flash hit effects only — animated effects keep their own colors. Resting color is restored after the hit.',
+                    note: 'Hit flashes in the shooter’s color (laser-tag team, or Blaster player color). Solid Color / Strobe Flash hit effects only — animated effects keep their own colors. Resting color is restored after the hit.',
                     section: 'team' },
     team_capture: { type: SW, name: 'Team Color Capture',  label: 'Capture Mode (keep team color)',
                     note: 'Target KEEPS the last team’s color as its resting color, for capture-the-flag scoring. Overwrites Solid Color below. Set Idle LED Effect to “Solid Color” to see it.',
                     section: 'team' },
+    player_color_1: { type: SEL, name: 'Player 1 Color', label: 'Blaster Player 1', options: ['Yellow', 'Red', 'Blue', 'Green', 'Orange'], section: 'team' },
+    player_color_2: { type: SEL, name: 'Player 2 Color', label: 'Blaster Player 2', options: ['Yellow', 'Red', 'Blue', 'Green', 'Orange'], section: 'team' },
+    player_color_3: { type: SEL, name: 'Player 3 Color', label: 'Blaster Player 3', options: ['Yellow', 'Red', 'Blue', 'Green', 'Orange'], section: 'team' },
+    player_color_4: { type: SEL, name: 'Player 4 Color', label: 'Blaster Player 4', options: ['Yellow', 'Red', 'Blue', 'Green', 'Orange'], section: 'team' },
+    player_color_5: { type: SEL, name: 'Player 5 Color', label: 'Blaster Player 5', options: ['Yellow', 'Red', 'Blue', 'Green', 'Orange'], section: 'team' },
 
-    // ── Aux Triggers ──
-    gpio25_trigger: { type: SW, name: 'GPIO25 Hit Trigger', label: 'GPIO25 Trigger', section: 'aux' },
-    gnd_ramp:       { type: NUM, name: 'GND Ramp', label: 'GND Ramp (% of GND window, 0 = instant)', min: 0, max: 100, step: 1, unit: '%', section: 'aux' },
+    // ── Aux Outputs ──
+    gnd_ramp:       { type: NUM, name: 'GND Ramp', label: 'GND Ramp (% of GND window, 0 = instant)', min: 0, max: 100, step: 1, unit: '%',
+                      note: 'Only used when GND Effect = Ramp.', section: 'aux' },
     aux_pwr_mode:   { type: SEL, name: 'Aux Power Mode', label: 'Aux Power', options: ['On', 'Off', 'Follow Relay'],
                       note: 'On = aux rail always powered. Off = never powered. Follow Relay = powered only while Relay 1 is on (the Relay Timer window on each hit). The servo, LED Strip 2 and the LCD face all run off this rail — leave it On if the target uses them.',
                       section: 'aux' },
 
     // ── LED Strip 2 ──
     led2:            { type: LT,  name: 'LED Strip 2',            label: 'LED Strip 2',     section: 'led2' },
+    led2_count:      { type: NUM, name: 'LED Strip 2 LED Count', label: 'LED Count', min: 1, max: 300, step: 1, box: true,
+                       note: 'How many LEDs are on LED Strip 2 (1–300). <b>Power:</b> the board’s 5 V supply is 3 A in total, shared with the ESP32 and relay, and each LED draws up to 60 mA at full white — so about <b>40 LEDs fully lit at once</b> is the limit. ' +
+                             'Scanner and the Fuse light only a few LEDs and are fine on long strips. Solid Color, Strobe Flash, Rainbow, Color Wipe and Lightning light the whole strip: on a long strip lower the brightness, or power the strip from its own 5 V supply (tie its GND to the board).',
+                       section: 'led2' },
     led2_brightness: { type: NUM, name: 'LED Strip 2 Brightness', label: 'LED Brightness', min: 0, max: 100, step: 1, unit: '%', section: 'led2' },
     led2_hit_effect: { type: SEL, name: 'LED Strip 2 Hit Effect', label: 'Hit LED Effect',  options: HIT_EFFECTS, section: 'led2' },
     led2_solid_color:{ type: SEL, name: 'LED Strip 2 Solid Color', label: 'Solid Hit Color', options: COLORS,     section: 'led2' },
@@ -92,9 +151,10 @@
     // ── Servo ──
     servo_idle: { type: NUM, name: 'Servo Idle Position', label: 'Servo Idle', min: 0, max: 180, step: 1, unit: '°', section: 'servo' },
     servo_hit:  { type: NUM, name: 'Servo Hit Position',  label: 'Servo Hit',  min: 0, max: 180, step: 1, unit: '°', section: 'servo' },
-    // scripts/servo_chomp.yaml only — pruned on every other build. On that build
-    // Test Servo Hit chomps for 3 s instead of swinging once.
-    chomp_interval: { type: NUM, name: 'Chomp Interval', label: 'Chomp Interval (per half-move)', min: 100, max: 2000, step: 50, unit: 'ms', section: 'servo' },
+    // Test Servo Hit runs one hit window in the current mode (3 s in Cycle).
+    cycle_interval: { type: NUM, name: 'Servo Cycle Interval', label: 'Cycle Interval', min: 100, max: 2000, step: 50, unit: 'ms',
+                      note: 'Only used when Servo Mode = Cycle. Time for each move between Idle and Hit position, so one full back-and-forth takes twice this. Too short and the servo shudders instead of reaching the position — a hobby servo needs about 250–400 ms per 90°.',
+                      section: 'servo' },
 
     // ── Reset (collapsible, bottom) ──
     wifi_reset:    { type: BTN, name: 'WiFi Reset',    label: 'Reset WiFi',     btnText: 'Reset', danger: true,
@@ -114,14 +174,16 @@
                    onQuery: 'brightness=255' },
     relay_1:     { type: SW, name: 'Relay 1',    label: 'Relay',       section: 'test' },
     target_leds: { type: LT, name: 'Target LEDs', label: 'Target LEDs', section: 'test' },
-    test_servo_hit: { type: BTN, name: 'Test Servo Hit', label: 'Test Servo Hit', btnText: 'Swing', section: 'test' },
+    test_servo_hit: { type: BTN, name: 'Test Servo Hit', label: 'Test Servo Hit', btnText: 'Run', section: 'test' },
 
     // ── Debug (collapsible) — all read-only ──
     gpio16:       { type: BIN,  name: 'GPIO16 Digital State',       label: 'GPIO16',         section: 'debug' },
     gpio17:       { type: BIN,  name: 'GPIO17 Digital State',       label: 'GPIO17',         section: 'debug' },
-    gpio25_in:    { type: BIN,  name: 'GPIO25 Hit Trigger Input',   label: 'GPIO25 Trigger', section: 'debug' },
+    gpio25_in:    { type: BIN,  name: 'GPIO25 Digital State',       label: 'GPIO25',         section: 'debug' },
+    gpio34_adc:   { type: SENS, name: 'GPIO34 Voltage',             label: 'GPIO34 (ADC)', unit: 'V', section: 'debug' },
     trigger_in:   { type: BIN,  name: 'Trigger Input',             label: 'Trigger Input',  section: 'debug' },
     detected_team:{ type: TXT,  name: 'Detected Team',             label: 'Detected Team',  section: 'debug' },
+    hit_player:   { type: TXT,  name: 'Hit Player Color',          label: 'Blaster Player Color', section: 'debug' },
     wifi_ssid:    { type: TXT,  name: 'WiFi SSID',                 label: 'WiFi SSID',      section: 'debug' },
     wifi_ip:      { type: TXT,  name: 'WiFi IP Address',           label: 'IP Address',     section: 'debug' },
     wifi_mac:     { type: TXT,  name: 'WiFi MAC Address',          label: 'MAC',            section: 'debug' },
@@ -191,6 +253,10 @@
     es.addEventListener('state', function (ev) {
       try { applyState(JSON.parse(ev.data)); } catch (_) {}
     });
+    // Sent once on connect with the device config; title is the friendly name.
+    es.addEventListener('ping', function (ev) {
+      try { showDeviceName(JSON.parse(ev.data).title); } catch (_) {}
+    });
 
     es.onopen = function () {
       clearTimeout(retryTimer);
@@ -207,8 +273,20 @@
     };
   }
 
-  // Stop SSE permanently (used when handing the page over to the default UI,
-  // so each phone holds only one /events socket)
+  // Header name from the device's friendly name. ESPHome appends the MAC suffix
+  // (" a1b2c3") when name_add_mac_suffix is on — dropped here; the MAC is in
+  // Debug and the Device ID is shown under the name.
+  function showDeviceName(title) {
+    if (!title) return;
+    var name = String(title).replace(/[\s-][0-9a-f]{6}$/i, '');
+    var el = document.getElementById('hdr-name');
+    if (el) el.textContent = name;
+    document.title = name;
+  }
+
+  // Stop SSE (used while a firmware upload runs: it frees one of the device's
+  // few HTTP sockets for the upload, and the stream would only error when the
+  // device reboots)
   function disconnect() {
     clearTimeout(retryTimer);
     clearTimeout(pruneTimer);
@@ -394,6 +472,7 @@
         '<span class="lbl">' + cfg.label + '</span>' +
         '<span class="val">–</span>' +
       '</div>' +
+      (cfg.note ? '<div class="note">' + cfg.note + '</div>' : '') +
       '<input type="range" min="' + cfg.min + '" max="' + cfg.max + '" step="' + cfg.step + '"' +
              ' value="' + Math.round((cfg.min + cfg.max) / 2) + '">';
     var range = div.querySelector('input');
@@ -408,7 +487,8 @@
     var div = document.createElement('div');
     div.className   = 'row';
     div.dataset.eid = 'number-' + id;
-    div.innerHTML   = '<span class="lbl">' + cfg.label + '</span>';
+    div.innerHTML   = '<span class="lbl-wrap"><span class="lbl">' + cfg.label + '</span>' +
+      (cfg.note ? '<span class="note">' + cfg.note + '</span>' : '') + '</span>';
     var inp = document.createElement('input');
     inp.type = 'number';
     inp.className = 'numbox';
@@ -554,9 +634,124 @@
     return card;
   }
 
+  // ── Firmware update ────────────────────────────────────────────────────────
+  // Uploads a .bin straight to the device's own OTA endpoint (POST /update,
+  // provided by `ota: - platform: web_server`), so a firmware update needs no
+  // internet and no default ESPHome UI. The same multipart field name ("update")
+  // the default UI's form uses.
+  //
+  // The file is sanity-checked before anything is sent: an ESP32 app image
+  // starts with the 0xE9 magic byte, and a *.factory.bin (bootloader +
+  // partition table + app, for USB flashing) has the partition table magic
+  // 0xAA 0x50 at 0x8000. Flashing a factory image over OTA fails on the device
+  // anyway, but only after the whole upload; catching it here is instant.
+  function makeFirmwareUpdate() {
+    var wrap = document.createElement('div');
+    wrap.innerHTML =
+      '<div class="note">Install a firmware file from this phone or computer — no internet needed. ' +
+        'Use the OTA image (<b>firmware.ota.bin</b>, or the .bin from a NeatoFx release), not <b>*.factory.bin</b>. ' +
+        'Settings and WiFi are kept. Keep this page open until the device restarts.</div>' +
+      '<div class="row">' +
+        '<input type="file" class="fw-file" accept=".bin,application/octet-stream">' +
+        '<button class="act-btn" disabled>Install</button>' +
+      '</div>' +
+      '<div class="fw-bar"><div class="fw-fill"></div></div>' +
+      '<div class="fw-msg"></div>';
+
+    var input = wrap.querySelector('.fw-file');
+    var btn   = wrap.querySelector('button');
+    var fill  = wrap.querySelector('.fw-fill');
+    var msg   = wrap.querySelector('.fw-msg');
+
+    function say(text, cls) {
+      msg.textContent = text;
+      msg.className = 'fw-msg' + (cls ? ' ' + cls : '');
+    }
+
+    input.addEventListener('change', function () {
+      fill.style.width = '0';
+      var f = input.files[0];
+      btn.disabled = !f;
+      say(f ? f.name + ' — ' + Math.round(f.size / 1024) + ' KB' : '');
+    });
+
+    function checkImage(file) {
+      return file.slice(0, 0x8002).arrayBuffer().then(function (buf) {
+        var b = new Uint8Array(buf);
+        if (b.length < 1 || b[0] !== 0xE9) return 'This is not an ESP32 firmware image.';
+        if (b.length >= 0x8002 && b[0x8000] === 0xAA && b[0x8001] === 0x50)
+          return 'This is a factory image (for USB flashing). Choose the .ota.bin instead.';
+        return null;
+      });
+    }
+
+    // After a successful upload the device reboots. Poll until it answers
+    // again, then reload so the page reflects the new firmware.
+    function waitForReboot() {
+      var tries = 0;
+      (function poll() {
+        tries++;
+        fetch('/', { cache: 'no-store' }).then(function (r) {
+          if (r.ok) location.reload();
+          else throw 0;
+        }).catch(function () {
+          if (tries < 60) setTimeout(poll, 2000);
+          else say('Installed. The device has not come back yet — refresh this page in a moment.', 'ok');
+        });
+      })();
+    }
+
+    btn.addEventListener('click', function () {
+      var file = input.files[0];
+      if (!file) return;
+      btn.disabled = true;
+      checkImage(file).then(function (problem) {
+        if (problem) { say(problem, 'err'); btn.disabled = false; return; }
+        if (!window.confirm('Install ' + file.name + '? The device restarts when it finishes.')) {
+          btn.disabled = false;
+          return;
+        }
+        input.disabled = true;
+        disconnect();
+        setLive(false);
+
+        var form = new FormData();
+        form.append('update', file, file.name);
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/update');
+        xhr.upload.onprogress = function (e) {
+          if (!e.lengthComputable) return;
+          var pct = Math.round(e.loaded * 100 / e.total);
+          fill.style.width = pct + '%';
+          say(pct < 100 ? 'Uploading… ' + pct + '%' : 'Writing firmware…');
+        };
+        xhr.onload = function () {
+          if (xhr.status === 200 && !/fail/i.test(xhr.responseText)) {
+            fill.style.width = '100%';
+            say('Installed. Restarting…', 'ok');
+            setTimeout(waitForReboot, 4000);
+          } else {
+            fail('Update failed' + (xhr.responseText ? ': ' + xhr.responseText.trim() : ' (HTTP ' + xhr.status + ')'));
+          }
+        };
+        xhr.onerror = function () { fail('Upload interrupted — check the connection and try again.'); };
+        xhr.send(form);
+      });
+    });
+
+    function fail(text) {
+      say(text, 'err');
+      fill.style.width = '0';
+      input.disabled = false;
+      btn.disabled = false;
+      connect();
+    }
+
+    return wrap;
+  }
+
   // ── CSS ────────────────────────────────────────────────────────────────────
-  // All rules are scoped under .app so nothing leaks into the default ESPHome
-  // UI if the user switches views.
+  // All rules are scoped under .app so nothing leaks into the host page.
   var CSS = [
     '.app, .app *, .app *::before, .app *::after { box-sizing: border-box; margin: 0; padding: 0; }',
 
@@ -582,7 +777,7 @@
     '.hdr-l { min-width: 0; }',
     '.hdr-name { font-size: 1.05rem; font-weight: 700; color: #fff; }',
     '.hdr-sub  { font-size: 0.72rem; color: #666; margin-top: 3px; }',
-    '.hdr-link { color: #e94560; text-decoration: none; }',
+    '.hdr-link { color: #66e73a; text-decoration: none; }',
     '.hdr-link:hover { text-decoration: underline; }',
     '.hdr-ver  { font-size: 0.68rem; color: #4a4a68; margin-top: 3px; letter-spacing: .3px; }',
     '.hdr-id   { font-size: 0.72rem; color: #4a4a68; margin-top: 2px; letter-spacing: .3px; font-weight: 600; }',
@@ -603,15 +798,15 @@
     '}',
     '.hit-info { flex: 0 0 auto; }',
     '.hit-lbl { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 1px; color: #555; margin-bottom: 2px; }',
-    '#hit-count { font-size: 3rem; font-weight: 800; color: #e94560; line-height: 1; min-width: 56px; }',
+    '#hit-count { font-size: 3rem; font-weight: 800; color: #66e73a; line-height: 1; min-width: 56px; }',
     '.test-btn {',
-    '  flex: 1; background: linear-gradient(135deg, #e94560 0%, #b02f4a 100%);',
-    '  color: #fff; border: none; border-radius: 12px; padding: 20px 12px;',
+    '  flex: 1; background: linear-gradient(135deg, #66e73a 0%, #4bb52a 100%);',
+    '  color: #111110; border: none; border-radius: 12px; padding: 20px 12px;',
     '  font-size: 1rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;',
-    '  cursor: pointer; box-shadow: 0 4px 20px rgba(233,69,96,.3);',
+    '  cursor: pointer; box-shadow: 0 4px 20px rgba(102,231,58,.3);',
     '  transition: transform .1s, box-shadow .1s; -webkit-tap-highlight-color: transparent;',
     '}',
-    '.test-btn:active { transform: scale(.96); box-shadow: 0 2px 10px rgba(233,69,96,.15); }',
+    '.test-btn:active { transform: scale(.96); box-shadow: 0 2px 10px rgba(102,231,58,.15); }',
 
     /* Cards */
     '.card {',
@@ -640,7 +835,7 @@
     '  position: relative; cursor: pointer; flex-shrink: 0;',
     '  transition: background .2s; outline: none;',
     '}',
-    '.row.on .tgl { background: #e94560; }',
+    '.row.on .tgl { background: #66e73a; }',
     '.tgl-thumb {',
     '  width: 21px; height: 21px; background: #fff; border-radius: 50%;',
     '  position: absolute; top: 3px; left: 3px;',
@@ -682,7 +877,7 @@
     /* Slider */
     '.slider { padding: 12px 16px 18px; border-top: 1px solid #1e1e38; }',
     '.slider-hdr { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }',
-    '.val { font-size: 0.9rem; font-weight: 600; color: #e94560; }',
+    '.val { font-size: 0.9rem; font-weight: 600; color: #66e73a; }',
     '.app input[type=range] {',
     '  -webkit-appearance: none; appearance: none;',
     '  width: 100%; height: 4px; background: #2a2a45; border-radius: 2px;',
@@ -690,11 +885,11 @@
     '}',
     '.app input[type=range]::-webkit-slider-thumb {',
     '  -webkit-appearance: none;',
-    '  width: 22px; height: 22px; background: #e94560; border-radius: 50%;',
-    '  box-shadow: 0 0 0 3px rgba(233,69,96,.2);',
+    '  width: 22px; height: 22px; background: #66e73a; border-radius: 50%;',
+    '  box-shadow: 0 0 0 3px rgba(102,231,58,.2);',
     '}',
     '.app input[type=range]::-moz-range-thumb {',
-    '  width: 22px; height: 22px; background: #e94560;',
+    '  width: 22px; height: 22px; background: #66e73a;',
     '  border-radius: 50%; border: none;',
     '}',
 
@@ -711,18 +906,17 @@
     '.adv-body.open { display: block; }',
     '.adv-open .chev { transform: rotate(180deg); }',
 
-    /* View switcher */
-    '.view-switch {',
-    '  display: flex; justify-content: center; padding: 8px 0 4px;',
+    /* Firmware update */
+    '.fw-file { flex: 1; min-width: 0; color: #aaa; font-size: 0.8rem; }',
+    '.fw-file::file-selector-button {',
+    '  background: #252540; color: #e0e0e0; border: 0; border-radius: 6px;',
+    '  padding: 6px 10px; margin-right: 8px; cursor: pointer;',
     '}',
-    '.orig-btn {',
-    '  background: none; border: 1px solid #252540; color: #3a3a5c;',
-    '  border-radius: 8px; padding: 5px 14px; font-size: 0.72rem;',
-    '  cursor: pointer; transition: color .2s, border-color .2s;',
-    '  -webkit-tap-highlight-color: transparent;',
-    '}',
-    '.orig-btn:hover { color: #777; border-color: #444; }',
-    '.orig-btn:disabled { opacity: .5; cursor: default; }',
+    '.fw-bar { height: 6px; background: #252540; border-radius: 3px; overflow: hidden; margin: 6px 0; }',
+    '.fw-fill { height: 100%; width: 0; background: #4ade80; transition: width .2s; }',
+    '.fw-msg { font-size: 0.8rem; color: #aaa; min-height: 1.2em; }',
+    '.fw-msg.err { color: #ef4444; }',
+    '.fw-msg.ok  { color: #4ade80; }',
   ].join('\n');
 
   // ── Build UI ───────────────────────────────────────────────────────────────
@@ -745,7 +939,7 @@
     hdr.className = 'hdr';
     hdr.innerHTML =
       '<div class="hdr-l">' +
-        '<div class="hdr-name">' + DEVICE_NAME + '</div>' +
+        '<div class="hdr-name" id="hdr-name">' + DEVICE_NAME + '</div>' +
         '<div class="hdr-sub">' +
           '<a class="hdr-link" href="' + WEBSITE_URL + '" target="_blank" rel="noopener">neatofx.com</a>' +
         '</div>' +
@@ -778,97 +972,26 @@
     inner.appendChild(makeCard('Device ID',
       [makeNote(DEVICE_ID_NOTE)].concat(sectionItems('setup'))));
 
+    inner.appendChild(makeCard('Target Behavior',    sectionItems('mode')));
     inner.appendChild(makeCard('Base Target Events', sectionItems('base')));
-    // Team Color entities exist only on laser-tag protocol builds; the card
-    // hides itself on other builds (see pruneMissing).
+    // Team Color entities come with the IR package; the card hides itself on
+    // IR-less builds such as the hit face (see pruneMissing).
     inner.appendChild(makeCard('Team Color',         sectionItems('team')));
-    inner.appendChild(makeCard('Aux Triggers',       sectionItems('aux')));
+    inner.appendChild(makeCard('Aux Outputs',        sectionItems('aux')));
 
     // Collapsible cards
+    inner.appendChild(makeCollapsible('Hit Style Settings', sectionItems('style')));
     inner.appendChild(makeCollapsible('LED Strip 2',   sectionItems('led2')));
+    // The mode explanation covers all three pins, so it heads the card.
+    inner.appendChild(makeCollapsible('GPIO',
+      [makeNote(GPIO_MODE_NOTE)].concat(sectionItems('gpio'))));
     inner.appendChild(makeCollapsible('Audio Trigger', sectionItems('audio')));
     inner.appendChild(makeCollapsible('Servo',         sectionItems('servo')));
     inner.appendChild(makeCollapsible('Test',          sectionItems('test')));
     inner.appendChild(makeCollapsible('Debug',         sectionItems('debug')));
     inner.appendChild(makeCollapsible('Reset',         sectionItems('reset')));
 
-    // View switcher — loads ESPHome default Lit UI; refresh to return.
-    // The default UI (all entities + OTA firmware upload) ships from the ESPHome
-    // CDN (js_url is disabled in YAML), so it only works when the PHONE viewing
-    // this page has internet. In networked mode the phone stays on its normal
-    // Wi-Fi (internet OK); in standalone mode the phone joins the target's own AP
-    // (no internet) and this button cannot reach the CDN — hence the label.
-    var viewSwitch = document.createElement('div');
-    viewSwitch.className = 'view-switch';
-    var origBtn = document.createElement('button');
-    origBtn.className   = 'orig-btn';
-    var BTN_LABEL = 'Switch to ESPHome UI (needs internet)';
-    origBtn.textContent = BTN_LABEL;
-    origBtn.addEventListener('click', function () {
-      if (origBtn.disabled) return;
-      origBtn.disabled    = true;
-      origBtn.textContent = 'Loading ESPHome UI…';
-
-      var s = document.createElement('script');
-      s.src = 'https://oi.esphome.io/v2/www.js';
-
-      // Guard so onload / onerror / timeout can only settle this once.
-      var settled = false;
-
-      // With no internet the request may neither load nor error — it just hangs
-      // (or a captive portal stalls). Time out so the button never sticks on
-      // "Loading…" forever.
-      var timer = setTimeout(failSwitch, 8000);
-
-      // Only tear down the custom UI once the default UI has actually loaded,
-      // so a failed load never leaves a blank page. Removing the <style> node
-      // matters: our dark background/reset rules would otherwise restyle the
-      // default UI into invisibility.
-      //
-      // A fired onload does NOT prove the real script loaded: in AP/standalone
-      // mode (no internet) or behind a captive portal/proxy, the request to
-      // oi.esphome.io can be redirected to this device and return its own HTML
-      // with a 200 — which fires onload but never defines <esp-app>. Tearing
-      // down the custom UI then left a blank page. So verify the custom element
-      // is actually registered before committing to the switch.
-      s.onload = function () {
-        if (settled) return;
-        if (window.customElements && customElements.get('esp-app')) {
-          settled = true;
-          clearTimeout(timer);
-          disconnect();
-          style.remove();
-          app.remove();
-        } else {
-          failSwitch();
-        }
-      };
-      s.onerror = failSwitch;
-
-      function failSwitch() {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        s.remove();
-        origBtn.disabled    = false;
-        origBtn.textContent = BTN_LABEL;
-        alert('Could not load the default ESPHome UI.\n\n' +
-              'It is served from the internet (oi.esphome.io). You are joined to ' +
-              'the target\'s Wi-Fi AP, which has no internet, so the request must ' +
-              'go over cellular instead — but your phone routed it to the AP and ' +
-              'it failed.\n\n' +
-              'Fixes:\n' +
-              '• iPhone: turn on Settings › Cellular › Wi-Fi Assist, ' +
-              'then tap again.\n' +
-              '• Or put the target on a Wi-Fi network that has internet and ' +
-              'view this page from a phone on that same network.\n\n' +
-              'The default UI has all entities plus firmware upload. The custom UI ' +
-              'here works with no internet at all.');
-      }
-      document.head.appendChild(s);
-    });
-    viewSwitch.appendChild(origBtn);
-    inner.appendChild(viewSwitch);
+    inner.appendChild(makeCollapsible('Firmware Update', [makeFirmwareUpdate()]));
 
     document.body.appendChild(app);
     console.log('[NEATO-UI] DOM ready');

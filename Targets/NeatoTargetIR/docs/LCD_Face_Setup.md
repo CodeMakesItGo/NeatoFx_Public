@@ -105,10 +105,10 @@ Display VCC is routed through the aux power rail (GPIO26). ESPHome component `se
 
 ## Flash Command
 
-Select the LCD board line in `main.yaml`, then:
+The LCD face has its own main, `main_lcd.yaml` (board, update channel and name are already set):
 
 ```bash
-esphome -s id 1 run Targets/NeatoTargetIR/main.yaml
+esphome run Targets/NeatoTargetIR/main_lcd.yaml
 ```
 
 ---
@@ -146,7 +146,7 @@ assert failed: xQueueSemaphoreTake queue.c:1709 (( pxQueue ))
   ... btc_config_lock → btc_storage_get_ble_local_key → btc_init_bluetooth
 ```
 
-If you ever add `esp32_improv:` back to a build, do it in `main.yaml` and keep
+If you ever add `esp32_improv:` back to a build, do it in `main_lcd.yaml` and keep
 it off LCD boards. `improv_serial` (UART provisioning) is unaffected either way.
 
 ---

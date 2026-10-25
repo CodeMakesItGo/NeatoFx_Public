@@ -1,7 +1,7 @@
 # ==============================================================================
 # TARGET HIT SCRIPTS - FAN + MISTER variant (LCD face only)
 # ==============================================================================
-# Drop-in replacement for scripts/hit_script.yaml. In main.yaml swap the include:
+# Drop-in replacement for scripts/hit_script.yaml. In main_lcd.yaml swap the include:
 #
 #   packages:
 #     #hit_script: !include scripts/hit_script.yaml             # standard hit
@@ -56,7 +56,7 @@
 # TUNING
 #   All values are substitutions (compile-time) — same reasoning as the fuse
 #   and lightning scripts: adding restore_value globals reindexes the flash
-#   preference table on deployed targets. Override them in main.yaml.
+#   preference table on deployed targets. Override them in main_lcd.yaml.
 #
 substitutions:
 
@@ -216,11 +216,7 @@ display:
 # LED STRIP 2 HIT EFFECT
 # ==============================================================================
 # Owned by the hit script, not boards/common/common.yaml, because only this
-# one and scripts/hit_script.yaml read it (fan_hit_sequence below). hit_script_fuse.yaml and
-# hit_script_lightning.yaml drive LED Strip 2 themselves — the fuse burn and the
-# lightning sequence ARE the strip-2 hit effect — so on those builds the entity
-# is simply never created and the custom UI drops the row (pruneMissing in
-# boards/common/custom_ui.js hides any control that reports no state).
+# one and scripts/hit_script.yaml read it (fan_hit_sequence below).
 #
 # It cannot be shared from common.yaml and narrowed per variant: ESPHome package
 # merge CONCATENATES lists, so an `options:` under `!extend` is appended to the
@@ -280,7 +276,7 @@ script:
           transition_length: 0s
 
   # Hit dispatcher. Every hit source funnels through here (run_hit_script in
-  # main.yaml), and it returns immediately, so it is always free to take the
+  # base.yaml), and it returns immediately, so it is always free to take the
   # next hit — the long-running work is in the two sequences below.
   #   water drop showing + arm delay passed  -> second hit (mister)
   #   nothing running                        -> first hit (fan)

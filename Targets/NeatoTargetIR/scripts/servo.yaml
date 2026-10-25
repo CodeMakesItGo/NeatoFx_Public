@@ -1,0 +1,196 @@
+# ==============================================================================
+# SERVO - every servo behavior in one binary, chosen at runtime
+# ==============================================================================
+# Replaces servo_movement_script.yaml / servo_chomp.yaml / servo_stubs.yaml for
+# every board that has the servo hardware (servo1 on GPIO4: all Rev 3.x boards).
+# Rev 1.x has no servo and still uses scripts/servo_stubs.yaml.
+#
+# "Servo Mode" (persisted):
+#   Off     servo is never driven; its PWM output is detached so an unused
+#           servo header is silent
+#   Hold    hit -> Servo Hit Position, held for the hit display, then back to
+#           Servo Idle Position (the stock behavior)
+#   Cycle   moves Hit <-> Idle repeatedly for the hit display (an animated jaw
+#           or flapping arm), one move per Servo Cycle Interval, then parks at
+#           Idle Position
+#
+# Every hit script calls servo_go_hit at the hit and servo_go_idle when its hit
+# display ends (and target_disable_apply / boot call servo_go_idle), so the mode
+# only has to be honoured here.
+#
+# Servo Cycle Interval must be long enough for the servo to reach the other angle, or
+# it shudders mid-travel. A hobby servo needs ~250-400 ms for 90 degrees.
+# ==============================================================================
+
+substitutions:
+  cycle_interval_default: "350"   # ms per move, first boot only (web UI value persists)
+
+globals:
+  - id: g_servo_idle_pos
+    type: int
+    restore_value: true
+    initial_value: '0'
+
+  - id: g_servo_hit_pos
+    type: int
+    restore_value: true
+    initial_value: '90'
+
+  # True from servo_go_hit until servo_go_idle — the cycle loop's run condition.
+  - id: cycle_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+select:
+  - platform: template
+    name: "Servo Mode"
+    id: servo_mode
+    icon: "mdi:cog-transfer"
+    options:
+      - "Off"
+      - "Hold"
+      - "Cycle"
+    # Hold is what the stock firmware shipped with (servo_movement_script).
+    initial_option: "Hold"
+    optimistic: true
+    restore_value: true
+    # Park in the new mode — but not during setup, where the restored value is
+    # published before the aux rail powers the servo; the board's boot sequence
+    # homes it once power is up.
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(startup_complete);'
+          then:
+            - script.execute: servo_go_idle
+
+number:
+  - platform: template
+    name: "Servo Idle Position"
+    id: servo_slider
+    min_value: 0
+    max_value: 180
+    step: 1
+    initial_value: 0
+    restore_value: true
+    optimistic: true
+    icon: "mdi:restore"
+    unit_of_measurement: "°"
+    set_action:
+      - globals.set:
+          id: g_servo_idle_pos
+          value: !lambda 'return (int)x;'
+      # Move there immediately so it can be calibrated live (not in Off mode).
+      - if:
+          condition:
+            lambda: 'return id(servo_mode).current_option() != "Off";'
+          then:
+            - servo.write:
+                id: servo1
+                level: !lambda 'return (x - 90.0f) / 90.0f;'
+
+  - platform: template
+    name: "Servo Hit Position"
+    id: servo_hit_pos_ctrl
+    min_value: 0
+    max_value: 180
+    step: 1
+    initial_value: 90
+    restore_value: true
+    optimistic: true
+    icon: "mdi:target"
+    unit_of_measurement: "°"
+    set_action:
+      - globals.set:
+          id: g_servo_hit_pos
+          value: !lambda 'return (int)x;'
+      # Live calibration; the idle control moves it back.
+      - if:
+          condition:
+            lambda: 'return id(servo_mode).current_option() != "Off";'
+          then:
+            - servo.write:
+                id: servo1
+                level: !lambda 'return (x - 90.0f) / 90.0f;'
+
+  # Cycle mode only: time for one move (Idle -> Hit, or Hit -> Idle), read
+  # before every move, so a full open-and-close is two intervals.
+  - platform: template
+    name: "Servo Cycle Interval"
+    id: cycle_interval
+    icon: "mdi:sync"
+    unit_of_measurement: "ms"
+    optimistic: true
+    restore_value: true
+    initial_value: ${cycle_interval_default}
+    min_value: 100
+    max_value: 2000
+    step: 50
+
+button:
+  # Bench test from the web UI Test card: one hit window in the current mode
+  # (a single hold, or 3 s of cycling), then back to idle.
+  - platform: template
+    name: "Test Servo Hit"
+    id: test_servo_hit_button
+    icon: "mdi:cog-play"
+    on_press:
+      - script.execute: servo_go_hit
+      - delay: !lambda 'return id(servo_mode).current_option() == "Cycle" ? 3000 : 1000;'
+      - script.execute: servo_go_idle
+
+script:
+  # The cycle loop. Checks cycle_active before each half-move so it stops
+  # within one interval of the window closing, then parks the jaw closed.
+  - id: servo_cycle
+    mode: restart
+    then:
+      - while:
+          condition:
+            lambda: 'return id(cycle_active);'
+          then:
+            - servo.write:
+                id: servo1
+                level: !lambda 'return (id(g_servo_hit_pos) - 90.0f) / 90.0f;'
+            - delay: !lambda 'return (int) id(cycle_interval).state;'
+            - if:
+                condition:
+                  lambda: 'return id(cycle_active);'
+                then:
+                  - servo.write:
+                      id: servo1
+                      level: !lambda 'return (id(g_servo_idle_pos) - 90.0f) / 90.0f;'
+                  - delay: !lambda 'return (int) id(cycle_interval).state;'
+      - servo.write:
+          id: servo1
+          level: !lambda 'return (id(g_servo_idle_pos) - 90.0f) / 90.0f;'
+
+  # Called by every hit script at the hit.
+  - id: servo_go_hit
+    mode: restart
+    then:
+      - lambda: |-
+          auto mode = id(servo_mode).current_option();
+          if (mode == "Hold") {
+            id(servo1).write((id(g_servo_hit_pos) - 90.0f) / 90.0f);
+          } else if (mode == "Cycle") {
+            id(cycle_active) = true;
+            id(servo_cycle).execute();
+          }
+
+  # Called at the end of the hit, on disable, at boot and on a mode change:
+  # stop any cycle in progress and park at idle (or let go, in Off mode).
+  - id: servo_go_idle
+    mode: restart
+    then:
+      - globals.set:
+          id: cycle_active
+          value: 'false'
+      - script.stop: servo_cycle
+      - lambda: |-
+          if (id(servo_mode).current_option() == "Off") {
+            id(servo1).detach();
+          } else {
+            id(servo1).write((id(g_servo_idle_pos) - 90.0f) / 90.0f);
+          }

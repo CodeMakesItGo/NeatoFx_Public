@@ -1,30 +1,105 @@
 # ==============================================================================
-# TARGET HIT SCRIPTS - general target hit behavior
+# TARGET HIT SCRIPTS - every hit behavior in one binary, chosen at runtime
+# ==============================================================================
+# Replaces the build-time hit_script_* variants for every board that does not
+# carry its own LCD face script. Four persisted selects pick the behavior:
+#
+#   Hit Style    Standard          the normal hit (below)
+#                Fuse + Explosion  LED Strip 2 burns a fuse, outputs fire at
+#                                  detonation          (hit_styles/fuse.yaml)
+#                Lightning Storm   12.8 s xLights lightning sequence on both
+#                                  strips, relay and GND (hit_styles/lightning.yaml)
+#   Relay Mode   Hold              relay on for the Relay Timer (stock)
+#                Toggle            two momentary presses, at the hit and when the
+#                                  Relay Timer ends — for a push-on / push-off
+#                                  light button (was hit_script_relay_toggle)
+#   GND Effect   Ramp              GND switch on for the window, ramping up over
+#                                  GND Ramp % of it (0 % = instant, the stock)
+#                Flicker           failing fluorescent tube
+#                Throttle          motor revved up and down, like a saw being
+#                                  squeezed       (hit_styles/gnd_effects.yaml)
+#
+# The GPIO16 / 17 / 25 Hit Pulse Output modes live with the pins, in
+# boards/common/gpio_io.yaml.
+#
+# target_hit_script is a small dispatcher: it fires the GPIO hit pulses, then
+# runs standard_hit_script (Standard / Fuse) or lightning_hit_script and waits
+# for it, so it stays `mode: single` for the whole hit exactly as before.
+# Every option defaults to what the stock firmware did.
 # ==============================================================================
 
+packages:
+  gnd_effects: !include hit_styles/gnd_effects.yaml
+  fuse:        !include hit_styles/fuse.yaml
+  lightning:   !include hit_styles/lightning.yaml
+
+substitutions:
+  relay_pulse_default: "250"   # ms, first boot only (web UI value persists)
+
+number:
+  # Toggle relay mode only: how long each press holds the relay closed —
+  # long enough for the button's electronics to register, short enough not to
+  # look like a hold.
+  - platform: template
+    name: "Relay Pulse Width"
+    id: relay_pulse_width
+    icon: "mdi:gesture-tap-button"
+    unit_of_measurement: "ms"
+    optimistic: true
+    restore_value: true
+    initial_value: ${relay_pulse_default}
+    min_value: 50
+    max_value: 2000
+    step: 50
+
 # ==============================================================================
-# LED STRIP 2 HIT EFFECT
+# HIT SELECTS
 # ==============================================================================
-# Owned by this file, not boards/common/common.yaml, because this is the only
-# hit script that reads it (target_hit_script below). hit_script_fuse.yaml and
-# hit_script_lightning.yaml drive LED Strip 2 themselves — the fuse burn and the
-# lightning sequence ARE the strip-2 hit effect — so on those builds the entity
-# is simply never created and the custom UI drops the row (pruneMissing in
-# boards/common/custom_ui.js hides any control that reports no state).
+# Hit Style / Relay Mode / GND Effect — see the header. Template selects store
+# their value keyed on a hash of the entity NAME, so adding these does not move
+# any other saved setting on a deployed target.
 #
-# It cannot be shared from common.yaml and narrowed per variant: ESPHome package
-# merge CONCATENATES lists, so an `options:` under `!extend` is appended to the
-# shared list rather than replacing it. Owning the whole entity here is what
-# makes "no dropdown at all" possible.
-#
-# Moving it does not disturb saved settings on deployed targets: a template
-# select stores its value under make_entity_preference<size_t>(), keyed on a hash
-# of the entity NAME, so removing or adding one never reindexes the others.
-#
-# "Solid Color"/"Strobe Flash" fall back to the LED Strip 2 Solid Color preset
-# (boards/common/color_controls.yaml); every other option is a native effect name
-# on led_strip2.
+# "LED Strip 2 Hit Effect" is owned here, not by boards/common/common.yaml,
+# because only standard_hit_script reads it (the fuse and lightning styles drive
+# LED Strip 2 themselves). "Solid Color"/"Strobe Flash" fall back to the LED
+# Strip 2 Solid Color preset (boards/common/color_controls.yaml); every other
+# option is a native effect name on led_strip2.
 select:
+  - platform: template
+    name: "Hit Style"
+    id: hit_style
+    icon: "mdi:creation"
+    options:
+      - "Standard"
+      - "Fuse + Explosion"
+      - "Lightning Storm"
+    initial_option: "Standard"
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "Relay Mode"
+    id: relay_mode
+    icon: "mdi:electric-switch-closed"
+    options:
+      - "Hold"
+      - "Toggle"
+    initial_option: "Hold"
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "GND Effect"
+    id: gnd_effect
+    icon: "mdi:flash-triangle"
+    options:
+      - "Ramp"
+      - "Flicker"
+      - "Throttle"
+    initial_option: "Ramp"
+    optimistic: true
+    restore_value: true
+
   - platform: template
     name: "LED Strip 2 Hit Effect"
     id: led_strip2_hit_effect
@@ -50,21 +125,37 @@ script:
   - id: gnd_pulse
     mode: restart
     then:
-      - light.turn_on:
-          id: gnd_light
-          brightness: 100%
-          # Ramp 0→100% over gnd_ramp_percent of the GND window, then hold at
-          # full for the remainder. 0% = snap on instantly.
-          transition_length: !lambda |-
-            int p = id(gnd_ramp_percent);
-            if (p <= 0) return 0;
-            if (p > 100) p = 100;
-            int t = id(gnd_timer); if (t <= 0) t = id(relay_timer);
-            return t * p / 100;
-      - delay: !lambda 'int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);'
-      - light.turn_off:
-          id: gnd_light
-          transition_length: 0s
+      - if:
+          condition:
+            lambda: 'return id(gnd_effect).current_option() == "Ramp";'
+          then:
+            - light.turn_on:
+                id: gnd_light
+                brightness: 100%
+                # Ramp 0→100% over gnd_ramp_percent of the GND window, then hold
+                # at full for the remainder. 0% = snap on instantly.
+                transition_length: !lambda |-
+                  int p = id(gnd_ramp_percent);
+                  if (p <= 0) return 0;
+                  if (p > 100) p = 100;
+                  int t = id(gnd_timer); if (t <= 0) t = id(relay_timer);
+                  return t * p / 100;
+            - delay: !lambda 'int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);'
+            - light.turn_off:
+                id: gnd_light
+                transition_length: 0s
+          else:
+            # An effect loop owns the output for the same window; stop it and
+            # release the load (it was stopped mid-step at an arbitrary level).
+            - lambda: |-
+                if (id(gnd_effect).current_option() == "Throttle") id(gnd_throttle).execute();
+                else id(gnd_flicker).execute();
+            - delay: !lambda 'int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);'
+            - script.stop: gnd_flicker
+            - script.stop: gnd_throttle
+            - output.set_level:
+                id: gnd_output
+                level: 0.0
 
   # Relay pulse — the relay's own timeline, run concurrently from target_hit_script
   # exactly like gnd_pulse: on at the hit, off after Relay Timer. Factored out so a
@@ -75,17 +166,54 @@ script:
   - id: relay_pulse
     mode: restart
     then:
-      - lambda: |-
-          if (id(relay_1).state) {
-            ESP_LOGW("target_hit", "Relay already active!");
-          }
-      - switch.turn_on: relay_1
-      - delay: !lambda 'return id(relay_timer);'
-      - switch.turn_off: relay_1
+      - if:
+          condition:
+            lambda: 'return id(relay_mode).current_option() == "Toggle";'
+          then:
+            # Toggle: press at the hit (light on) and again when the Relay
+            # Timer ends (light off). It is a toggle, not a state — the target
+            # cannot know whether the light is already on, so a press by hand
+            # inverts the pairing until the next odd press.
+            - switch.turn_on: relay_1
+            - delay: !lambda 'return (int) id(relay_pulse_width).state;'
+            - switch.turn_off: relay_1
+            - delay: !lambda |-
+                int gap = id(relay_timer) - 2 * (int) id(relay_pulse_width).state;
+                return std::max(0, gap);
+            - switch.turn_on: relay_1
+            - delay: !lambda 'return (int) id(relay_pulse_width).state;'
+            - switch.turn_off: relay_1
+          else:
+            - lambda: |-
+                if (id(relay_1).state) {
+                  ESP_LOGW("target_hit", "Relay already active!");
+                }
+            - switch.turn_on: relay_1
+            - delay: !lambda 'return id(relay_timer);'
+            - switch.turn_off: relay_1
 
-  # Main Target Hit Script - Standalone version
+  # Every hit source lands here (via run_hit_script in base.yaml). mode: single
+  # for the whole hit, because it waits for the style script to finish.
   - id: target_hit_script
     mode: single  # Prevent overlapping hits
+    then:
+      # FIRST, before any logging or LED work: a GPIO in Hit Pulse Output mode
+      # with Pulse Delay 0 goes high in this same main-loop iteration.
+      - script.execute: gpio_hit_outputs
+      - if:
+          condition:
+            lambda: 'return id(hit_style).current_option() == "Lightning Storm";'
+          then:
+            - script.execute: lightning_hit_script
+            - script.wait: lightning_hit_script
+          else:
+            - script.execute: standard_hit_script
+            - script.wait: standard_hit_script
+
+  # Standard hit, and Fuse + Explosion (which only inserts the burn before the
+  # outputs fire — see hit_styles/fuse.yaml).
+  - id: standard_hit_script
+    mode: single
     then:
       # Tell Home Assistant FIRST — before any LED / relay / servo work (and
       # before the Strobe Flash branch's 150 ms hold) so an HA-driven sound
@@ -197,26 +325,49 @@ script:
                       id: led_strip
                       effect: !lambda 'return id(hit_effect_select).current_option();'
 
-      # Apply LED Strip 2 hit effect (mirrors the main strip). "Solid Color" and
-      # "Strobe Flash" both resolve to the LED Strip 2 Solid Color preset; every
-      # other option is a native led_strip2 effect. Strip 2 goes dark together
-      # with the main strip at cooldown below (no per-strip save/restore).
       - if:
           condition:
-            lambda: |-
-              auto o = id(led_strip2_hit_effect).current_option();
-              return o == "Solid Color" || o == "Strobe Flash";
+            lambda: 'return id(hit_style).current_option() == "Fuse + Explosion";'
           then:
+            # Audio / HA trigger BEFORE the fuse is lit: esphome_hit_script's
+            # http_request.post is blocking in networked mode, and the freeze
+            # would otherwise land mid-burn and stutter the fuse. Firing it
+            # first means the fuse sound and the animation start together.
+            - delay: 20ms
+            - script.execute: esphome_hit_script
+            # ---- LIGHT THE FUSE ----
+            # The strip was turned off at the end of the previous hit, so this
+            # is always a fresh start (initial_run resets the burn to LED 0).
+            # Full brightness so a dimmed idle level cannot wash the fuse out.
             - light.turn_on:
                 id: led_strip2
-                effect: "None"
-            - select.set:
-                id: led_strip2_color_preset
-                option: !lambda 'return id(led_strip2_color_preset).current_option();'
+                brightness: 100%
+                effect: "Fuse Effect"
+            # Burn — the same global the effect reads, so the outputs below fire
+            # on the frame the flame reaches the end of the strip.
+            - delay: !lambda 'return id(fuse_burn);'
+            - logger.log: "Fuse burned down - detonating"
           else:
-            - light.turn_on:
-                id: led_strip2
-                effect: !lambda 'return id(led_strip2_hit_effect).current_option();'
+            # Apply LED Strip 2 hit effect (mirrors the main strip). "Solid Color" and
+            # "Strobe Flash" both resolve to the LED Strip 2 Solid Color preset; every
+            # other option is a native led_strip2 effect. Strip 2 goes dark together
+            # with the main strip at cooldown below (no per-strip save/restore).
+            - if:
+                condition:
+                  lambda: |-
+                    auto o = id(led_strip2_hit_effect).current_option();
+                    return o == "Solid Color" || o == "Strobe Flash";
+                then:
+                  - light.turn_on:
+                      id: led_strip2
+                      effect: "None"
+                  - select.set:
+                      id: led_strip2_color_preset
+                      option: !lambda 'return id(led_strip2_color_preset).current_option();'
+                else:
+                  - light.turn_on:
+                      id: led_strip2
+                      effect: !lambda 'return id(led_strip2_hit_effect).current_option();'
 
       # Activate outputs. The relay runs on relay_pulse (on now, off after Relay
       # Timer) so a variant can change how the relay behaves without touching
@@ -238,8 +389,12 @@ script:
       # the freeze then happens harmlessly during the relay-hold window below,
       # instead of delaying the effect. In standalone mode esphome_hit_script is a
       # no-op stub, so this costs nothing there.
-      - delay: 20ms
-      - script.execute: esphome_hit_script
+      - if:
+          condition:
+            lambda: 'return id(hit_style).current_option() != "Fuse + Explosion";'
+          then:
+            - delay: 20ms
+            - script.execute: esphome_hit_script
 
       # Hold for the Relay Timer while the hit effect displays. relay_pulse drops
       # the relay at this same moment; the GND switch is owned by gnd_pulse (its
@@ -344,8 +499,15 @@ script:
       # Kill a hit mid-flight — otherwise its pending delays would re-light the
       # strips and drop the relay seconds after the target was disabled.
       - script.stop: target_hit_script
+      - script.stop: standard_hit_script
+      - script.stop: lightning_hit_script
+      - script.stop: lightning_relay
+      - script.stop: lightning_gnd
       - script.stop: relay_pulse
       - script.stop: gnd_pulse
+      - script.stop: gnd_flicker
+      - script.stop: gnd_throttle
+      - script.execute: gpio_outputs_off
       # Clear the hit's latched flags. ir_enabled is restored on re-enable, not
       # here: leaving it false is a second, harmless layer of "ignore IR".
       - globals.set:
@@ -359,6 +521,10 @@ script:
           value: 'false'
       # Outputs off. 0s transitions so a disable is immediate, not a fade.
       - switch.turn_off: relay_1
+      # The GND effects drive the output directly, under gnd_light.
+      - output.set_level:
+          id: gnd_output
+          level: 0.0
       - light.turn_off:
           id: gnd_light
           transition_length: 0s

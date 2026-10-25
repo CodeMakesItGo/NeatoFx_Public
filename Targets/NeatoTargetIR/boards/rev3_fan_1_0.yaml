@@ -34,11 +34,12 @@
 # IR LED wiring: ir_tx_gpio below (GPIO17, right-side connector). GPIO17's
 # digital-input sensor from rev3.yaml is removed since the pin is now an output.
 #
-# Included by: main.yaml
+# Included by: main_fan.yaml
 # ==============================================================================
 
 substitutions:
   ir_tx_gpio: GPIO17             # IR LED to the hologram fan, direct drive via ~100 Ω (~2" range)
+  gpio17_num: "-1"               # GPIO17 is the IR LED: no runtime GPIO17 mode on this board
   hw_version: "Rev 3 Fan 1.0"    # Overrides rev3.yaml for the version readout
   default_hit_video_time: "5000" # How long the hit video shows, in ms (UI-adjustable)
   fan_boot_time: 3s              # Fan start-up time after Aux Pwr ON before it takes IR
@@ -68,9 +69,15 @@ remote_transmitter:
   # fan_send script waits out the frame itself, so async TX is safe.
   non_blocking: true
 
-# GPIO17 is the IR LED output now, not an input.
+# GPIO17 is the IR LED output now, not an input — drop its input sensor and
+# hide its runtime-mode controls (common/gpio_io.yaml), which gpio17_num -1
+# already makes inert.
 binary_sensor:
   - id: !remove gpio17_digital
+
+select:
+  - id: !extend gpio17_mode
+    internal: true
 
 # ==============================================================================
 # FAN CONTROL
@@ -157,6 +164,8 @@ globals:
 # Gated on startup_complete: relay_1 publishes its ALWAYS_OFF state during boot,
 # and nothing at boot should press buttons on the fan.
 switch:
+  - id: !extend gpio17_output   # inert here, see GPIO17 note above
+    internal: true
   - id: !extend relay_1
     on_turn_on:
       - if:
@@ -184,6 +193,10 @@ switch:
 
 # How long the (looping) hit video is shown before stepping to the idle video.
 number:
+  - id: !extend gpio17_pulse_delay   # inert here, see GPIO17 note above
+    internal: true
+  - id: !extend gpio17_pulse_width
+    internal: true
   - platform: template
     name: "Hit Video Length"
     id: hit_video_time_control

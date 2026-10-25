@@ -1,13 +1,9 @@
 # ==============================================================================
 # SERVO STUBS - No-op placeholders for targets without servo movement
 # ==============================================================================
-# Include this when servo_movement_script.yaml is NOT active, so that the hit
-# scripts' direct calls to servo_go_hit / servo_go_idle always resolve to a
-# valid script ID.
-#
-# Swap in target_main.yaml:
-#   servo_scripts: !include scripts/servo_stubs.yaml           (no servo)
-#   servo_scripts: !include scripts/servo_movement_script.yaml (with servo)
+# For boards with no servo hardware (Rev 1.x), so the hit scripts' calls to
+# servo_go_hit / servo_go_idle always resolve. Every Rev 3.x board uses
+# scripts/servo.yaml instead, where "Servo Mode" = Off does the same at runtime.
 # ==============================================================================
 
 script:

@@ -1,21 +1,11 @@
 # ==============================================================================
-# TARGET HIT SCRIPTS - LIGHTNING (Old Town Mining "left cloud") variant
+# HIT STYLES - "Lightning Storm" ("Hit Style" select in scripts/hit_script.yaml)
 # ==============================================================================
-# Drop-in replacement for scripts/hit_script.yaml. In main.yaml swap the include:
-#
-#   packages:
-#     #hit_script: !include scripts/hit_script.yaml            # standard hit
-#     #hit_script: !include scripts/hit_script_fuse.yaml       # fuse + explosion
-#     hit_script: !include scripts/hit_script_lightning.yaml   # lightning storm
-#
-# Include EXACTLY ONE — all three define the same script ids
-# (target_hit_script, gnd_pulse, target_disable_apply, target_enable_apply).
-#
-# WHAT IT IS
-#   A frame-for-frame port of the xLights sequence
-#   "emersonxlightslightningleftcloud.xsq" (2025.13, 50 ms timing, 12.805 s,
-#   media: "Thunder Sound Effect [vJ08fwaLXwg].mp3") so ONE target can play the
-#   left-cloud lightning show on its own outputs with no FPP in the loop.
+# What used to be hit_script_lightning.yaml: a frame-for-frame port of the
+# xLights sequence "emersonxlightslightningleftcloud.xsq" (50 ms timing,
+# 12.805 s) so ONE target plays the left-cloud lightning show on its own outputs
+# with no FPP in the loop. target_hit_script (scripts/hit_script.yaml) runs
+# lightning_hit_script instead of the standard hit when this style is selected.
 #
 #   xLights model         ->  target output      notes
 #   ------------------------------------------------------------------------
@@ -23,10 +13,6 @@
 #   Left-Cloud-2          ->  Target LEDs        6 px main strip
 #   DmxFloodlight-left    ->  GND switch (PWM)   dimmable: 20 % / 15 % flashes
 #   Wall + Posts          ->  Relay 1            two on/off strikes
-#
-#   Right-Cloud-*, DmxFloodlight-right and Rock-wall are NOT reproduced — they
-#   belong to a second target (right cloud). Build that one by editing the
-#   event tables below; the timing/rendering code is shared.
 #
 # TIMELINE (ms from hit)          strip2 (cloud-1)      strip1 (cloud-2)
 #     300- 800  shimmer white 30%   x
@@ -43,43 +29,20 @@
 #    8900-9250  GND 15% -> 0
 #   12805       sequence end (thunder tail) -> cooldown -> restore
 #
-# HOW IT PLAYS
-#   Both strips run a self-timed addressable_lambda effect ("Lightning Effect")
-#   that renders the event table off millis() — that is what keeps shimmer,
-#   fades and wipes on the 50 ms xLights grid without a script delay per frame.
-#   Relay and GND are only four events between them, so they run as two small
-#   delay-driven scripts launched at the same instant as the strips.
-#
-#   The Audio-50 / HA trigger fires BEFORE frame 0 (same reasoning as the fuse
-#   script): esphome_hit_script's http_request.post is blocking, so it must land
-#   before the animation starts or it stutters the first flash. Net effect: the
-#   thunder MP3 and the lightning start together.
-#
 # WHAT IT IGNORES (on purpose)
-#   - "Target Hit Effect" / "LED Strip 2 Hit Effect" selects — the sequence IS
-#     the hit effect.
-#   - relay_timer / gnd_timer / gnd_ramp_percent / hit_display_time — relay and
-#     GND follow the sequence timeline, and the display window is the sequence
-#     length. cooldown_timer is still honoured after the sequence.
-#   - Team colours / capture mode still work at the END of the hit (the resting
-#     colour logic is unchanged) but the flashes themselves are always the
-#     sequence's white/navy.
+#   - "Target LEDs Hit Effect" / "LED Strip 2 Hit Effect" — the sequence IS the
+#     hit effect.
+#   - Relay Mode, GND Effect, Relay/GND Timer, GND Ramp, hit display time —
+#     relay and GND follow the sequence. Cooldown is still honoured after it.
+#   - Team colours: capture mode still works at the END of the hit, but the
+#     flashes are always the sequence's white/navy.
 #
-# POWER — LED STRIP 2 MUST BE ON ITS OWN 5 V SUPPLY WITH THESE LEVELS
-#   The white strikes are set to 100 % (raised from the xLights 20-30 %), and a
-#   strike lights EVERY pixel at once: 150 x WS2812 at full white is ~9 A —
-#   far beyond the board's 2 A regulator, which also feeds the ESP32 and relay.
-#   Feed strip 2 from a separate 5 V supply (150 px: 10 A; 300 px: 20 A, inject
-#   at both ends), tie its GND to the board GND, data only from the board.
-#   To run strip 2 from the board regulator instead, set
-#   lightning_strip2_scale to 0.15 or lower (150 px ~ 1.35 A peak).
-#   The 6-px main strip is not a concern at any level.
+# POWER — LED STRIP 2 MUST BE ON ITS OWN 5 V SUPPLY AT THESE LEVELS
+#   A white strike lights EVERY pixel: 150 x WS2812 at full white is ~9 A, far
+#   beyond the board's 2 A regulator. Feed strip 2 from a separate 5 V supply
+#   (tie grounds), or set lightning_strip2_scale to 0.15 or lower (~1.35 A peak).
 #
-# TUNING
-#   All values are substitutions (compile-time) — same reasoning as the fuse
-#   script: adding restore_value globals reindexes the flash preference table
-#   on deployed targets. Override them in main.yaml and recompile.
-# ------------------------------------------------------------------------------
+# TUNING — substitutions (compile-time); override in the main*.yaml.
 substitutions:
 
   # --- Lightning tuning -------------------------------------------------------
@@ -197,26 +160,6 @@ light:
             }
 
 script:
-  # GND-switch pulse — kept for interface compatibility with the other hit
-  # scripts (same id, same behaviour) but NOT used by the lightning hit: the GND
-  # output follows the sequence via lightning_gnd below. Still available to
-  # anything that wants the legacy "follow relay" pulse.
-  - id: gnd_pulse
-    mode: restart
-    then:
-      - light.turn_on:
-          id: gnd_light
-          brightness: 100%
-          transition_length: !lambda |-
-            int p = id(gnd_ramp_percent);
-            if (p <= 0) return 0;
-            if (p > 100) p = 100;
-            int t = id(gnd_timer); if (t <= 0) t = id(relay_timer);
-            return t * p / 100;
-      - delay: !lambda 'int t = id(gnd_timer); return t > 0 ? t : id(relay_timer);'
-      - light.turn_off:
-          id: gnd_light
-          transition_length: 0s
 
   # ---- RELAY timeline: Wall + Posts strikes (relay is on/off, no dimming) ----
   # Started at t=0 alongside the strips; delays are absolute-to-relative.
@@ -256,8 +199,8 @@ script:
           id: gnd_light
           transition_length: 350ms          # 8900-9250
 
-  # Main Target Hit Script - lightning version
-  - id: target_hit_script
+  # The lightning hit — run by target_hit_script when Hit Style = Lightning Storm.
+  - id: lightning_hit_script
     mode: single  # Prevent overlapping hits
     then:
       # Tell Home Assistant FIRST — before any LED / relay / servo work (and
@@ -396,103 +339,3 @@ script:
       - logger.log: "Lightning sequence complete"
 
 
-  # ==========================================================================
-  # MASTER ENABLE / DISABLE — driven by the "Target Enabled" switch
-  # (boards/common/common.yaml) and by the boot handler in that same file.
-  # ==========================================================================
-
-  # Apply the DISABLED state: abort any hit in flight, release every output and
-  # take both strips dark. mode: restart so repeated toggles are harmless.
-  - id: target_disable_apply
-    mode: restart
-    then:
-      # Kill a hit mid-sequence — including the relay/GND timelines, which would
-      # otherwise still fire their later strikes after the target was disabled.
-      - script.stop: target_hit_script
-      - script.stop: lightning_relay
-      - script.stop: lightning_gnd
-      - script.stop: gnd_pulse
-      - globals.set:
-          id: hit_processing
-          value: 'false'
-      - globals.set:
-          id: team_detected
-          value: 'false'
-      - globals.set:
-          id: team_color_applied
-          value: 'false'
-      - switch.turn_off: relay_1
-      - light.turn_off:
-          id: gnd_light
-          transition_length: 0s
-      - light.turn_off:
-          id: led_strip
-          transition_length: 0s
-      - light.turn_off:
-          id: led_strip2
-          transition_length: 0s
-      - script.execute: servo_go_idle
-      - logger.log: "Target disabled - outputs released, LEDs dark"
-
-  # Apply the ENABLED state: re-arm IR and restore the saved idle look.
-  - id: target_enable_apply
-    mode: restart
-    then:
-      - globals.set:
-          id: hit_processing
-          value: 'false'
-      - globals.set:
-          id: team_detected
-          value: 'false'
-      - globals.set:
-          id: team_color_applied
-          value: 'false'
-      - globals.set:
-          id: ir_enabled
-          value: 'true'
-      - lambda: |-
-          std::string effect_name = "None";
-          switch (id(saved_effect_index)) {
-            case 1: effect_name = "Rainbow Effect"; break;
-            case 2: effect_name = "Color Wipe Effect"; break;
-            case 3: effect_name = "Scanner Effect"; break;
-            case 4: effect_name = "Twinkle Effect"; break;
-            case 5: effect_name = "Heartbeat Effect"; break;
-            default: break;  // 0 (or unknown) = solid color, no effect
-          }
-          float brightness = id(saved_brightness);
-          if (brightness <= 0.0f) brightness = 0.5f;  // never restore fully dark
-          auto call = id(led_strip).turn_on();
-          call.set_brightness(brightness);
-          call.set_rgb(id(saved_red), id(saved_green), id(saved_blue));
-          call.set_effect(effect_name);
-          call.perform();
-          ESP_LOGI("target_enable", "Enabled - restored effect: %s, brightness: %.2f",
-                   effect_name.c_str(), brightness);
-      - script.execute: servo_go_idle
-
-# ==============================================================================
-# HIDE THE DEAD "Target LEDs Hit Effect" SELECT
-# ==============================================================================
-# The sequence IS the hit effect on BOTH strips: target_hit_script drives
-# led_strip straight to "Lightning Effect" and never reads hit_effect_select.
-# Left visible it is a live-looking control that does nothing on this build.
-#
-# Why this one is hidden rather than moved the way "LED Strip 2 Hit Effect" was:
-# hit_effect_select is read by scripts/hit_script.yaml AND scripts/
-# hit_script_fuse.yaml, so it has no single owner to move to — relocating it
-# would mean duplicating the whole select into both. It stays shared in
-# boards/common/common.yaml and only this variant opts out.
-#
-# `internal: true` drops it from the web server and the HA API; the custom UI
-# prunes any row that reports no state (pruneMissing in
-# boards/common/custom_ui.js), so the row disappears instead of sitting dead.
-# Safe on deployed targets: restore_value keys off a hash of the entity NAME
-# (EntityBase::calc_object_id_), which `internal` does not change.
-#
-# NOT hidden: "LED Strip 2 Solid Color" (led_strip2_color_preset). Its set_action
-# calls light.turn_on on led_strip2 directly, so it still works as a manual
-# strip-2 colour on this build — it is only unused BY THE HIT.
-select:
-  - id: !extend hit_effect_select
-    internal: true

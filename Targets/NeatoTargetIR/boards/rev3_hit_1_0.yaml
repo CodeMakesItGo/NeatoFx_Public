@@ -8,7 +8,7 @@
 # The button sits on GPIO19 (the pin the IR receiver used on rev3). Idle the
 # line is pulled HIGH; a hit shorts it to GND. See the binary_sensor below.
 #
-# Included by: main.yaml
+# Included by: main_hit.yaml
 # ==============================================================================
 
 # ==============================================================================
@@ -24,7 +24,7 @@ substitutions:
   hit_button_gpio: GPIO19        # Hit push button (idle HIGH, hit = short to GND)
 
   # GPIO19 now belongs to the button, so the IR receiver cannot stay there.
-  # Preferred: comment out the `ir_receiver:` package in main.yaml for this
+  # main_hit.yaml includes no `ir_receiver:` package for this
   # board — this face has no IR receiver at all. These two lines are the safety
   # net for when it is left enabled: they park remote_receiver on GPIO35, an
   # unused input-only pin, so the build does not fail with a GPIO19 conflict.
@@ -36,13 +36,17 @@ substitutions:
   io16_gpio: GPIO16      # General I/O
   io17_gpio: GPIO17      # General I/O
   io25_gpio: GPIO25      # General I/O
+  # Same pins as plain numbers, for the runtime GPIO modes (common/gpio_io.yaml)
+  gpio16_num: "16"
+  gpio17_num: "17"
+  gpio25_num: "25"
   io34_gpio: GPIO34      # ADC input (input only)
 
   # Left Side Connector Pins (Rev 3.x specific)
   switch_12v: GPIO33     # 12V switch control
   led2_gpio: GPIO22      # Secondary LED strip
   servo_gpio: GPIO04     # Servo control
-  strip_2_led_count: "100" # Configurable LED count
+  strip_2_led_count: "100" # First-boot "LED Strip 2 LED Count" (runtime, up to strip_2_led_max)
   strip_2_internal: "false" # Visible in UI for Rev3
 
   # Project Information (Rev 3.x specific)
@@ -54,6 +58,8 @@ substitutions:
 # ==============================================================================
 packages:
   common_components: !include common/common.yaml
+  # GPIO16 / 17 / 25 Input / Hit Trigger / Hit Pulse Output modes + GPIO34 ADC
+  gpio_io: !include common/gpio_io.yaml
   # Aux Power Mode — turns the Aux Pwr switch into On / Off / Follow Relay.
   # Rev 3.x only (Rev 1.x has no aux rail), and declared AFTER common.yaml
   # because it extends the relay_1 switch defined there.
@@ -289,58 +295,7 @@ binary_sensor:
       - logger.log: "Hit button pressed - firing hit script"
       - script.execute: run_hit_script
 
-  # GPIO25 Hit Trigger — enable via "GPIO25 Hit Trigger" switch in the UI
-  - platform: gpio
-    pin:
-      number: ${io25_gpio}
-      mode: INPUT_PULLUP
-      inverted: true
-    name: "GPIO25 Hit Trigger Input"
-    id: gpio25_trigger_input
-    filters:
-      - delayed_on: 5ms
-      - delayed_off: 50ms
-    on_press:
-      - if:
-          condition:
-            lambda: 'return id(gpio25_hit_enabled);'
-          then:
-            - logger.log: "GPIO25 hit trigger fired"
-            - script.execute: run_hit_script
-
-  # GPIO16 Digital Input
-  - platform: gpio
-    pin:
-      number: ${io16_gpio}
-      mode: INPUT_PULLUP
-      inverted: true
-    id: gpio16_digital
-    name: "GPIO16 Digital State"
-    device_class: "motion"
-    filters:
-      - delayed_on: 50ms
-      - delayed_off: 50ms
-    on_press:
-      - logger.log: "GPIO16 state is HIGH"
-    on_release:
-      - logger.log: "GPIO16 state is LOW"
-
-  # GPIO17 Digital Input
-  - platform: gpio
-    pin:
-      number: ${io17_gpio}
-      mode: INPUT_PULLUP
-      inverted: true
-    id: gpio17_digital
-    name: "GPIO17 Digital State"
-    device_class: "motion"
-    filters:
-      - delayed_on: 10ms
-      - delayed_off: 10ms
-    on_press:
-      - logger.log: "GPIO17 state is HIGH"
-    on_release:
-      - logger.log: "GPIO17 state is LOW"
+  # GPIO16 / GPIO17 / GPIO25 inputs live in common/gpio_io.yaml (runtime modes).
 
   # GPIO18 External Trigger Input (TRIGGER net - H4 connector pin 3)
   - platform: gpio

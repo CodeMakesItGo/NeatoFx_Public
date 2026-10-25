@@ -1,0 +1,88 @@
+# ==============================================================================
+# NEATO TARGET IR HIT - MAIN CONFIGURATION FILE
+# ==============================================================================
+# Rev 3.x target with the push-button hit face (face 1.0) — no IR receiver.
+#
+# One main per hardware type — see base.yaml for the list. Each has its own
+# hostname, web UI title and firmware update channel
+# (firmware/target-ir-hit/manifest.json), so an online update only ever installs
+# firmware built for this hardware. Everything else is ONE binary per hardware:
+# IR protocol, hit style, servo, GPIO modes and LED Strip 2 length are set in
+# the web UI and kept across updates. There is no per-unit build.
+#
+# Usage:
+#   esphome compile main_hit.yaml
+#   esphome run     main_hit.yaml
+#   esphome logs    main_hit.yaml
+#   Then set the Device ID from the device web interface.
+#
+# Program a unit at a specific IP address (OTA over the network — use this when
+# the .local name doesn't resolve, or to pick one unit out of several):
+#   esphome run     Targets/NeatoTargetIR/main_hit.yaml --device 192.168.1.50
+#   esphome upload  Targets/NeatoTargetIR/main_hit.yaml --device 192.168.1.50   # already compiled
+#   esphome logs    Targets/NeatoTargetIR/main_hit.yaml --device 192.168.1.50
+# Replace 192.168.1.50 with the unit's IP (shown in its web UI under Debug, or
+# in your router's client list). Or open http://<ip>/ in a browser and install
+# a compiled firmware.ota.bin from the unit's web page (firmware update / OTA
+# section) — no internet needed. A brand-new unit with no firmware is flashed
+# over USB instead:
+#   esphome run     Targets/NeatoTargetIR/main_hit.yaml --device /dev/cu.usbserial-XXXX
+#
+# ------------------------------------------------------------------------------
+# Author:   W. Jason Altice <jason.altice@neatofx.com>
+# Company:  NeatoFx — https://neatofx.com
+# Support:  jason.altice@neatofx.com
+#
+# Copyright (c) 2026 CodeMakesItGo. Released under the MIT License — see the
+# LICENSE file in the repository root for the full terms. This configuration is
+# provided "AS IS", without warranty of any kind, express or implied.
+#
+# Safety: NeatoFx devices can switch relays, motors and external power. Wiring
+# to mains voltage, motors or other hazardous loads must be done by a qualified
+# person in line with local electrical codes. You are responsible for the safe
+# installation and operation of the equipment this firmware controls.
+# ==============================================================================
+
+substitutions:
+  # ESPHome appends the MAC suffix to the hostname at runtime, giving each unit
+  # a unique, permanent hostname (target-ir-hit-a1b2c3). Logical identity is the
+  # runtime Device ID, set from the web UI.
+  name: target-ir-hit
+  name_add_mac_suffix: "true"
+  friendly_name: "NeatoFx Target IR Hit"
+  runtime_name_label: "Target Name"
+  # Firmware update channel: firmware/<update_channel>/manifest.json
+  # (configs/home_assistant.yaml), and the file the ESPHome dashboard adopts.
+  update_channel: target-ir-hit
+  main_file: main_hit.yaml
+  # ESPHome project name — what the ESPHome device builder matches on when it
+  # offers to adopt a unit, so each hardware type has its own.
+  project_name: "NeatoFX.TargetIR-Hit"
+
+packages:
+  # Hardware: Rev 3.x + hit face 1.0 (push button on GPIO19, no IR receiver)
+  board: !include boards/rev3_hit_1_0.yaml
+
+  # Network mode — select one:
+  #config: !include configs/standalone.yaml       # Device's own AP, no router
+  #config: !include configs/networked.yaml        # Router, no HA server (No-HA LAN)
+  config: !include configs/home_assistant.yaml    # Router + Home Assistant server
+
+  # No IR receiver: this face detects hits with a push button on GPIO19, the
+  # pin the IR receiver used. The team/IR globals live in
+  # boards/common/common.yaml, so the hit script compiles without it.
+
+  # Servo — Off / Hold / Cycle chosen at runtime ("Servo Mode" select).
+  servo_scripts: !include scripts/servo.yaml
+
+  # Hit behavior: Hit Style (Standard / Fuse + Explosion / Lightning Storm),
+  # Relay Mode (Hold / Toggle) and GND Effect (Ramp / Flicker / Throttle), all
+  # chosen at runtime.
+  hit_script: !include scripts/hit_script.yaml
+
+  # LAST on purpose: when packages set the same key, the later one wins.
+  # base.yaml's web_server (local: false + the custom UI) must override the
+  # local: true in _shared/networked_base.yaml / standalone_base.yaml, which
+  # the config package above pulls in — listed first, the default ESPHome page
+  # replaced the custom UI.
+  base: !include base.yaml

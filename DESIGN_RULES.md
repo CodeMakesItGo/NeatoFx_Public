@@ -2,9 +2,11 @@
 
 Standards every device in this repo follows so they stay consistent, buildable, and easy to maintain. New devices should match this exactly.
 
-## 1. One `main.yaml` per device (the core rule)
+## 1. One entry point per shippable hardware type (the core rule)
 
-Each device has a **single entry point, `main.yaml`**. There are no `main_winch.yaml` / `main_ac.yaml` / `main_lcd.yaml` side files. Variants are selected by un-commenting one line inside `main.yaml`, grouped with a clear "select exactly ONE" comment.
+A device has **one entry point per hardware type it ships as** — normally a single `main.yaml`. A product sold in several hardware forms that must not receive each other's firmware gets **one `main_<hw>.yaml` per form instead, and no `main.yaml`** (Target IR: `main_ir.yaml`, `main_lcd.yaml`, `main_hit.yaml`, `main_fan.yaml`). Each `main_<hw>.yaml` sets its own `name`, `friendly_name`, `project_name`, `update_channel` (→ `firmware/<channel>/manifest.json`) and `main_file` (its own file name, for `dashboard_import`), so an online update only ever installs firmware built for that hardware. What the mains share goes in a package next to them (Target IR: `base.yaml`).
+
+Split into per-hardware mains **only** for a hardware difference that would brick or break a unit if it got the other build (different pins or display). Everything else is one binary: behavior is a runtime setting (see *Runtime over build-time* below), and the remaining build choices are selected by un-commenting one line inside the main, grouped with a clear "select exactly ONE" comment. No `main_winch.yaml` / `main_ac.yaml` style files for options that are not separately shipped hardware.
 
 ```yaml
 packages:
@@ -31,7 +33,7 @@ Anything that would otherwise be a separate main becomes either a **board varian
 
 ```
 <ProductLine>/Neato<Product>/
-├── main.yaml                     # single entry point
+├── main.yaml                     # entry point (or main_<hw>.yaml per hardware type — rule 1)
 ├── boards/
 │   ├── rev3.yaml                 # hardware def; includes common/common.yaml
 │   ├── rev3_<variant>.yaml       # self-contained hardware variants (lcd, winch)
@@ -51,7 +53,7 @@ Anything that would otherwise be a separate main becomes either a **board varian
 └── .gitignore
 ```
 
-Package keys in `main.yaml` use the standard names: `board`, `drive`, `rftx`, `config`, `fpp_file`, plus script/protocol keys. Variant selectors (board revisions, drive types, RFTX modes) live in `boards/` or `boards/common/`; product-name prefixes on standard files (`golf_common.yaml`, `blaster_networked_config.yaml`) are not allowed.
+Package keys in a main use the standard names: `board`, `drive`, `rftx`, `config`, `fpp_file`, plus script/protocol keys. Variant selectors (board revisions, drive types, RFTX modes) live in `boards/` or `boards/common/`; product-name prefixes on standard files (`golf_common.yaml`, `blaster_networked_config.yaml`) are not allowed.
 
 Every project's `.gitignore` is identical:
 
@@ -72,14 +74,14 @@ All devices pull common infrastructure from the submodule-root `_shared/`. Becau
 
 | From | Include prefix |
 |---|---|
-| `main.yaml`, `configs/*`, `scripts/*`, `boards/*` | `../../../_shared/` |
+| `main*.yaml`, `configs/*`, `scripts/*`, `boards/*` | `../../../_shared/` |
 | `boards/common/*` | `../../../../_shared/` |
 
 Shared files: `esphome_base.yaml`, `networked_base.yaml`, `standalone_base.yaml`, `network_sensors.yaml`, `firmware_update.yaml`, `secrets.yaml` (gitignored; copy from `secrets.template.yaml`).
 
 ## 5. Substitutions & identity
 
-`main.yaml` defines:
+Each entry point (`main.yaml` / `main_<hw>.yaml`) defines:
 
 ```yaml
 substitutions:
@@ -93,7 +95,7 @@ substitutions:
 ```
 
 **ONE BINARY per product.** There is no `id` substitution and no `-s id <N>`;
-`tools/lint_repo.py` fails a `main.yaml` that reintroduces one. ESPHome appends
+`tools/lint_repo.py` fails a main that reintroduces one. ESPHome appends
 the MAC suffix to the hostname at runtime, and logical identity is a restoring
 global from `_shared/runtime_id.yaml`, assigned once from the web UI. Swapping a
 unit is: flash, set that number, done.
@@ -116,13 +118,14 @@ whole line; hardware revision is the separate `hw_version` substitution.
 
 - Product lines: `Targets/`, `Audio/`, `Displays/`, `Controllers/`, `Golf/`. Product folders: `Neato<Product>`.
 - **No `Smart` prefix** anywhere — the brand is **Neato**.
-- Entry file is always `main.yaml`; other files use `lower_snake_case`.
+- Entry file is `main.yaml`, or `main_<hw>.yaml` per hardware type (rule 1); other files use `lower_snake_case`.
 
 ## 7. "Made for ESPHome" / boot / logging conventions
 
-- `configs/networked.yaml` includes `improv_serial:` + `dashboard_import:` (MFE compliance). The `dashboard_import.package_import_url` must point at THIS device's `main.yaml` (copy-paste from a sibling device has caused wrong-URL bugs — always verify).
-- If a device has `configs/home_assistant.yaml`, `main.yaml`'s **active** (uncommented) `config:` package must point to it. Units are pre-flashed straight from `main.yaml`, and Made for ESPHome requires HA support (the native `api:`, plus `esphome.<device>-hit`-style events) to work the moment a customer powers the unit on — `networked.yaml` (No-HA LAN) and `standalone.yaml` (AP-only) stay available as commented alternatives for installs that intentionally don't want a Home Assistant server, but they must never be the shipped default once `home_assistant.yaml` exists. (This is the bug ESPHome's review caught on the NeatoTargetIR submission — `main.yaml` and the docs `config.yaml` had both drifted to `networked.yaml`.)
-- The `firmware_update` package + `update:` block are included where a published manifest exists at `firmware/<product>/manifest.json`. When a new product's firmware is published, add both.
+- `configs/networked.yaml` includes `improv_serial:` + `dashboard_import:` (MFE compliance). The `dashboard_import.package_import_url` must point at THIS device's entry point: `main.yaml`, or `${main_file}` where each `main_<hw>.yaml` sets `main_file` to its own name (copy-paste from a sibling device has caused wrong-URL bugs — always verify).
+- **Made for ESPHome does not require a file named `main.yaml`.** Its technical requirements (esphome.io/guides/made_for_esphome) are: `dashboard_import` with a `package_import_url` pointing at the public config; `esphome: project: name/version` (what the ESPHome device builder matches on when it offers to adopt a unit — so per-hardware mains each set their own `project_name`); one build that works for every unit (`name_add_mac_suffix: true`, no per-unit config); the `http_request` update platform with a public manifest whose builds include the matching `chipFamily`; and the `esphome` + `http_request` OTA platforms. Per-hardware `main_<hw>.yaml` files with no `main.yaml` meet all of them.
+- If a device has `configs/home_assistant.yaml`, every main's **active** (uncommented) `config:` package must point to it. Units are pre-flashed straight from their main, and Made for ESPHome requires HA support (the native `api:`, plus `esphome.<device>-hit`-style events) to work the moment a customer powers the unit on — `networked.yaml` (No-HA LAN) and `standalone.yaml` (AP-only) stay available as commented alternatives for installs that intentionally don't want a Home Assistant server, but they must never be the shipped default once `home_assistant.yaml` exists. (This is the bug ESPHome's review caught on the NeatoTargetIR submission — `main.yaml` and the docs `config.yaml` had both drifted to `networked.yaml`.)
+- The `firmware_update` package + `update:` block are included where a published manifest exists at `firmware/<product>/manifest.json` (or `firmware/${update_channel}/manifest.json`, one per hardware main). When a new product or hardware type is published, add the manifest, the `tools/release.py` PRODUCTS entry and the `tools/variants.yaml` device.
 - `logger.baud_rate` must be non-zero when improv_serial is used (never `baud_rate: 0` in a device that can run the networked config).
 - `logger.level: WARN` for production (`INFO`/`DEBUG` for troubleshooting).
 - `on_boot`: force hardware to a safe state at the earliest priority (e.g. 900); do status-LED/ready actions last (negative priority).
@@ -137,18 +140,18 @@ whole line; hardware revision is the separate `hw_version` substitution.
 ## 9. Build hygiene
 
 - `.esphome/`, `build/`, `.venv/`, `secrets.yaml`, `.DS_Store`, `.vscode/` are gitignored.
-- Validate every change with `esphome config <Line>/Neato<Product>/main.yaml` before commit.
+- Validate every change with `esphome config <Line>/Neato<Product>/main.yaml` (or each `main_<hw>.yaml`) before commit.
 - Batch flashing is via the repo-root `program.sh <device>` (target, display, speaker, motor, blaster, golf).
 
 ## 10. Automated enforcement (CI)
 
 Rules 1–9 are enforced automatically — don't rely on memory:
 
-- **Pre-commit hook** (`tools/hooks/pre-commit`, installed via `tools/install-hooks.sh`): runs `esphome config` on every device whose files changed, plus the repo lint script (`tools/lint_repo.py`) that checks naming, layout, include depths, dashboard-import URLs, and — for any device that has `configs/home_assistant.yaml` — that `main.yaml`'s active `config:` package is `home_assistant.yaml`, and that the OTA firmware-update entity is active (`firmware_update` package + uncommented `update: http_request` block whose manifest file exists in `firmware/`).
+- **Pre-commit hook** (`tools/hooks/pre-commit`, installed via `tools/install-hooks.sh`): runs `esphome config` on every device whose files changed, plus the repo lint script (`tools/lint_repo.py`) that checks naming, layout, include depths, dashboard-import URLs, and — for any device that has `configs/home_assistant.yaml` — that every main's active `config:` package is `home_assistant.yaml`, and that the OTA firmware-update entity is active (`firmware_update` package + uncommented `update: http_request` block whose manifest file exists in `firmware/`).
 - **GitHub Actions** (`.github/workflows/ci.yaml`): on every PR and push to `main`, compiles **every device × variant combination** (from `tools/variants.yaml`) with the **latest ESPHome release** and fails on any warning. CI uses `tools/ci_secrets.yaml` as a dummy `secrets.yaml`.
 - **Hardware-in-the-loop**: PRs labeled `hw-test` (or pushes to `main`) additionally run the physical test bench via the self-hosted runner (see `testbench/` in the private repo).
 
-If CI is red, the change does not merge. If a new variant axis is added to a `main.yaml`, add it to `tools/variants.yaml` in the same PR — the lint script fails if a commented package option is missing from the matrix.
+If CI is red, the change does not merge. If a new variant axis is added to a main, add it to `tools/variants.yaml` in the same PR — the lint script fails if a commented package option is missing from the matrix.
 
 ---
 
@@ -156,11 +159,11 @@ If CI is red, the change does not merge. If a new variant axis is added to a `ma
 
 These already hold today and are the basis for the rules above:
 
-- **Single `main.yaml`** assembling packages via `!include` (now true for every device after the NeatoMotor consolidation).
+- **One entry point per shipped hardware type** assembling packages via `!include` — a single `main.yaml` for every device except Target IR, which has `main_ir` / `main_lcd` / `main_hit` / `main_fan` (rule 1).
 - **`boards/rev<N>.yaml` → `boards/common/common.yaml`** hardware→logic split.
 - **`configs/networked.yaml` + `configs/standalone.yaml`** operating-mode pair.
 - **`_shared/` bases** (`esphome_base`, `networked_base`, `standalone_base`, `network_sensors`, `firmware_update`) with the fixed include depths above.
 - **Substitutions** `name` / `name_add_mac_suffix` / `friendly_name` / `runtime_id*` + `project: NeatoFX.<Device>`. No build-time `id`.
 - **Safe-state `on_boot`**, `WARN` logging, improv + dashboard_import for MFE, `custom_ui.js` web UI.
-- **IR devices** (Target, Blaster) share the `protocols/` set (`ir_nec`, `ir_raw`, `ir_laser_tag`, `ir_custom`) and `integrations/` FPP.
-- **Servo/effect devices** (Target, Golf) share `scripts/servo_movement_script.yaml`, `servo_stubs.yaml`, `color_controls.yaml`. Output effects (GND flicker / sawzall) are hit-script variants layered on `hit_script.yaml`, not servo-pin packages.
+- **Runtime over build-time:** a behavior choice that does not change the hardware (IR protocol, servo mode, hit style, relay / GND modes, GPIO pin modes, LED Strip 2 count) is a persisted `select` in one package, not a separate `!include` variant — one binary per board, and the choice survives firmware updates. Only hardware (the board file) and network mode stay build choices. Target: `protocols/ir.yaml`, `scripts/servo.yaml`, `scripts/hit_script.yaml` + `scripts/hit_styles/`, `boards/common/gpio_io.yaml`.
+- **Servo/effect devices** (Target, Golf) share `color_controls.yaml`; `servo_stubs.yaml` remains for boards with no servo hardware (Target Rev 1.x).
