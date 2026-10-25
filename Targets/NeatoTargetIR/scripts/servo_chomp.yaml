@@ -1,11 +1,11 @@
 # ==============================================================================
-# SERVO CHOMP - animated jaw (fish mouth) that chomps while the relay is on
+# SERVO CHOMP - animated jaw (fish mouth) that chomps for the hit window
 # ==============================================================================
 # A third option for the servo_scripts slot. In main.yaml pick EXACTLY ONE:
 #
 #   servo_scripts: !include scripts/servo_movement_script.yaml  # swing once per hit
 #   servo_scripts: !include scripts/servo_stubs.yaml            # no servo
-#   servo_scripts: !include scripts/servo_chomp.yaml            # chomp while relay is on
+#   servo_scripts: !include scripts/servo_chomp.yaml            # chomp for the hit window
 #
 # Nothing else to enable. This file is servo_movement_script.yaml plus the
 # chomp: the same "Servo Idle Position" / "Servo Hit Position" controls (same
@@ -13,20 +13,21 @@
 # the hit scripts and board call, and one extra control, "Chomp Interval".
 #
 # BEHAVIOR
-#   Hit        -> the hit script turns Relay 1 on, then calls servo_go_hit. Here
-#                 that starts the chomp: jaw to Hit Position, back to Idle
-#                 Position, repeat, one half-move per Chomp Interval
-#   Relay off  -> the chomp sees the relay drop (checked before every half-move)
-#                 and closes the jaw, holding it shut under power. The Relay
-#                 Timer IS the chomp duration.
-#   Disabled   -> target_disable_apply calls servo_go_idle: chomp stopped, jaw
-#                 closed. Same at boot.
-#   Test       -> "Test Servo Hit" chomps for 3 s with the relay OFF, then closes
+#   Hit        -> the hit script calls servo_go_hit. Here that starts the chomp:
+#                 jaw to Hit Position, back to Idle Position, repeat, one
+#                 half-move per Chomp Interval
+#   Hit ends   -> the hit script calls servo_go_idle when its hit display ends
+#                 (the later of Relay Timer and hit_display_time, 3 s by
+#                 default): chomp stops and the jaw closes, held shut under
+#                 power. With Relay Timer >= 3 s the Relay Timer IS the chomp
+#                 duration.
+#   Disabled   -> target_disable_apply calls servo_go_idle: same. Same at boot.
+#   Test       -> "Test Servo Hit" chomps for 3 s, then closes
 #
-# WORKS WITH every hit script: they all call servo_go_hit after switching the
-# relay on, and servo_go_idle at the end of the hit. (Exception: the fan/mister
-# script, where the relay belongs to the second hit — there the jaw just stays
-# closed, since the relay is off on the first hit.)
+# The chomp deliberately does NOT watch the relay pin. hit_script_relay_toggle
+# only pulses the relay, and the fuse / lightning scripts time the relay to
+# their own effects, so the servo_go_hit / servo_go_idle calls — which every
+# hit script makes — are the one signal that means "hit window" everywhere.
 #
 # Chomp Interval must be long enough for the servo to actually reach the other
 # angle, or it shudders mid-travel instead of chomping. A typical hobby servo
@@ -47,8 +48,8 @@ globals:
     restore_value: true
     initial_value: '90'
 
-  # True only while the test button is driving the chomp (relay is off then).
-  - id: chomp_test_running
+  # True from servo_go_hit until servo_go_idle — the chomp loop's run condition.
+  - id: chomp_active
     type: bool
     restore_value: no
     initial_value: 'false'
@@ -109,32 +110,26 @@ number:
     step: 50
 
 button:
-  # Bench test from the web UI Test card: 3 s of chomping with the relay off.
+  # Bench test from the web UI Test card: 3 s of chomping, then close.
   - platform: template
     name: "Test Servo Hit"
     id: test_servo_hit_button
     icon: "mdi:cog-play"
     on_press:
-      - globals.set:
-          id: chomp_test_running
-          value: 'true'
-      - script.execute: servo_chomp
+      - script.execute: servo_go_hit
       - delay: 3s
-      - globals.set:
-          id: chomp_test_running
-          value: 'false'
       - script.execute: servo_go_idle
 
 script:
-  # The chomp loop. Runs while Relay 1 is on (or the test button is holding it),
-  # checking before each half-move so it stops within one interval of the relay
-  # dropping, then parks the jaw closed.
+  # The chomp loop. Runs while chomp_active (set by servo_go_hit, cleared by
+  # servo_go_idle), checking before each half-move so it stops within one
+  # interval of the window closing, then parks the jaw closed.
   - id: servo_chomp
     mode: restart
     then:
       - while:
           condition:
-            lambda: 'return id(relay_1).state || id(chomp_test_running);'
+            lambda: 'return id(chomp_active);'
           then:
             # Open
             - servo.write:
@@ -144,21 +139,24 @@ script:
             # Close — only if we are still meant to be chomping
             - if:
                 condition:
-                  lambda: 'return id(relay_1).state || id(chomp_test_running);'
+                  lambda: 'return id(chomp_active);'
                 then:
                   - servo.write:
                       id: servo1
                       level: !lambda 'return (id(g_servo_idle_pos) - 90.0f) / 90.0f;'
                   - delay: !lambda 'return (int) id(chomp_interval).state;'
-      # Relay dropped: close and hold
+      # Window closed: close and hold
       - servo.write:
           id: servo1
           level: !lambda 'return (id(g_servo_idle_pos) - 90.0f) / 90.0f;'
 
-  # Called by every hit script right after the relay turns on.
+  # Called by every hit script at the hit.
   - id: servo_go_hit
     mode: restart
     then:
+      - globals.set:
+          id: chomp_active
+          value: 'true'
       - script.execute: servo_chomp
 
   # Called at the end of the hit, on disable, and at boot: stop any chomp in
@@ -166,6 +164,9 @@ script:
   - id: servo_go_idle
     mode: restart
     then:
+      - globals.set:
+          id: chomp_active
+          value: 'false'
       - script.stop: servo_chomp
       - servo.write:
           id: servo1

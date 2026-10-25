@@ -45,6 +45,8 @@ devices:
         hit_script: scripts/hit_script.yaml
       hit_gnd_sawzall:          # standard hit, GND switch revs a motor (sawzall)
         hit_script: scripts/hit_script_gnd_sawzall.yaml
+      hit_relay_toggle:         # standard hit, relay presses a push-on/push-off button at both ends
+        hit_script: scripts/hit_script_relay_toggle.yaml
       hit_fuse:                 # fuse burns down LED Strip 2, then explodes
         hit_script: scripts/hit_script_fuse.yaml
       hit_lightning:            # xLights lightning-storm port (left cloud)

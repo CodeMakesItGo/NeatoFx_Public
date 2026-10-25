@@ -66,6 +66,23 @@ script:
           id: gnd_light
           transition_length: 0s
 
+  # Relay pulse — the relay's own timeline, run concurrently from target_hit_script
+  # exactly like gnd_pulse: on at the hit, off after Relay Timer. Factored out so a
+  # variant can replace just this (scripts/hit_script_relay_toggle.yaml presses a
+  # momentary button at both ends of the window instead of holding). mode: restart
+  # so a hit landing on a running pulse re-arms it. target_hit_script still waits
+  # Relay Timer itself, so the rest of the hit timeline is unchanged.
+  - id: relay_pulse
+    mode: restart
+    then:
+      - lambda: |-
+          if (id(relay_1).state) {
+            ESP_LOGW("target_hit", "Relay already active!");
+          }
+      - switch.turn_on: relay_1
+      - delay: !lambda 'return id(relay_timer);'
+      - switch.turn_off: relay_1
+
   # Main Target Hit Script - Standalone version
   - id: target_hit_script
     mode: single  # Prevent overlapping hits
@@ -201,12 +218,10 @@ script:
                 id: led_strip2
                 effect: !lambda 'return id(led_strip2_hit_effect).current_option();'
 
-      # Activate outputs with error checking
-      - lambda: |-
-          if (id(relay_1).state) {
-            ESP_LOGW("target_hit", "Relay already active!");
-          }
-      - switch.turn_on: relay_1
+      # Activate outputs. The relay runs on relay_pulse (on now, off after Relay
+      # Timer) so a variant can change how the relay behaves without touching
+      # this timeline.
+      - script.execute: relay_pulse
       # GND switch runs on its own timer via gnd_pulse, so its on-duration can
       # differ from the relay window — e.g. relay drives a lantern's AC while GND
       # drives a vibration for a different time. gnd_timer == 0 follows relay_timer.
@@ -226,14 +241,11 @@ script:
       - delay: 20ms
       - script.execute: esphome_hit_script
 
-      # Hold relay for configured time while hit effect displays
+      # Hold for the Relay Timer while the hit effect displays. relay_pulse drops
+      # the relay at this same moment; the GND switch is owned by gnd_pulse (its
+      # own timer) so the GND window can run longer or shorter than the relay. In
+      # follow mode (gnd_timer == 0) gnd_pulse releases at ~relay_timer too.
       - delay: !lambda 'return id(relay_timer);'
-
-      # Deactivate outputs
-      - switch.turn_off: relay_1
-      # GND switch is owned by gnd_pulse (its own timer) and is deliberately NOT
-      # turned off here — that lets the GND window run longer or shorter than the
-      # relay. In follow mode (gnd_timer == 0) gnd_pulse releases at ~relay_timer.
 
       # Continue displaying hit effect until total hit_display_time is reached
       - delay: !lambda |-
@@ -332,6 +344,7 @@ script:
       # Kill a hit mid-flight — otherwise its pending delays would re-light the
       # strips and drop the relay seconds after the target was disabled.
       - script.stop: target_hit_script
+      - script.stop: relay_pulse
       - script.stop: gnd_pulse
       # Clear the hit's latched flags. ir_enabled is restored on re-enable, not
       # here: leaving it false is a second, harmless layer of "ignore IR".

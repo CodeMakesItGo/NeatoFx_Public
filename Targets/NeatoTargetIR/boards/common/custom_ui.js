@@ -48,6 +48,8 @@
     hit_points:     { type: NUM, name: 'Hit Points',    label: 'Hit Points', min: 10, max: 100, step: 10, unit: 'pts', section: 'base' },
     cooldown_timer: { type: NUM, name: 'Cooldown Timer', label: 'Cooldown',  min: 0, max: 600000, step: 100, unit: 'ms', section: 'base' },
     relay_timer:    { type: NUM, name: 'Relay Timer',   label: 'Relay Timer', min: 100, max: 10000, step: 100, unit: 'ms', section: 'base' },
+    // scripts/hit_script_relay_toggle.yaml only — pruned on every other build
+    relay_pulse:    { type: NUM, name: 'Relay Pulse Width', label: 'Relay Pulse Width (button press)', min: 50, max: 2000, step: 50, unit: 'ms', section: 'base' },
     gnd_timer:      { type: NUM, name: 'GND Timer',     label: 'GND Timer (0 = follow relay)', min: 0, max: 3000, step: 100, unit: 'ms', section: 'base' },
     idle_effect:    { type: SEL, name: 'Target LEDs Idle Effect', label: 'Idle LED Effect',  options: IDLE_EFFECTS, section: 'base' },
     hit_effect:     { type: SEL, name: 'Target LEDs Hit Effect',  label: 'Hit LED Effect',  options: HIT_EFFECTS, section: 'base' },

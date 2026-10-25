@@ -68,11 +68,12 @@ packages:
   # Servo movement — include EXACTLY ONE of these:
   servo_scripts: !include scripts/servo_movement_script.yaml  # with servo: swing to hit angle, back to idle
   #servo_scripts: !include scripts/servo_stubs.yaml           # no servo
-  #servo_scripts: !include scripts/servo_chomp.yaml            # animated jaw: chomps hit<->idle while the relay is on
+  #servo_scripts: !include scripts/servo_chomp.yaml            # animated jaw: chomps hit<->idle for the hit window
 
   # Hit behavior script - defines what happens when the target is hit.
   # Include EXACTLY ONE — they all define the same script ids.
   hit_script: !include scripts/hit_script.yaml       # standard hit
+  #hit_script: !include scripts/hit_script_relay_toggle.yaml  # standard hit, relay presses a push-on/push-off button at the start and end of the Relay Timer
   #hit_script: !include scripts/hit_script_gnd_flicker.yaml  # standard hit, GND switch flickers like a failing fluorescent tube
   #hit_script: !include scripts/hit_script_gnd_sawzall.yaml  # standard hit, GND switch revs a motor like a reciprocating saw
   #hit_script: !include scripts/hit_script_fuse.yaml   # fuse burns down LED Strip 2, then explodes
