@@ -19,7 +19,7 @@
 #
 # WHY THIS DRIVE OWNS THE OUTPUTS ON A TICK
 # -----------------------------------------
-# The board file (rev3.yaml / rev3_12v.yaml) fires motor_stop_script on TGL1
+# The board I/O (board_io.yaml) fires motor_stop_script on TGL1
 # RELEASE and on either limit switch — that is correct hold-to-run behavior for
 # drive_dc/drive_ac, but here the cycle must survive the release and must
 # survive a limit hit. So linear_cycle re-asserts the outputs every 20 ms from a
@@ -27,13 +27,24 @@
 # the H-bridge from outside the cycle is overridden on the next tick, and the
 # cycle only ever relinquishes the outputs when it ends (or is cancelled).
 #
-# To CANCEL a running cycle: the "Cancel Cycle" button (web UI / HA) or TGL2.
-# The cover's Stop does NOT cancel it — motor_stop_script cannot tell the
-# difference between a limit switch and an operator, and stopping on the limit
-# switch is exactly what this drive must ignore.
+# LINEAR MODE (select, saved) — "Cycle" is the timed extend -> retract above.
+# "Toggle" is for a door: each Input 1 trigger makes ONE move, alternating —
+# extend, then on the next trigger retract, then extend ... Each move runs for
+# its Extend / Retract Time with the same ramp and the same latched limit switch
+# as the cycle's phases, then turns off and STAYS until the next Input 1. Input 2
+# (or Stop / Cancel) stops a move; the next Input 1 still goes the other way.
+# Input 1 during a move reverses it. The next direction is saved, so a restart
+# remembers whether the door is open or closed.
 #
-# Select in the main file:
-#   drive: !include boards/common/linear_act.yaml
+# To CANCEL a running cycle: the "Cancel Cycle" button, TGL2, or the cover's
+# Stop (web UI Stop button / Home Assistant), which runs motor_stop_requested
+# (common.yaml). motor_stop_script on its own — what the limit switches and the
+# TGL1 release call — does NOT cancel it: stopping on a limit switch is exactly
+# what this drive must ignore.
+#
+# Selected at runtime by "Motor Type" (boards/common/drives.yaml), which
+# routes Input 1 / Input 2 / the cover to these scripts. Every drive is
+# compiled into every build.
 #
 # Consumed IDs (from board + common):
 #   Outputs : motor_rpwm, motor_lpwm, motor_r_en, motor_l_en
@@ -75,6 +86,24 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+
+  # Toggle mode: direction of the NEXT Input 1 move (true = extend). Saved, so
+  # the door's open/closed state survives a restart.
+  - id: la_toggle_extend_next
+    type: bool
+    restore_value: yes
+    initial_value: 'true'
+
+  # Toggle mode: the move in progress (true = extend) and its length.
+  - id: la_move_extend
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+  - id: la_move_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
 
   # 0 = idle, 1 = extending, 2 = extend limit hit, 3 = retracting,
   # 4 = retract limit hit. Drives the "Cycle Phase" text sensor and the
@@ -118,6 +147,26 @@ number:
     icon: "mdi:arrow-collapse-left"
 
 # ==============================================================================
+# LINEAR MODE
+# ==============================================================================
+select:
+  - platform: template
+    name: "Linear Mode"
+    id: la_mode
+    icon: "mdi:swap-horizontal"
+    options:
+      - "Cycle"     # Input 1: timed extend, then retract (the original behavior)
+      - "Toggle"    # Input 1: one move, alternating extend / retract (doors)
+    initial_option: "Cycle"
+    optimistic: true
+    restore_value: true
+    on_value:
+      - script.stop: linear_cycle
+      - script.stop: linear_move
+      - lambda: 'id(la_phase) = 0;'
+      - script.execute: motor_stop_script
+
+# ==============================================================================
 # BUTTONS
 # ==============================================================================
 button:
@@ -127,7 +176,7 @@ button:
     id: la_run_button
     icon: "mdi:play-circle"
     on_press:
-      - script.execute: motor_forward_start
+      - script.execute: la_forward_start
 
   # The only clean way out of a running cycle besides TGL2 — see the header.
   - platform: template
@@ -162,13 +211,13 @@ text_sensor:
 # ==============================================================================
 script:
   # ---------------------------------------------------------------------------
-  # motor_forward_start  (TGL1 press / cover open / "Run Cycle")
+  # la_forward_start  (TGL1 press / cover open / "Run Cycle")
   # Thin launcher only. It must finish instantly, because motor_stop_script
   # does script.stop on it — and motor_stop_script is what TGL1's RELEASE calls
   # a few hundred milliseconds later. The cycle itself lives in linear_cycle,
   # which motor_stop_script does not know about and therefore cannot kill.
   # ---------------------------------------------------------------------------
-  - id: motor_forward_start
+  - id: la_forward_start
     mode: restart
     then:
       - logger.log:
@@ -179,7 +228,102 @@ script:
             - 'id(la_retract_time).state'
             - 'id(motor_ramp_ms).state'
             - 'id(motor_speed_control).state'
-      - script.execute: linear_cycle
+      - if:
+          condition:
+            lambda: 'return id(la_mode).current_option() == "Toggle";'
+          then:
+            # One move in the saved next direction, and flip it for next time.
+            - lambda: |-
+                id(la_move_extend)        = id(la_toggle_extend_next);
+                id(la_toggle_extend_next) = !id(la_move_extend);
+                ESP_LOGI("linear_act", "Linear toggle: %s", id(la_move_extend) ? "extend" : "retract");
+            - script.stop: linear_cycle
+            - script.execute: linear_move
+          else:
+            - script.stop: linear_move
+            - script.execute: linear_cycle
+
+  # ---------------------------------------------------------------------------
+  # linear_move  (Toggle mode)
+  # One timed move in direction la_move_extend: ramp, latched limit switch for
+  # that direction, re-asserted every 20 ms exactly like a linear_cycle phase,
+  # then off — and nothing else until the next Input 1.
+  # ---------------------------------------------------------------------------
+  - id: linear_move
+    mode: restart
+    then:
+      - lambda: |-
+          id(la_cycle_start)    = millis();
+          id(la_move_ms)        = (uint32_t)((id(la_move_extend) ? id(la_extend_time).state
+                                                                 : id(la_retract_time).state) * 1000.0f);
+          id(la_fwd_blocked)    = false;
+          id(la_rev_blocked)    = false;
+          id(la_phase)          = 0;
+          id(current_direction) = id(la_move_extend);
+          id(motor_running)     = true;
+      - output.turn_off: motor_r_en
+      - output.turn_off: motor_l_en
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      - while:
+          condition:
+            lambda: 'return (millis() - id(la_cycle_start)) < id(la_move_ms);'
+          then:
+            - lambda: |-
+                id(motor_running) = true;   // owns the motor while moving (see linear_cycle)
+                uint32_t elapsed = millis() - id(la_cycle_start);
+                bool forward = id(la_move_extend);
+
+                bool raw = forward ? id(limit_open).state : id(limit_closed).state;
+                bool hit = id(limits_nc_mode) ? !raw : raw;
+                if (hit) {
+                  if (forward) id(la_fwd_blocked) = true;
+                  else         id(la_rev_blocked) = true;
+                }
+                bool blocked = forward ? id(la_fwd_blocked) : id(la_rev_blocked);
+
+                int phase = forward ? (blocked ? 2 : 1) : (blocked ? 4 : 3);
+                if (phase != id(la_phase)) {
+                  switch (phase) {
+                    case 1: ESP_LOGI("linear_act", "Linear: extending"); break;
+                    case 2: ESP_LOGI("linear_act", "Linear: SW1 hit — output off, timer still running"); break;
+                    case 3: ESP_LOGI("linear_act", "Linear: retracting"); break;
+                    case 4: ESP_LOGI("linear_act", "Linear: SW2 hit — output off, timer still running"); break;
+                  }
+                  id(la_phase) = phase;
+                }
+                id(current_direction) = forward;
+
+                if (blocked) {
+                  id(motor_rpwm)->set_level(0.0f);
+                  id(motor_lpwm)->set_level(0.0f);
+                  id(motor_r_en)->turn_off();
+                  id(motor_l_en)->turn_off();
+                  return;
+                }
+
+                float speed = id(motor_speed_control).state / 100.0f;
+                uint32_t ramp = (uint32_t) id(motor_ramp_ms).state;
+                float level = (ramp > 0 && elapsed < ramp) ? speed * (float) elapsed / (float) ramp : speed;
+                if (forward) {
+                  id(motor_lpwm)->set_level(0.0f);
+                  id(motor_rpwm)->set_level(level);
+                } else {
+                  id(motor_rpwm)->set_level(0.0f);
+                  id(motor_lpwm)->set_level(level);
+                }
+                id(motor_r_en)->turn_on();
+                id(motor_l_en)->turn_on();
+            - delay: 20ms
+      - lambda: 'id(la_phase) = 0;'
+      - logger.log:
+          level: INFO
+          format: "Linear: move complete — motor off until the next Input 1"
+      - script.execute: motor_stop_script
 
   # ---------------------------------------------------------------------------
   # linear_cycle
@@ -222,6 +366,10 @@ script:
             lambda: 'return (millis() - id(la_cycle_start)) < id(la_total_ms);'
           then:
             - lambda: |-
+                // The cycle owns the motor while it runs: a TGL1 release or a limit
+                // hit calls motor_stop_script, which clears motor_running — set it
+                // back so Motor Status / Motor Idle stay right for the whole cycle.
+                id(motor_running) = true;
                 uint32_t elapsed = millis() - id(la_cycle_start);
                 bool forward     = elapsed < id(la_extend_ms);
 
@@ -301,56 +449,65 @@ script:
     mode: single
     then:
       - script.stop: linear_cycle
+      - script.stop: linear_move
       - lambda: 'id(la_phase) = 0;'
       - script.execute: motor_stop_script
 
   # ---------------------------------------------------------------------------
-  # motor_reverse_start  (TGL2 held / cover close)
+  # la_reverse_start  (TGL2 held / cover close)
   # Manual retract jog, hold-to-run exactly like drive_dc — and the operator's
   # escape hatch from a running cycle. Blocked if the closed limit (SW2) is
   # active. Release of TGL2 stops it via the board's motor_stop_script.
   # ---------------------------------------------------------------------------
-  - id: motor_reverse_start
+  - id: la_reverse_start
     mode: restart
     then:
-      - script.stop: linear_cycle
-      - lambda: 'id(la_phase) = 0;'
+      # Toggle mode: Input 2 just stops the move (no jog — the door's next
+      # Input 1 still goes the other way).
       - if:
           condition:
-            lambda: |-
-              bool open_hit   = id(limits_nc_mode) ? !id(limit_open).state   : id(limit_open).state;
-              bool closed_hit = id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;
-              return open_hit && closed_hit;
+            lambda: 'return id(la_mode).current_option() == "Toggle";'
           then:
-            - logger.log: "Manual: both limits active — motor disabled"
+            - script.execute: linear_cycle_cancel
           else:
+            - script.stop: linear_cycle
+            - lambda: 'id(la_phase) = 0;'
             - if:
                 condition:
-                  lambda: 'return id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;'
+                  lambda: |-
+                    bool open_hit   = id(limits_nc_mode) ? !id(limit_open).state   : id(limit_open).state;
+                    bool closed_hit = id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;
+                    return open_hit && closed_hit;
                 then:
-                  - logger.log: "Manual: retract blocked — closed limit (SW2) active"
+                  - logger.log: "Manual: both limits active — motor disabled"
                 else:
-                  - logger.log:
-                      level: INFO
-                      format: "Manual: ramping retract (ramp=%.0f ms, speed=%.0f%%)"
-                      args:
-                        - 'id(motor_ramp_ms).state'
-                        - 'id(motor_speed_control).state'
-                  - lambda: |-
-                      id(current_direction) = false;
-                      id(motor_running)     = true;
-                      id(motor_ramp_step)   = 0;
-                  - output.turn_on: motor_r_en
-                  - output.turn_on: motor_l_en
-                  - output.set_level:
-                      id: motor_rpwm
-                      level: 0%
-                  - repeat:
-                      count: 10
+                  - if:
+                      condition:
+                        lambda: 'return id(limits_nc_mode) ? !id(limit_closed).state : id(limit_closed).state;'
                       then:
+                        - logger.log: "Manual: retract blocked — closed limit (SW2) active"
+                      else:
+                        - logger.log:
+                            level: INFO
+                            format: "Manual: ramping retract (ramp=%.0f ms, speed=%.0f%%)"
+                            args:
+                              - 'id(motor_ramp_ms).state'
+                              - 'id(motor_speed_control).state'
                         - lambda: |-
-                            float speed = id(motor_speed_control).state / 100.0f;
-                            float level = speed * (float)(id(motor_ramp_step) + 1) / 10.0f;
-                            id(motor_lpwm)->set_level(level);
-                            id(motor_ramp_step)++;
-                        - delay: !lambda 'return (uint32_t)std::max(10.0f, id(motor_ramp_ms).state / 10.0f);'
+                            id(current_direction) = false;
+                            id(motor_running)     = true;
+                            id(motor_ramp_step)   = 0;
+                        - output.turn_on: motor_r_en
+                        - output.turn_on: motor_l_en
+                        - output.set_level:
+                            id: motor_rpwm
+                            level: 0%
+                        - repeat:
+                            count: 10
+                            then:
+                              - lambda: |-
+                                  float speed = id(motor_speed_control).state / 100.0f;
+                                  float level = speed * (float)(id(motor_ramp_step) + 1) / 10.0f;
+                                  id(motor_lpwm)->set_level(level);
+                                  id(motor_ramp_step)++;
+                              - delay: !lambda 'return (uint32_t)std::max(10.0f, id(motor_ramp_ms).state / 10.0f);'

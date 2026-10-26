@@ -1,0 +1,96 @@
+# ==============================================================================
+# NEATO MOTOR - MOTOR TYPE (chosen at runtime)
+# ==============================================================================
+# Every drive is compiled into every build; the persisted "Motor Type" select
+# picks which one Input 1 / Input 2 / the cover drive:
+#
+#   Type             Input 1 press      Input 2 press      Input release   SW1 / SW2
+#   DC Motor         ramp forward       ramp reverse       stop            limit switches
+#   AC Controller    ground Output A    ground Output B    stop            limit switches
+#   Linear Actuator  timed extend ->    retract jog /      stop (the cycle limit switches
+#                    retract cycle      cancel cycle       keeps running)  (latched)
+#   Winch            reel out           reel in            stop            encoder
+#   Pulse            pulse Output A     pulse Output B     nothing         unused
+#
+# Drives: drive_dc.yaml, drive_ac.yaml, linear_act.yaml, winch.yaml, pulse.yaml.
+# Changing the type stops whatever is running first.
+#
+# The same H-bridge outputs serve every type, so pick the type that matches
+# what is wired to Output A / B before running anything.
+# ==============================================================================
+
+packages:
+  drive_dc:   !include drive_dc.yaml
+  drive_ac:   !include drive_ac.yaml
+  linear_act: !include linear_act.yaml
+  winch:      !include winch.yaml
+  pulse:      !include pulse.yaml
+
+select:
+  - platform: template
+    name: "Motor Type"
+    id: motor_type
+    icon: "mdi:engine"
+    options:
+      - "DC Motor"
+      - "AC Controller"
+      - "Linear Actuator"
+      - "Winch"
+      - "Pulse"
+    initial_option: "DC Motor"   # what the standard build ran before this select
+    optimistic: true
+    restore_value: true
+    on_value:
+      - script.stop: linear_cycle
+      - script.stop: linear_move
+      - lambda: 'id(la_phase) = 0;'
+      - script.execute: motor_stop_script
+      - logger.log:
+          format: "Motor type: %s"
+          args: ['x.c_str()']
+
+globals:
+  # SW1 / SW2 act as limit switches only for DC / AC / Linear (Winch reads them
+  # as the encoder, Pulse ignores them). Read by the board's limit handlers.
+  - id: limits_active
+    type: std::function<bool()>
+    restore_value: no
+    # Plain C++ (not an ESPHome lambda): components by generated name.
+    initial_value: |-
+      []() -> bool {
+        auto t = motor_type->current_option();
+        return t == "DC Motor" || t == "AC Controller" || t == "Linear Actuator";
+      }
+
+script:
+  # Input 1 press / cover open / CAN-less "forward".
+  - id: motor_forward_start
+    mode: restart
+    then:
+      - lambda: |-
+          auto t = id(motor_type).current_option();
+          if      (t == "DC Motor")        id(dc_forward_start).execute();
+          else if (t == "AC Controller")   id(ac_forward_start).execute();
+          else if (t == "Linear Actuator") id(la_forward_start).execute();
+          else if (t == "Winch")           id(winch_reel_out_script).execute();
+          else if (t == "Pulse")           id(pulse_a_script).execute();
+
+  # Input 2 press / cover close.
+  - id: motor_reverse_start
+    mode: restart
+    then:
+      - lambda: |-
+          auto t = id(motor_type).current_option();
+          if      (t == "DC Motor")        id(dc_reverse_start).execute();
+          else if (t == "AC Controller")   id(ac_reverse_start).execute();
+          else if (t == "Linear Actuator") id(la_reverse_start).execute();
+          else if (t == "Winch")           id(winch_reel_in_script).execute();
+          else if (t == "Pulse")           id(pulse_b_script).execute();
+
+  # Input 1 / Input 2 release. Hold-to-run types stop; Pulse finishes its pulse.
+  - id: input_released
+    mode: restart
+    then:
+      - lambda: |-
+          if (id(motor_type).current_option() == "Pulse") return;
+          id(motor_stop_script).execute();

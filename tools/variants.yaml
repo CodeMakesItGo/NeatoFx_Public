@@ -73,26 +73,29 @@ devices:
       fpp:
         fpp_file: integrations/target_fpp.yaml
 
-  motor:
-    path: Controllers/NeatoMotor/main.yaml
-    label: "Neato Motor"
+  # Neato Motor — one main per board; Motor Type (DC / AC / Linear / Winch /
+  # Pulse) is a runtime select, so the variants are only the network mode.
+  motor_24v:
+    path: Controllers/NeatoMotor/main_24v.yaml
+    label: "Neato Motor 24V"
     variants:
-      default: {}   # rev3_12v + drive_dc + home_assistant
-      linear_act:              # Linear actuator: timed extend -> retract cycle
-        drive: boards/common/linear_act.yaml
-      ac_standalone:
-        drive: boards/common/drive_ac.yaml
-        config: configs/standalone.yaml
-      dc_can_sound:            # CAN/sound add-ons need rev3.yaml (SW1 on GPIO25; GPIO4 is CAN RX)
-        board: boards/rev3.yaml
-        can: boards/common/can.yaml
-        sound: boards/common/sound.yaml
-      winch:
-        board: boards/rev3_winch.yaml
-        drive: null
-        can: null          # self-contained board; can.yaml assumes the standard board's IDs
-      lan_no_ha:                # No-HA LAN mode (router present, no HA server)
+      default: {}   # Rev 4.3 24V (rev4_3_24v) + CAN + home_assistant
+      lan_no_ha:
         config: configs/networked.yaml
+      standalone:
+        config: configs/standalone.yaml
+
+  motor_12v:
+    path: Controllers/NeatoMotor/main_12v.yaml
+    label: "Neato Motor 12V"
+    variants:
+      default: {}   # Rev 3.3 12V (rev3_3_12v, no CAN) + home_assistant
+      rev3_0:       # original Rev 3.0 12V board: one input, Linear Actuator only
+        board: boards/rev3_0_12v.yaml
+      lan_no_ha:
+        config: configs/networked.yaml
+      standalone:
+        config: configs/standalone.yaml
 
   blaster:
     path: Controllers/NeatoBlaster/main.yaml

@@ -6,8 +6,9 @@
 # high-side while the other rests at 0%. Pairs with motor_stop_script (shared,
 # in motor_common.yaml) and the limit-switch guards.
 #
-# Select in the main file:
-#   drive: !include boards/common/drive_dc.yaml
+# Selected at runtime by "Motor Type" (boards/common/drives.yaml), which
+# routes Input 1 / Input 2 / the cover to these scripts. Every drive is
+# compiled into every build.
 #
 # Consumed IDs (from board + common):
 #   Outputs : motor_rpwm, motor_lpwm, motor_r_en, motor_l_en
@@ -17,12 +18,12 @@
 # ==============================================================================
 script:
   # ---------------------------------------------------------------------------
-  # motor_forward_start
+  # dc_forward_start
   # Ramps the motor up to speed in direction 1 (forward / open). Blocked if the
   # open limit (SW1) is active. mode:restart means re-pressing Input 1 mid-ramp
   # simply restarts the ramp.
   # ---------------------------------------------------------------------------
-  - id: motor_forward_start
+  - id: dc_forward_start
     mode: restart
     then:
       - if:
@@ -67,11 +68,11 @@ script:
                         - delay: !lambda 'return (uint32_t)std::max(10.0f, id(motor_ramp_ms).state / 10.0f);'
 
   # ---------------------------------------------------------------------------
-  # motor_reverse_start
+  # dc_reverse_start
   # Ramps the motor up to speed in direction 2 (reverse / close). Blocked if the
   # closed limit (SW2) is active.
   # ---------------------------------------------------------------------------
-  - id: motor_reverse_start
+  - id: dc_reverse_start
     mode: restart
     then:
       - if:

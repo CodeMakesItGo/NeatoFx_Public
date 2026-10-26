@@ -1,13 +1,13 @@
 # ==============================================================================
 # NEATO MOTOR CONTROLLER - COMMON COMPONENTS (MANUAL HOLD-TO-RUN)
 # ==============================================================================
-# Shared control logic for the Rev 3.0 CAN board. The motor is driven directly
+# Shared control logic for the 12V and 24V motor boards. The motor is driven directly
 # by two joystick inputs (hold = run, release = stop) and guarded by two hard
 # limit switches. No timer, no auto-reverse — every start ramps up from 0 to
 # speed, every stop is immediate. CAN telemetry / remote drive lives in
 # boards/common/motor_can.yaml and is unaffected by this logic.
 #
-# Included by: motor_rev3_0.yaml
+# Included by: every board file (boards/rev3_3_12v.yaml, rev3_0_12v.yaml, rev4_3_24v.yaml)
 #
 # Hardware IDs consumed from the board file:
 #   Outputs : motor_rpwm, motor_lpwm, motor_r_en, motor_l_en
@@ -82,30 +82,35 @@ globals:
     initial_value: 'true'
 
 # ==============================================================================
-# SCRIPTS - Manual Motor Control
+# SCRIPTS - Stop
 # ==============================================================================
-# The two DIRECTION scripts (motor_forward_start / motor_reverse_start) live in
-# a selectable "drive" package so the same board can run either behaviour:
-#   boards/common/motor_drive_dc.yaml — 24V DC motor via PWM ramp on the H-bridge
-#   boards/common/motor_drive_ac.yaml — 240VAC controller: ground one input, open
-#                                       the other (no PWM)
-# The main file picks one (see motor_main.yaml / motor_ac_main.yaml). Both define
-# motor_forward_start + motor_reverse_start; motor_stop_script below is shared
-# (it opens BOTH outputs, which means "off" for either motor type).
-# ---------------------------------------------------------------------------
+# The direction scripts live in the drive packages (drive_dc / drive_ac /
+# linear_act / winch / pulse), all compiled in; "Motor Type"
+# (drives.yaml) routes Input 1 / Input 2 / the cover to one of them.
+# This stop is shared by every type: it halts whatever is driving and opens
+# BOTH outputs (both H-bridges disabled, PWM 0) — brake/coast for a DC motor or
+# winch, both inputs floating for the AC controller, valves closed for Pulse.
+#
+# It deliberately does NOT stop linear_cycle: the linear actuator's timed cycle
+# must survive the TGL1 release and its own limit switches (see linear_act.yaml).
 script:
-  # ---------------------------------------------------------------------------
-  # motor_stop_script
-  # Immediately stops the motor from any state by opening both outputs
-  # (both H-bridges disabled, PWM 0). For the DC motor this brakes/coasts; for
-  # the AC controller both inputs float = motor off.
-  # ---------------------------------------------------------------------------
   - id: motor_stop_script
     mode: single
     then:
-      - script.stop: motor_forward_start
-      - script.stop: motor_reverse_start
-      - lambda: 'id(motor_running) = false;'
+      - script.stop: dc_forward_start
+      - script.stop: dc_reverse_start
+      - script.stop: ac_forward_start
+      - script.stop: ac_reverse_start
+      - script.stop: la_reverse_start
+      - script.stop: winch_reel_out_script
+      - script.stop: winch_reel_in_script
+      - script.stop: pulse_a_script
+      - script.stop: pulse_b_script
+      - lambda: |-
+          id(motor_running)   = false;
+          id(valve_a_running) = false;
+          id(valve_b_running) = false;
+          id(winch_ramping)   = false;
       - output.set_level:
           id: motor_rpwm
           level: 0%
@@ -114,7 +119,19 @@ script:
           level: 0%
       - output.turn_off: motor_r_en
       - output.turn_off: motor_l_en
-      - logger.log: "Manual: stopped"
+      - logger.log: "Motor: stopped"
+
+  # Operator stop: the cover's Stop (web UI Stop button / Home Assistant).
+  # motor_stop_script alone leaves linear_cycle running on purpose — limit
+  # switches and the TGL1 release call it, and the cycle must survive those —
+  # so a person pressing Stop cancels the cycle (or a Toggle move) here first.
+  - id: motor_stop_requested
+    mode: single
+    then:
+      - script.stop: linear_cycle
+      - script.stop: linear_move
+      - lambda: 'id(la_phase) = 0;'
+      - script.execute: motor_stop_script
 
 # ==============================================================================
 # COVER - Home Assistant / web UI integration (gate device class)
@@ -132,11 +149,19 @@ cover:
     close_action:
       - script.execute: motor_reverse_start
 
+    # An operator Stop (web UI Stop button, Home Assistant) — unlike a limit
+    # switch or an input release, it also cancels a running linear cycle.
     stop_action:
-      - script.execute: motor_stop_script
+      - script.execute: motor_stop_requested
 
-    # Position reported from the limit switches
+    # Position: from the limit switches, or the encoder for a winch.
     lambda: |-
+      if (id(motor_type).current_option() == "Winch") {
+        if (!id(winch_home_set)) return {};
+        if (id(winch_count_global) <= 0) return COVER_CLOSED;
+        if (id(winch_calibrated) && id(winch_count_global) >= id(winch_max_count)) return COVER_OPEN;
+        return {};
+      }
       if (id(limit_open).state)   return COVER_OPEN;
       if (id(limit_closed).state) return COVER_CLOSED;
       return {};
@@ -228,6 +253,17 @@ text_sensor:
     update_interval: 200ms
     icon: "mdi:arrow-decision"
     lambda: |-
+      auto t = id(motor_type).current_option();
+      if (t == "Pulse") {
+        if (id(valve_a_running) && id(valve_b_running)) return {"Pulsing A + B"};
+        if (id(valve_a_running)) return {"Pulsing A"};
+        if (id(valve_b_running)) return {"Pulsing B"};
+        return {"Ready"};
+      }
+      if (t == "Winch") {
+        if (!id(motor_running)) return {id(winch_home_set) ? "Stopped" : "Stopped (home not set)"};
+        return {id(current_direction) ? "Reeling Out" : "Reeling In"};
+      }
       if (!id(motor_running)) return {"Stopped"};
       if (id(current_direction)) return {"Forward"};
       return {"Reverse"};

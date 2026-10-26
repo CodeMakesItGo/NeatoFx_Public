@@ -1,0 +1,42 @@
+# ==============================================================================
+# NEATO MOTOR CONTROLLER - HARDWARE DEFINITION (REV 3.0, 12V, NO CAN)
+# ==============================================================================
+# The original 12V board. Pinout traced from its fabrication netlist (gerbers
+# in the private repo: Hardware/NeatoMotor/motor board 3.0): identical to the
+# Rev 3.3 12V board except
+#   - ONE input, a momentary "TOGGLE" button on GPIO14 (Rev 3.3: GPIO32 + GPIO27)
+#   - the status LED on GPIO22 (Rev 3.3: GPIO26)
+# H-bridge GPIO19/18/17/16, current sense GPIO34/35, SW1 GPIO4, SW2 GPIO13.
+#
+# With one input this board is a LINEAR ACTUATOR only: Motor Type is fixed to
+# Linear Actuator and hidden, and SW1 / SW2 are the actuator's end limits.
+# Linear Mode (Cycle / Toggle) still applies — Toggle suits a door: each press
+# of the button is the next move. There is no Input 2, so a running cycle or
+# move is stopped from the web UI (Stop / Cancel) or Home Assistant.
+#
+# Included by: main_12v.yaml (un-comment its Rev 3.0 board line)
+# ==============================================================================
+
+substitutions:
+  hw_version: "Rev 3.0 12V"     # web UI header version readout
+  sw1_pin: GPIO4
+  input1_pin: GPIO14            # the board's single TOGGLE button
+  input2_pin: GPIO27            # not wired on Rev 3.0 — the sensor is removed below
+  status_led_pin: GPIO22
+  inactive_reason: "board inactive"
+
+packages:
+  common: !include common/common.yaml
+  io: !include common/board_io.yaml
+
+# No Input 2 on this board.
+binary_sensor:
+  - id: !remove input_2
+
+# Linear Actuator only, and not selectable (see header). restore_value false so
+# a unit always boots as Linear Actuator whatever was stored before.
+select:
+  - id: !extend motor_type
+    initial_option: "Linear Actuator"
+    restore_value: false
+    internal: true

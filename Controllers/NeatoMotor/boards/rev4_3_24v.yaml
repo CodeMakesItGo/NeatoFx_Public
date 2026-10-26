@@ -1,0 +1,19 @@
+# ==============================================================================
+# NEATO MOTOR CONTROLLER - HARDWARE DEFINITION (REV 4.3, 24V, WITH CAN)
+# ==============================================================================
+# The Rev 4.3 24V board carries the CAN transceiver (SN65HVD232) on GPIO4 (RX) /
+# GPIO5 (TX), so SW1 sits on GPIO25. Everything else is shared with the 12V
+# board in common/board_io.yaml. CAN itself is boards/common/can.yaml (always
+# included by main_24v.yaml).
+#
+# Included by: main_24v.yaml
+# ==============================================================================
+
+substitutions:
+  hw_version: "Rev 4.3 24V"     # web UI header version readout
+  sw1_pin: GPIO25
+  inactive_reason: "game inactive (waiting for CAN 0x100 game-active)"
+
+packages:
+  common: !include common/common.yaml
+  io: !include common/board_io.yaml

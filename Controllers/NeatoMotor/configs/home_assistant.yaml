@@ -21,7 +21,7 @@ packages:
 # ==============================================================================
 # Requires the api: component (kept below), so it's enabled in this HA variant.
 dashboard_import:
-  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Controllers/NeatoMotor/main.yaml@main
+  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Controllers/NeatoMotor/${main_file}@main
   import_full_config: true
 
 # ==============================================================================
@@ -66,4 +66,6 @@ update:
   - platform: http_request
     id: firmware_update_check
     name: "Firmware Update"
-    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/motor/manifest.json
+    # One channel per board (update_channel, set in each main_*.yaml): the 24V
+    # board keeps "motor" — the channel units in the field were built with.
+    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/${update_channel}/manifest.json

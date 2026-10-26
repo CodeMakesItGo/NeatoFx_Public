@@ -1,51 +1,44 @@
 # ==============================================================================
-# NEATO MOTOR CONTROLLER - HARDWARE DEFINITION (REV 3.0, MANUAL HOLD-TO-RUN)
+# NEATO MOTOR CONTROLLER - BOARD I/O (shared by the Rev 3.3 12V and Rev 4.3 24V boards)
 # ==============================================================================
-# Hardware: Wemos D1 Mini ESP32 + 2× BTN8962TA H-bridge
-# Schematic: motor_ctrl_rev3.2
+# Hardware: Wemos D1 Mini ESP32 + 2x BTN8962TA H-bridge
 #
-# Control logic is hold-to-run manual joystick control (see motor_common.yaml).
-# CAN telemetry / remote drive is preserved (see motor_can.yaml).
+# The 12V (Rev 3.3) and 24V (Rev 4.3) boards are the same circuit except for
+# CAN: the 24V board
+# carries the CAN transceiver on GPIO4/5, so its SW1 moved to GPIO25; the 12V
+# board has no CAN and keeps SW1 on GPIO4. Each board file sets only:
+#   sw1_pin          SW1 / open limit (also winch encoder channel B)
+#   inactive_reason  log text when a joystick press is ignored
 #
 # Motor Control (BTN8962TA H-bridge):
-#   GPIO19 - R_PWM (IN)  - Right H-bridge (12V-A) - direction 1 / forward / open
-#   GPIO18 - L_PWM (IN)  - Left H-bridge  (12V-B) - direction 2 / reverse / close
+#   GPIO19 - R_PWM (IN)  - Right H-bridge - Output A / forward / open / reel out
+#   GPIO18 - L_PWM (IN)  - Left H-bridge  - Output B / reverse / close / reel in
 #   GPIO17 - R_EN  (INH) - Right H-bridge enable
 #   GPIO16 - L_EN  (INH) - Left H-bridge enable
 #   GPIO34 - R_IS        - Right H-bridge current sense (ADC input-only)
 #   GPIO35 - L_IS        - Left H-bridge current sense  (ADC input-only)
 #
-# Limit Switches (hard stops — no auto-reverse):
-#   GPIO25 - SW1 / OPEN_SWITCH  (forward end — blocks Input 1 / forward)
-#   GPIO13 - SW2 / CLOSED_SWITCH (reverse end — blocks Input 2 / reverse)
+# Switch inputs (SW1 = ${sw1_pin}, SW2 = GPIO13):
+#   DC / AC / Linear  limit switches (hard stops, no auto-reverse)
+#   Winch             the two encoder channels instead (boards/common/winch.yaml
+#                     reads the same pins, undebounced)
+#   Pulse             unused
 #
-# CAN Bus (see boards/common/motor_can.yaml):
-#   GPIO5  - CAN TX
-#   GPIO4  - CAN RX
-#
-# Joystick Inputs (hold = run, release = stop):
-#   GPIO32 - Input 1 -> motor forward / open  (blocked by SW1)
-#   GPIO27 - Input 2 -> motor reverse / close (blocked by SW2)
-#   Neither active -> motor stops
+# Joystick Inputs (${input1_pin} = Input 1 / TGL1, ${input2_pin} = Input 2 / TGL2): what a
+# press and a release do depends on "Motor Type" (boards/common/drives.yaml).
 #
 # Outputs:
-#   GPIO26 - STATUS LED (external via connector)
-#
-# Behavior is configured via web UI:
-#   Motor Speed          - PWM duty (%) the motor ramps up to
-#   Start Ramp           - ms to ramp 0 -> speed on every start (0 = instant)
-#   Limit Switches NC Mode - invert both end-stops for normally-closed wiring
+#   ${status_led_pin} - STATUS LED (heartbeat) in every motor type
 # ==============================================================================
 
-# ==============================================================================
-# EXTERNAL PACKAGES
-# ==============================================================================
-packages:
-  common: !include common/common.yaml
+# Defaults for the Rev 3.3 12V / Rev 4.3 24V boards; a board file overrides
+# any that differ (the Rev 3.0 12V board: one input on GPIO14, LED on GPIO22).
+substitutions:
+  sw2_pin: GPIO13
+  input1_pin: GPIO32
+  input2_pin: GPIO27
+  status_led_pin: GPIO26
 
-# ==============================================================================
-# CORE CONFIGURATION
-# ==============================================================================
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
@@ -107,7 +100,7 @@ output:
 
   - platform: ledc
     id: status_led_output
-    pin: GPIO26
+    pin: ${status_led_pin}
     frequency: 1000 Hz
 
 # ==============================================================================
@@ -136,9 +129,10 @@ binary_sensor:
   # ---------------------------------------------------------------------------
   - platform: gpio
     pin:
-      number: GPIO25
+      number: ${sw1_pin}
       mode: INPUT_PULLUP
       inverted: true
+      allow_other_uses: true   # also read by the winch encoder (boards/common/winch.yaml)
     name: "SW1"
     id: limit_open
     device_class: opening
@@ -147,14 +141,14 @@ binary_sensor:
     on_press:
       - if:
           condition:
-            lambda: 'return !id(limits_nc_mode) && id(motor_running) && id(current_direction);'
+            lambda: 'return id(limits_active)() && !id(limits_nc_mode) && id(motor_running) && id(current_direction);'
           then:
             - logger.log: "Open limit SW1 (NO): stopping motor"
             - script.execute: motor_stop_script
     on_release:
       - if:
           condition:
-            lambda: 'return id(limits_nc_mode) && id(motor_running) && id(current_direction);'
+            lambda: 'return id(limits_active)() && id(limits_nc_mode) && id(motor_running) && id(current_direction);'
           then:
             - logger.log: "Open limit SW1 (NC): stopping motor"
             - script.execute: motor_stop_script
@@ -166,9 +160,10 @@ binary_sensor:
   # ---------------------------------------------------------------------------
   - platform: gpio
     pin:
-      number: GPIO13
+      number: ${sw2_pin}
       mode: INPUT_PULLUP
       inverted: true
+      allow_other_uses: true   # also read by the winch encoder (boards/common/winch.yaml)
     name: "SW2"
     id: limit_closed
     device_class: opening
@@ -177,24 +172,24 @@ binary_sensor:
     on_press:
       - if:
           condition:
-            lambda: 'return !id(limits_nc_mode) && id(motor_running) && !id(current_direction);'
+            lambda: 'return id(limits_active)() && !id(limits_nc_mode) && id(motor_running) && !id(current_direction);'
           then:
             - logger.log: "Closed limit SW2 (NO): stopping motor"
             - script.execute: motor_stop_script
     on_release:
       - if:
           condition:
-            lambda: 'return id(limits_nc_mode) && id(motor_running) && !id(current_direction);'
+            lambda: 'return id(limits_active)() && id(limits_nc_mode) && id(motor_running) && !id(current_direction);'
           then:
             - logger.log: "Closed limit SW2 (NC): stopping motor"
             - script.execute: motor_stop_script
 
   # ---------------------------------------------------------------------------
-  # Input 1 (GPIO32) — hold to run forward / direction 1. Blocked by SW1.
+  # Input 1 (${input1_pin}) — what it does depends on Motor Type (drives.yaml).
   # ---------------------------------------------------------------------------
   - platform: gpio
     pin:
-      number: GPIO32
+      number: ${input1_pin}
       mode: INPUT_PULLUP
       inverted: true
     name: "TGL1"
@@ -209,17 +204,17 @@ binary_sensor:
             - logger.log: "Input 1: forward"
             - script.execute: motor_forward_start
           else:
-            - logger.log: "Input 1 ignored — game inactive (waiting for CAN 0x100 game-active)"
+            - logger.log: "Input 1 ignored — ${inactive_reason}"
     on_release:
-      - logger.log: "Input 1: released — stopping"
-      - script.execute: motor_stop_script
+      - logger.log: "Input 1: released"
+      - script.execute: input_released
 
   # ---------------------------------------------------------------------------
-  # Input 2 (GPIO27) — hold to run reverse / direction 2. Blocked by SW2.
+  # Input 2 (${input2_pin}) — what it does depends on Motor Type (drives.yaml).
   # ---------------------------------------------------------------------------
   - platform: gpio
     pin:
-      number: GPIO27
+      number: ${input2_pin}
       mode: INPUT_PULLUP
       inverted: true
     name: "TGL2"
@@ -234,10 +229,10 @@ binary_sensor:
             - logger.log: "Input 2: reverse"
             - script.execute: motor_reverse_start
           else:
-            - logger.log: "Input 2 ignored — game inactive (waiting for CAN 0x100 game-active)"
+            - logger.log: "Input 2 ignored — ${inactive_reason}"
     on_release:
-      - logger.log: "Input 2: released — stopping"
-      - script.execute: motor_stop_script
+      - logger.log: "Input 2: released"
+      - script.execute: input_released
 
 # ==============================================================================
 # SENSORS - Current Monitoring & Stall Detection (Hardware-Specific)

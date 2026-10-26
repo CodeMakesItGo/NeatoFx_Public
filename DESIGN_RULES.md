@@ -4,27 +4,23 @@ Standards every device in this repo follows so they stay consistent, buildable, 
 
 ## 1. One entry point per shippable hardware type (the core rule)
 
-A device has **one entry point per hardware type it ships as** — normally a single `main.yaml`. A product sold in several hardware forms that must not receive each other's firmware gets **one `main_<hw>.yaml` per form instead, and no `main.yaml`** (Target IR: `main_ir.yaml`, `main_lcd.yaml`, `main_hit.yaml`, `main_hologram.yaml`). Each `main_<hw>.yaml` sets its own `name`, `friendly_name`, `project_name`, `update_channel` (→ `firmware/<channel>/manifest.json`) and `main_file` (its own file name, for `dashboard_import`), so an online update only ever installs firmware built for that hardware. What the mains share goes in a package next to them (Target IR: `base.yaml`).
+A device has **one entry point per hardware type it ships as** — normally a single `main.yaml`. A product sold in several hardware forms that must not receive each other's firmware gets **one `main_<hw>.yaml` per form instead, and no `main.yaml`** (Target IR: `main_ir.yaml`, `main_lcd.yaml`, `main_hit.yaml`, `main_hologram.yaml`; Motor: `main_24v.yaml`, `main_12v.yaml`). Each `main_<hw>.yaml` sets its own `name`, `friendly_name`, `project_name`, `update_channel` (→ `firmware/<channel>/manifest.json`) and `main_file` (its own file name, for `dashboard_import`), so an online update only ever installs firmware built for that hardware. What the mains share goes in a package next to them (Target IR: `base.yaml`).
 
 Split into per-hardware mains **only** for a hardware difference that would brick or break a unit if it got the other build (different pins or display). Everything else is one binary: behavior is a runtime setting (see *Runtime over build-time* below), and the remaining build choices are selected by un-commenting one line inside the main, grouped with a clear "select exactly ONE" comment. No `main_winch.yaml` / `main_ac.yaml` style files for options that are not separately shipped hardware.
 
 ```yaml
+# Controllers/NeatoMotor/main_24v.yaml — one main per board; what the motor
+# does (DC / AC / Linear / Winch / Pulse) is the runtime "Motor Type" select.
 packages:
-  # ---- BOARD / BEHAVIOR — select exactly ONE ----
-  board: !include boards/rev3.yaml            # standard
-  #board: !include boards/rev3_winch.yaml     # winch
-
-  # ---- DRIVE — select ONE (standard board only) ----
-  drive: !include boards/common/drive_dc.yaml
-  #drive: !include boards/common/drive_ac.yaml
+  board: !include boards/rev4_3_24v.yaml
+  can:   !include boards/common/can.yaml              # 24V board carries CAN
 
   # ---- NETWORK — select ONE ----
-  config: !include configs/networked.yaml
+  #config: !include configs/networked.yaml
+  config: !include configs/home_assistant.yaml
   #config: !include configs/standalone.yaml
 
-  # ---- OPTIONAL ADD-ONS ----
-  #can:   !include boards/common/can.yaml
-  #sound: !include boards/common/sound.yaml
+  base: !include base.yaml                            # LAST: its web_server wins
 ```
 
 Anything that would otherwise be a separate main becomes either a **board variant** (`boards/rev3_x.yaml`, self-contained) or a **swappable package** (`boards/common/x.yaml`).
@@ -158,11 +154,11 @@ If CI is red, the change does not merge. If a new variant axis is added to a mai
 
 These already hold today and are the basis for the rules above:
 
-- **One entry point per shipped hardware type** assembling packages via `!include` — a single `main.yaml` for every device except Target IR, which has `main_ir` / `main_lcd` / `main_hit` / `main_hologram` (rule 1).
+- **One entry point per shipped hardware type** assembling packages via `!include` — a single `main.yaml` for every device except Target IR (`main_ir` / `main_lcd` / `main_hit` / `main_hologram`) and Motor (`main_24v` / `main_12v`) (rule 1).
 - **`boards/rev<N>.yaml` → `boards/common/common.yaml`** hardware→logic split.
 - **`configs/networked.yaml` + `configs/standalone.yaml`** operating-mode pair.
 - **`_shared/` bases** (`esphome_base`, `networked_base`, `standalone_base`, `network_sensors`, `firmware_update`) with the fixed include depths above.
 - **Substitutions** `name` / `name_add_mac_suffix` / `friendly_name` / `runtime_id*` + `project: NeatoFX.<Device>`. No build-time `id`.
 - **Safe-state `on_boot`**, `WARN` logging, improv + dashboard_import for MFE, `custom_ui.js` web UI.
-- **Runtime over build-time:** a behavior choice that does not change the hardware (IR protocol, servo mode, hit style, relay / GND modes, GPIO pin modes, LED Strip 2 count) is a persisted `select` in one package, not a separate `!include` variant — one binary per board, and the choice survives firmware updates. Only hardware (the board file) and network mode stay build choices. Target: `protocols/ir.yaml`, `scripts/servo.yaml`, `scripts/hit_script.yaml` + `scripts/hit_styles/`, `boards/common/gpio_io.yaml`.
+- **Runtime over build-time:** a behavior choice that does not change the hardware (IR protocol, servo mode, hit style, relay / GND modes, GPIO pin modes, LED Strip 2 count) is a persisted `select` in one package, not a separate `!include` variant — one binary per board, and the choice survives firmware updates. Only hardware (the board file) and network mode stay build choices. Target: `protocols/ir.yaml`, `scripts/servo.yaml`, `scripts/hit_script.yaml` + `scripts/hit_styles/`, `boards/common/gpio_io.yaml`. Motor: `boards/common/drives.yaml` (Motor Type). Audio 50: `boards/common/rftx.yaml` (RFTX Mode).
 - **Servo/effect devices** (Target, Golf) share `color_controls.yaml`. A board missing hardware the shared packages drive gets a do-nothing `platform: template` output for it (Target Rev 1.x: `gnd_output`, `servo1`) and hides the related controls with `!extend … internal: true` — no stub packages or extra build options.

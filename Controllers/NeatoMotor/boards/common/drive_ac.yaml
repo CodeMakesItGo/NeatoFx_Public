@@ -16,8 +16,9 @@
 #   TGL2 (Input 2) held -> Output B = GROUND, Output A = OPEN   (reverse)
 #   either released     -> both OPEN (motor off, via motor_stop_script)
 #
-# Select in the main file:
-#   drive: !include boards/common/drive_ac.yaml
+# Selected at runtime by "Motor Type" (boards/common/drives.yaml), which
+# routes Input 1 / Input 2 / the cover to these scripts. Every drive is
+# compiled into every build.
 #
 # Consumed IDs (from board + common):
 #   Outputs : motor_rpwm, motor_lpwm, motor_r_en, motor_l_en
@@ -26,11 +27,11 @@
 # ==============================================================================
 script:
   # ---------------------------------------------------------------------------
-  # motor_forward_start  (TGL1 held)
+  # ac_forward_start  (TGL1 held)
   # Grounds Output A (M1) and leaves Output B (M2) open. Blocked if the open
   # limit (SW1) is active. mode:restart so a re-press just re-asserts the state.
   # ---------------------------------------------------------------------------
-  - id: motor_forward_start
+  - id: ac_forward_start
     mode: restart
     then:
       - if:
@@ -63,11 +64,11 @@ script:
                   - output.turn_on: motor_r_en
 
   # ---------------------------------------------------------------------------
-  # motor_reverse_start  (TGL2 held)
+  # ac_reverse_start  (TGL2 held)
   # Mirror of forward: grounds Output B (M2), leaves Output A (M1) open. Blocked
   # if the closed limit (SW2) is active.
   # ---------------------------------------------------------------------------
-  - id: motor_reverse_start
+  - id: ac_reverse_start
     mode: restart
     then:
       - if:

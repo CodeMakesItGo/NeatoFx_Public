@@ -43,7 +43,9 @@ DEFAULT_SLUG = "CodeMakesItGo/NeatoFx_Public"
 # firmware/target-ir/ ships target-ir-v1.1.0.bin.
 PRODUCTS = {
     "audio50": "speaker",
-    "motor": "motor",
+    # Neato Motor: the 24V board keeps the "motor" channel field units use.
+    "motor": "motor_24v",
+    "motor-12v": "motor_12v",
     # One Target IR channel per hardware type — each main*.yaml sets the
     # matching update_channel, so a unit is only offered its own hardware's build.
     "target-ir": "target",
