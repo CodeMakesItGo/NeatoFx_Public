@@ -64,9 +64,11 @@
 
     // ── Linear Actuator ──
     la_mode:     { type: SEL, name: 'Linear Mode', label: 'Linear Mode', options: ['Cycle', 'Toggle'], types: [LIN], section: 'linear',
-                   note: 'Cycle = Input 1 extends for Extend Time, then retracts for Retract Time; Input 2 cancels and jogs in reverse. Toggle (doors) = each Input 1 makes one move, alternating extend / retract, and the actuator stays put until the next Input 1; Input 2 stops a move. Either way a move ends at its time or its limit switch.' },
+                   note: 'Cycle = Input 1 extends, waits the Cooldown, then retracts; Input 2 cancels and jogs in reverse. Extend / Retract Time are backstops — a limit switch (SW1 open end, SW2 closed end) ends its phase first if installed. Toggle (doors) = each Input 1 makes one move, alternating extend / retract, and the actuator stays put until the next Input 1; Input 2 stops a move. If a limit switch is already active it picks the direction: SW2 (closed) active = open, SW1 (open) active = close. In Toggle a move ends at its time or at its own limit switch, whichever is first (SW1 stops opening, SW2 stops closing; neither blocks the other way).' },
     la_extend:   { type: NUM, name: 'Extend Time',  label: 'Extend Time',  min: 1, max: 60, step: 1, unit: 's', types: [LIN], section: 'linear' },
     la_retract:  { type: NUM, name: 'Retract Time', label: 'Retract Time', min: 1, max: 60, step: 1, unit: 's', types: [LIN], section: 'linear' },
+    la_cooldown: { type: NUM, name: 'Cooldown Timer', label: 'Cooldown (Cycle)', min: 0, max: 60000, step: 100, unit: 'ms', types: [LIN], section: 'linear',
+                   note: 'Cycle mode only: pause between the end of the extend and the start of the retract. 0 = retract straight away. Not used in Toggle mode.' },
     la_run:      { type: BTN, name: 'Run Cycle',    label: 'Run (same as Input 1)', btnText: 'Run',    types: [LIN], section: 'linear' },
     la_cancel:   { type: BTN, name: 'Cancel Cycle', label: 'Cancel / Stop',         btnText: 'Cancel', types: [LIN], section: 'linear' },
     la_phase:    { type: TXT, name: 'Cycle Phase',  label: 'Cycle Phase',  types: [LIN], section: 'linear' },

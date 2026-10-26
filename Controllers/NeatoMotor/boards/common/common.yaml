@@ -264,6 +264,7 @@ text_sensor:
         if (!id(motor_running)) return {id(winch_home_set) ? "Stopped" : "Stopped (home not set)"};
         return {id(current_direction) ? "Reeling Out" : "Reeling In"};
       }
+      if (t == "Linear Actuator" && id(la_phase) == 5) return {"Cooldown"};
       if (!id(motor_running)) return {"Stopped"};
       if (id(current_direction)) return {"Forward"};
       return {"Reverse"};
