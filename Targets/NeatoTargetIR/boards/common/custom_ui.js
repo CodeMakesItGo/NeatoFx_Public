@@ -131,7 +131,7 @@
     // ── LED Strip 2 ──
     led2:            { type: LT,  name: 'LED Strip 2',            label: 'LED Strip 2',     section: 'led2' },
     led2_count:      { type: NUM, name: 'LED Strip 2 LED Count', label: 'LED Count', min: 1, max: 300, step: 1, box: true,
-                       note: 'How many LEDs are on LED Strip 2 (1–300). <b>Power:</b> the board’s 5 V supply is 3 A in total, shared with the ESP32 and relay, and each LED draws up to 60 mA at full white — so about <b>40 LEDs fully lit at once</b> is the limit. ' +
+                       note: 'How many LEDs are on LED Strip 2 (1–300). <b>Power:</b> LED Strip 2 runs from the board’s separate 5 V aux regulator — 3 A in total, shared only with the relay — and each LED draws up to 60 mA at full white, so about <b>45 LEDs fully lit at once</b> is the limit. ' +
                              'Scanner and the Fuse light only a few LEDs and are fine on long strips. Solid Color, Strobe Flash, Rainbow, Color Wipe and Lightning light the whole strip: on a long strip lower the brightness, or power the strip from its own 5 V supply (tie its GND to the board).',
                        section: 'led2' },
     led2_brightness: { type: NUM, name: 'LED Strip 2 Brightness', label: 'LED Brightness', min: 0, max: 100, step: 1, unit: '%', section: 'led2' },

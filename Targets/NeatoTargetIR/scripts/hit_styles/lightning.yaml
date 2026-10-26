@@ -39,8 +39,9 @@
 #
 # POWER — LED STRIP 2 MUST BE ON ITS OWN 5 V SUPPLY AT THESE LEVELS
 #   A white strike lights EVERY pixel: 150 x WS2812 at full white is ~9 A, far
-#   beyond the board's 2 A regulator. Feed strip 2 from a separate 5 V supply
-#   (tie grounds), or set lightning_strip2_scale to 0.15 or lower (~1.35 A peak).
+#   beyond the board's 5 V aux regulator that feeds LED Strip 2 (3 A, shared
+#   with the relay). Feed strip 2 from a separate 5 V supply (tie grounds), or
+#   set lightning_strip2_scale to 0.15 or lower (~1.35 A peak).
 #
 # TUNING — substitutions (compile-time); override in the main*.yaml.
 substitutions:

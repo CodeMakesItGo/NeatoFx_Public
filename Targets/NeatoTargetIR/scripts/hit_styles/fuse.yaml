@@ -17,9 +17,10 @@
 #
 # POWER — draw is bounded and does not scale with strip length: only the ~10-LED
 # head and its decaying trail are ever lit (well under 1 A). There is
-# deliberately no full-strip detonation flash: 150 LEDs at full white is ~8 A,
-# far beyond the board regulator, and would brown out the ESP32 just as the
-# relay fires. Put the bang on the relay / audio instead.
+# deliberately no full-strip detonation flash: 150 LEDs at full white is ~9 A,
+# far beyond the 5 V aux regulator that feeds LED Strip 2 (3 A, shared with the
+# relay), and would sag it just as the relay fires. Put the bang on the relay /
+# audio instead.
 #
 # Fuse Burn Time is a DURATION, not a speed: the head covers the whole strip in
 # that time. Match it to the fuse portion of your MP3 so the bang lands on the
