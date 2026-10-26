@@ -59,16 +59,13 @@ packages:
   board:          !include boards/rev2_4.yaml    # Rev 2.4 / 2.5 / 2.6 (current production)
   #board:         !include boards/rev2_3.yaml    # Rev 2.3 (mp3_power on GPIO21)
 
-  # RFTX connector — select one mode:
-  # NOTE: this line also decides whether the RF A/B/C/D receiver controls (MP3 #,
-  # Sequential, Output) are visible. The on-board RF receiver itself (Remote
-  # BtnA-D, GPIO36/2/15/35 in the board file) is wired up in ALL three modes and
-  # always runs run_rf_*_script — but rftx_none marks those controls internal and
-  # pins each RF MP3 # to 0 (None), so the UI shows nothing and a remote press
-  # plays nothing. Use outputs or inputs to get the RF Receiver card back.
-  #rftx:           !include boards/common/rftx_outputs.yaml   # RFTX as RF transmitter outputs (default)
-  rftx:          !include boards/common/rftx_inputs.yaml    # RFTX as 4 trigger inputs
-  #rftx:          !include boards/common/rftx_none.yaml      # RFTX unused (hides all RF controls from UI)
+  # RFTX connector — Off / Inputs / Outputs chosen at runtime ("RFTX Mode"
+  # select, default Off), plus RF TX Power. See the file for why a wrong mode
+  # is harmless to whatever is plugged in.
+  rftx:           !include boards/common/rftx.yaml
+  # On-board RF receiver (Remote A-D) — independent of RFTX; on/off at runtime
+  # ("RF Receiver Enabled").
+  rf_receiver:    !include boards/common/rf_receiver.yaml
 
   # Network mode — select one:
   #config:        !include configs/standalone.yaml       # Device's own AP, no router
@@ -96,8 +93,41 @@ web_server:
   js_include: "boards/common/custom_ui.js"
 
 # ==============================================================================
-# DEBUGGING
+# DEBUGGING - log level
 # ==============================================================================
+# Two settings:
+#   level          what is COMPILED IN. Messages below it are stripped from the
+#                  firmware and can never be shown without a reflash. DEBUG
+#                  keeps the troubleshooting detail available in the field.
+#   initial_level  what the unit RUNS at after every boot. Shipped firmware
+#                  must be WARN — tools/lint_repo.py fails any other value.
+#
+# To troubleshoot a unit, pick a louder level from the "Log Level" dropdown
+# (web UI › Diagnostics) and watch the Device Log panel under it — the web
+# server streams the log to the page in every network mode, no USB or internet
+# needed (`esphome logs main.yaml --device <ip>` also works on Home Assistant
+# builds). It drops back to WARN on the next reboot. No reflash needed.
+# (DFPlayer "track not found": DEBUG shows "Playing file X in mp3 folder".)
+#
+# Levels, quietest first — each shows its own messages plus every one above it.
+# Select EXACTLY ONE for initial_level:
+#   NONE          nothing at all — no log output
+#   ERROR         errors only: things that failed
+#   WARN          SHIPPED: errors + warnings — quiet, and enough to diagnose a fault
+#   INFO          + normal events (triggers, playback started, WiFi connect)
+#   CONFIG        + each component's settings, printed at boot
+#   DEBUG         + detailed troubleshooting (DFPlayer commands, every state
+#                 change) — busy; streaming it can slow the web UI on phones
+#   VERBOSE       + internal component chatter — very busy (needs level: VERBOSE)
+#   VERY_VERBOSE  + everything, incl. low-level traffic — floods the log and can
+#                 disturb timing (needs level: VERY_VERBOSE)
 logger:
-  level: WARN   # TEMP: troubleshooting DFPlayer "track not found" — shows
-                 # "Playing file X in mp3 folder". Set back to WARN for production.
+  level: DEBUG          # compiled in: up to DEBUG is available at runtime
+  initial_level: WARN   # runs at after every boot — keep WARN for shipped firmware
+
+# "Log Level" dropdown — changes the running level on the spot (options run
+# NONE..DEBUG, up to the compiled level). Not saved: every boot starts at
+# initial_level.
+select:
+  - platform: logger
+    name: "Log Level"

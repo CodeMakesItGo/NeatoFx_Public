@@ -132,21 +132,16 @@ devices:
     path: Audio/NeatoAudio50/main.yaml
     label: "Neato Audio 50"
     variants:
-      default: {}   # rev2_4 + rftx_none + home_assistant
-      rev24_outputs_networked_fpp:
+      default: {}   # rev2_4 + home_assistant (RFTX mode / RF receiver are runtime)
+      rev24_networked_fpp:
         board: boards/rev2_4.yaml
-        rftx: boards/common/rftx_outputs.yaml
         config: configs/networked.yaml
         fpp_file: integrations/speaker_fpp.yaml
-      rftx_inputs:
-        rftx: boards/common/rftx_inputs.yaml
       rev23_standalone:        # legacy board, own-AP mode
         board: boards/rev2_3.yaml
         config: configs/standalone.yaml
       ha:                      # Home Assistant LAN mode
         config: configs/home_assistant.yaml
-      rftx_none:                # RF TX disabled (hides RF controls)
-        rftx: boards/common/rftx_none.yaml
 
   display:
     path: Displays/NeatoDisplay4/main.yaml

@@ -65,46 +65,66 @@ script:
   - id: run_rf_a_script
     mode: parallel
     then:
+      # Ignored while "RF Receiver Enabled" is off (boards/common/rf_receiver.yaml).
       - if:
           condition:
-            lambda: 'return id(loop_bg_active);'
+            switch.is_on: rf_receiver_enabled
           then:
-            - light.turn_off: spot_light_1
-            - light.turn_off: spot_light_2
-      - script.execute: play_rf_a_mp3
+            - if:
+                condition:
+                  lambda: 'return id(loop_bg_active);'
+                then:
+                  - light.turn_off: spot_light_1
+                  - light.turn_off: spot_light_2
+            - script.execute: play_rf_a_mp3
 
   - id: run_rf_b_script
     mode: parallel
     then:
+      # Ignored while "RF Receiver Enabled" is off (boards/common/rf_receiver.yaml).
       - if:
           condition:
-            lambda: 'return id(loop_bg_active);'
+            switch.is_on: rf_receiver_enabled
           then:
-            - light.turn_off: spot_light_1
-            - light.turn_off: spot_light_2
-      - script.execute: play_rf_b_mp3
+            - if:
+                condition:
+                  lambda: 'return id(loop_bg_active);'
+                then:
+                  - light.turn_off: spot_light_1
+                  - light.turn_off: spot_light_2
+            - script.execute: play_rf_b_mp3
 
   - id: run_rf_c_script
     mode: parallel
     then:
+      # Ignored while "RF Receiver Enabled" is off (boards/common/rf_receiver.yaml).
       - if:
           condition:
-            lambda: 'return id(loop_bg_active);'
+            switch.is_on: rf_receiver_enabled
           then:
-            - light.turn_off: spot_light_1
-            - light.turn_off: spot_light_2
-      - script.execute: play_rf_c_mp3
+            - if:
+                condition:
+                  lambda: 'return id(loop_bg_active);'
+                then:
+                  - light.turn_off: spot_light_1
+                  - light.turn_off: spot_light_2
+            - script.execute: play_rf_c_mp3
 
   - id: run_rf_d_script
     mode: parallel
     then:
+      # Ignored while "RF Receiver Enabled" is off (boards/common/rf_receiver.yaml).
       - if:
           condition:
-            lambda: 'return id(loop_bg_active);'
+            switch.is_on: rf_receiver_enabled
           then:
-            - light.turn_off: spot_light_1
-            - light.turn_off: spot_light_2
-      - script.execute: play_rf_d_mp3
+            - if:
+                condition:
+                  lambda: 'return id(loop_bg_active);'
+                then:
+                  - light.turn_off: spot_light_1
+                  - light.turn_off: spot_light_2
+            - script.execute: play_rf_d_mp3
 
   - id: mp3_finished_script
     mode: single
