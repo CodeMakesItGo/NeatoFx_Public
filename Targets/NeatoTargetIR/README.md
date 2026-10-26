@@ -135,7 +135,7 @@ Targets/NeatoTargetIR/
    | `main_ir.yaml` | Rev 3.x standard IR (or Rev 1.x) | `target-ir-xxxxxx` | `firmware/target-ir/` |
    | `main_lcd.yaml` | Rev 3.x + LCD face | `target-lcd-xxxxxx` | `firmware/target-lcd/` |
    | `main_hit.yaml` | Rev 3.x + push-button hit face | `target-hit-xxxxxx` | `firmware/target-hit/` |
-   | `main_hologram.yaml` | Rev 3.x + hologram fan | `target-hologram-xxxxxx` | `firmware/target-hologram/` |
+   | `main_hologram.yaml` | Rev 3.x + hologram fan | `target-holo-xxxxxx` | `firmware/target-hologram/` |
 
    `xxxxxx` is the end of the unit's MAC address. `main.yaml` still exists and
    builds exactly `main_ir.yaml`, for targets already in the field.

@@ -47,9 +47,11 @@
 substitutions:
   # ESPHome appends the MAC suffix to the hostname at runtime (name_add_mac_suffix,
   # "true" by default in _shared/esphome_base.yaml), giving each unit
-  # a unique, permanent hostname (target-hologram-a1b2c3). Logical identity is the
+  # a unique, permanent hostname (target-holo-a1b2c3). Logical identity is the
   # runtime Device ID, set from the web UI.
-  name: target-hologram
+  # Short on purpose: fits the 30 mm label and is easier to type than
+  # "target-hologram". The update channel / project name keep the full word.
+  name: target-holo
   friendly_name: "NeatoFx Target Hologram"
   # Firmware update channel: firmware/<update_channel>/manifest.json
   # (configs/home_assistant.yaml), and the file the ESPHome dashboard adopts.
