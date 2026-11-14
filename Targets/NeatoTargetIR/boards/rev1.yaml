@@ -36,6 +36,7 @@ substitutions:
   # LED Configuration (Rev 1.x specific)
   led2_gpio: GPIO22      # Placeholder LED strip 2 (not connected)
   strip_2_led_count: "1" # Minimal count for rev1 placeholder
+  strip_2_led_max: "2"   # no strip 2 on Rev 1.x — keep the buffer minimal (number needs max > min)
   strip_2_internal: "true" # Hide from UI since it's not used
 
   # Project Information (Rev 1.x specific)
@@ -136,6 +137,39 @@ output:
     write_action:
       - lambda: ''
 
+  # SERVO — no-op stub too (Rev 1.x has no servo hardware). scripts/servo.yaml
+  # drives servo1 on every revision; here it lands on a do-nothing output, so
+  # the servo is effectively Off whatever "Servo Mode" holds, and no pin or
+  # LEDC timer is claimed. The servo controls are hidden below.
+  - platform: template
+    id: servo_output
+    type: float
+    write_action:
+      - lambda: ''
+
+servo:
+  - id: servo1
+    output: servo_output
+
+# Hide the servo controls (scripts/servo.yaml): there is nothing to drive.
+# Internal entities never reach the web UI, which then drops the rows and the
+# empty Servo card on its own.
+select:
+  - id: !extend servo_mode
+    internal: true
+
+number:
+  - id: !extend servo_slider
+    internal: true
+  - id: !extend servo_hit_pos_ctrl
+    internal: true
+  - id: !extend cycle_interval
+    internal: true
+
+button:
+  - id: !extend test_servo_hit_button
+    internal: true
+
 light:
   - platform: monochromatic
     name: "Gnd Switch"
@@ -216,3 +250,15 @@ binary_sensor:
       - logger.log: "GPIO33 state is HIGH"
     on_release:
       - logger.log: "GPIO33 state is LOW"
+
+# ==============================================================================
+# RUNTIME GPIO MODES - not on Rev 1.x
+# ==============================================================================
+# The Rev 3.x boards get GPIO Input / Hit Trigger / Hit Pulse Output modes from
+# common/gpio_io.yaml. Rev 1.x keeps its plain inputs; these stubs let the
+# shared hit script call the same script ids.
+script:
+  - id: gpio_hit_outputs
+    then: []
+  - id: gpio_outputs_off
+    then: []

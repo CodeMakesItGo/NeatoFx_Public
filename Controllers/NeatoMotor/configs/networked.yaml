@@ -25,7 +25,7 @@ packages:
 # dashboard_import requires the api: component, which is removed in No-HA LAN
 # mode (see below). Re-enable together with api: for ESPHome dashboard adoption.
 #dashboard_import:
-#  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Controllers/NeatoMotor/main.yaml@main
+#  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Controllers/NeatoMotor/${main_file}@main
 #  import_full_config: true
 
 # ==============================================================================
@@ -60,4 +60,4 @@ improv_serial:
 #  - platform: http_request
 #    id: firmware_update_check
 #    name: "Firmware Update"
-#    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/motor/manifest.json
+#    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/${update_channel}/manifest.json

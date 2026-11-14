@@ -1,108 +1,102 @@
 # ==============================================================================
-# NEATO AUDIO 50 - RFTX CONNECTOR DISABLED (no inputs, no outputs)
+# NEATO AUDIO 50 - ON-BOARD RF RECEIVER (Remote A-D)
 # ==============================================================================
-# Use this package when the RFTX connector is not used for anything.
-# All RF A/B/C/D controls are hidden from Home Assistant and the web UI.
-# The RFTX pins (GPIO14, GPIO12, GPIO19, GPIO18) are left unconfigured.
-# The RF receiver inputs on the board still work and will trigger run_rf_*_script,
-# but those scripts will silently do nothing (MP3 set to 0 = None by default).
+# The plug-in RF receiver module (Remote BtnA-D on GPIO36/2/15/35, defined in
+# the board file) is independent of the RFTX connector: it is always an input.
+# This package holds what each remote button does — which MP3 plays, whether it
+# plays sequentially, which output fires — plus an on/off switch for units that
+# have no receiver plugged in (a floating receiver input can false-trigger).
 #
-# To enable: set rftx line in main.yaml to:
-#   rftx: !include boards/common/rftx_none.yaml
+#   RF Receiver Enabled  on (default) = remote presses play; off = ignored and
+#                        the RF Receiver card collapses to just this switch
+#
+# Was split across rftx_outputs / rftx_inputs / rftx_none, which tied the
+# receiver to the RFTX connector mode. They are separate hardware.
 # ==============================================================================
 
-# ==============================================================================
-# RF SWITCHES - Hidden (internal: true = not exposed to HA or web UI)
-# ==============================================================================
 switch:
+  - platform: template
+    name: "RF Receiver Enabled"
+    id: rf_receiver_enabled
+    icon: "mdi:remote"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
   - platform: template
     name: "RF A Sequential"
     id: rf_a_random_enable
-    internal: true
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
   - platform: template
     name: "RF B Sequential"
     id: rf_b_random_enable
-    internal: true
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
   - platform: template
     name: "RF C Sequential"
     id: rf_c_random_enable
-    internal: true
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
   - platform: template
     name: "RF D Sequential"
     id: rf_d_random_enable
-    internal: true
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
-# ==============================================================================
-# RF NUMBER CONTROLS - Hidden
-# ==============================================================================
+# MP3 file per remote button (0 = play nothing)
 number:
   - platform: template
     name: "RF A MP3"
     id: rf_a_mp3_select
-    internal: true
     min_value: 0
     max_value: 255
     step: 1
     mode: box
-    initial_value: 0      # 0 = None, so RF triggers play nothing
+    initial_value: 1
     restore_value: true
     optimistic: true
 
   - platform: template
     name: "RF B MP3"
     id: rf_b_mp3_select
-    internal: true
     min_value: 0
     max_value: 255
     step: 1
     mode: box
-    initial_value: 0
+    initial_value: 1
     restore_value: true
     optimistic: true
 
   - platform: template
     name: "RF C MP3"
     id: rf_c_mp3_select
-    internal: true
     min_value: 0
     max_value: 255
     step: 1
     mode: box
-    initial_value: 0
+    initial_value: 1
     restore_value: true
     optimistic: true
 
   - platform: template
     name: "RF D MP3"
     id: rf_d_mp3_select
-    internal: true
     min_value: 0
     max_value: 255
     step: 1
     mode: box
-    initial_value: 0
+    initial_value: 1
     restore_value: true
     optimistic: true
 
-# ==============================================================================
-# RF SELECT CONTROLS - Hidden
-# ==============================================================================
+# Output fired per remote button
 select:
   - platform: template
     name: "RF A Output"
     id: rf_a_output_select
-    internal: true
     optimistic: true
     restore_value: true
     initial_option: "None"
@@ -111,7 +105,6 @@ select:
   - platform: template
     name: "RF B Output"
     id: rf_b_output_select
-    internal: true
     optimistic: true
     restore_value: true
     initial_option: "None"
@@ -120,7 +113,6 @@ select:
   - platform: template
     name: "RF C Output"
     id: rf_c_output_select
-    internal: true
     optimistic: true
     restore_value: true
     initial_option: "None"
@@ -129,7 +121,6 @@ select:
   - platform: template
     name: "RF D Output"
     id: rf_d_output_select
-    internal: true
     optimistic: true
     restore_value: true
     initial_option: "None"

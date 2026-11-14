@@ -28,6 +28,12 @@ substitutions:
   # Overridable per board for a strip that genuinely wires up differently.
   strip_2_channel_colors: "GRB"
 
+  # LED Strip 2 length. The firmware is built for strip_2_led_max LEDs (buffer
+  # size, fixed at boot); the "LED Strip 2 LED Count" number then sets how many
+  # are actually driven, 1..max, at runtime. Each board's strip_2_led_count is
+  # that number's first-boot default.
+  strip_2_led_max: "300"
+
   # Common GPIO Pins (consistent across revisions)
   led_gpio: GPIO5        # Main target LED strip
   led_ignore_strapping: "true"  # GPIO5 is a strapping pin; variants override
@@ -42,7 +48,7 @@ substitutions:
   rx_gpio: GPIO03        # UART RX
 
   # Project Information
-  project_name: "NeatoFX.Target"
+  project_name: "NeatoFX.Target"   # default; each main_<hw>.yaml sets its own
   project_version: "3.2.0"
   hw_version: "Rev 1"          # Hardware revision label (boards/rev3.yaml overrides)
 
@@ -127,24 +133,6 @@ switch:
       - logger.log: "Relay 1 activated"
     on_turn_off:
       - logger.log: "Relay 1 deactivated"
-
-  # GPIO25 hit trigger enable/disable
-  - platform: template
-    name: "GPIO25 Hit Trigger"
-    id: gpio25_hit_trigger_switch
-    icon: "mdi:electric-switch"
-    restore_mode: RESTORE_DEFAULT_OFF
-    optimistic: true
-    turn_on_action:
-      - globals.set:
-          id: gpio25_hit_enabled
-          value: 'true'
-      - logger.log: "GPIO25 hit trigger enabled"
-    turn_off_action:
-      - globals.set:
-          id: gpio25_hit_enabled
-          value: 'false'
-      - logger.log: "GPIO25 hit trigger disabled"
 
   # Test switch for manual target triggering (momentary)
   - platform: template
@@ -313,7 +301,7 @@ light:
     rmt_symbols: 128 
     channel_colors: ${strip_2_channel_colors}
     pin: ${led2_gpio}
-    num_leds: ${strip_2_led_count}
+    num_leds: ${strip_2_led_max}     # buffer size; the driven count is "LED Strip 2 LED Count"
     name: "LED Strip 2"
     id: led_strip2
     default_transition_length: 500ms
@@ -534,6 +522,23 @@ number:
           id: led_strip2
           brightness: !lambda "return x / 100.0f;"
 
+  # How many LEDs LED Strip 2 drives. Effects, the fuse and the lightning all
+  # scale to it. Persisted. See led_strip2_apply_count below.
+  - platform: template
+    name: "LED Strip 2 LED Count"
+    id: led_strip2_led_count
+    min_value: 1
+    max_value: ${strip_2_led_max}
+    step: 1
+    mode: box
+    icon: "mdi:led-strip-variant"
+    initial_value: ${strip_2_led_count}
+    optimistic: true
+    restore_value: true
+    internal: ${strip_2_internal}
+    on_value:
+      - script.execute: led_strip2_apply_count
+
 # ==============================================================================
 # HIT EFFECT OPTIONS
 # ==============================================================================
@@ -624,6 +629,7 @@ esphome:
   on_boot:
     - priority: -100   # after all components are set up
       then:
+        - script.execute: led_strip2_apply_count
         - text_sensor.template.publish:
             id: firmware_version_sensor
             state: "${project_version} · ${hw_version}"
@@ -707,20 +713,15 @@ globals:
   #   capture_mode_enabled the target ADOPTS the team's color as its new resting
   #                        color and keeps it (capture-the-flag scoring: count
   #                        how many targets ended the round in each color)
-  # Defaults match the previous behavior for protocols that expose no switches
-  # (ir_custom): flash on, capture off.
+  # Driven by the "Team Color On Hit" / "Team Color Capture" switches in
+  # protocols/ir.yaml; these defaults apply on IR-less builds: flash on,
+  # capture off.
   - id: team_color_enabled
     type: bool
     restore_value: yes
     initial_value: 'true'
 
   - id: capture_mode_enabled
-    type: bool
-    restore_value: yes
-    initial_value: 'false'
-
-  # GPIO25 hit trigger enable/disable (persisted across reboots)
-  - id: gpio25_hit_enabled
     type: bool
     restore_value: yes
     initial_value: 'false'
@@ -814,3 +815,39 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+
+# ==============================================================================
+# LED STRIP 2 LENGTH - runtime LED count
+# ==============================================================================
+# The driver allocates its buffers for num_leds (strip_2_led_max) in setup()
+# and reads its size from the same member every frame, so lowering it AFTER
+# setup simply drives fewer LEDs — and raising it back up to the max is safe
+# because the buffers were sized for the max. It must never be changed BEFORE
+# setup (the buffers would be allocated short), hence the wait.
+#
+# Shrinking leaves the LEDs past the new end showing their last color, so the
+# whole compiled length is sent black once before the count drops.
+script:
+  - id: led_strip2_apply_count
+    mode: restart
+    then:
+      - wait_until:
+          condition:
+            lambda: 'return static_cast<esp32_rmt_led_strip::ESP32RMTLEDStripLightOutput *>(id(led_strip2).get_output())->is_ready();'
+          timeout: 10s
+      - lambda: |-
+          auto *out = static_cast<esp32_rmt_led_strip::ESP32RMTLEDStripLightOutput *>(id(led_strip2).get_output());
+          if (!out->is_ready() || out->is_failed()) return;
+          out->set_num_leds(${strip_2_led_max});
+          out->all() = Color::BLACK;
+          out->schedule_show();
+      - delay: 100ms
+      - lambda: |-
+          auto *out = static_cast<esp32_rmt_led_strip::ESP32RMTLEDStripLightOutput *>(id(led_strip2).get_output());
+          if (!out->is_ready() || out->is_failed()) return;
+          int n = (int) id(led_strip2_led_count).state;
+          if (n < 1) n = 1;
+          if (n > ${strip_2_led_max}) n = ${strip_2_led_max};
+          out->set_num_leds(n);
+          out->schedule_show();
+          ESP_LOGI("led_strip2", "LED Strip 2: %d LEDs", n);

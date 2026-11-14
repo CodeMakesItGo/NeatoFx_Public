@@ -1,0 +1,79 @@
+# ==============================================================================
+# NEATO MOTOR CONTROLLER 12V - MAIN CONFIGURATION FILE
+# ==============================================================================
+# 12V board (no CAN): Rev 3.3, or the original Rev 3.0 — pick the board below. One binary for every unit of this board:
+# what the motor does — DC motor, AC controller, linear actuator, winch or
+# pulse — is the "Motor Type" select in the web UI, kept across updates.
+# The other board's main is main_24v.yaml; what they share is in base.yaml.
+#
+# ONE BINARY for every unit — there is no per-unit build.
+#
+# Usage:
+#   esphome run     Controllers/NeatoMotor/main_12v.yaml
+#   esphome compile Controllers/NeatoMotor/main_12v.yaml
+#   esphome logs    Controllers/NeatoMotor/main_12v.yaml
+#   Then set the Motor Type from the device web interface.
+#
+# Program a unit at a specific IP address (OTA over the network — use this when
+# the .local name doesn't resolve, or to pick one unit out of several):
+#   esphome run     Controllers/NeatoMotor/main_12v.yaml --device 192.168.1.50
+#   esphome upload  Controllers/NeatoMotor/main_12v.yaml --device 192.168.1.50   # already compiled
+#   esphome logs    Controllers/NeatoMotor/main_12v.yaml --device 192.168.1.50
+# Replace 192.168.1.50 with the unit's IP (shown in its web UI under Debug, or
+# in your router's client list). Or open http://<ip>/ in a browser and install
+# a compiled firmware.ota.bin from the unit's web page (firmware update / OTA
+# section) — no internet needed. A brand-new unit with no firmware is flashed
+# over USB instead:
+#   esphome run     Controllers/NeatoMotor/main_12v.yaml --device /dev/cu.usbserial-XXXX
+#
+# ------------------------------------------------------------------------------
+# Author:   W. Jason Altice <jason.altice@neatofx.com>
+# Company:  NeatoFx — https://neatofx.com
+# Support:  jason.altice@neatofx.com
+#
+# Copyright (c) 2026 CodeMakesItGo. Released under the MIT License — see the
+# LICENSE file in the repository root for the full terms. This configuration is
+# provided "AS IS", without warranty of any kind, express or implied.
+#
+# Safety: NeatoFx devices can switch relays, motors and external power. Wiring
+# to mains voltage, motors or other hazardous loads must be done by a qualified
+# person in line with local electrical codes. You are responsible for the safe
+# installation and operation of the equipment this firmware controls.
+# ==============================================================================
+
+# ==============================================================================
+# SUBSTITUTIONS - Device Identification
+# ==============================================================================
+substitutions:
+  # ONE BINARY: ESPHome appends the MAC suffix to the hostname at runtime
+  # (motor-12v-a1b2c3). Logical identity is the runtime Source Address (the CAN
+  # node address on the 24V board), assigned from the web UI and stored in flash.
+  name: motor-12v
+  friendly_name: "NeatoFx Motor 12V"
+  runtime_id_label: "Source Address"
+  runtime_id_max: "238"         # highest assignable Source Address (0-238)
+  runtime_name_label: "Motor Name"
+  # Firmware update channel: firmware/<update_channel>/manifest.json
+  # (configs/home_assistant.yaml), and the file the ESPHome dashboard adopts.
+  update_channel: motor-12v
+  main_file: main_12v.yaml
+  # ESPHome project name — what the ESPHome device builder matches on when it
+  # offers to adopt a unit, so each board has its own.
+  project_name: "NeatoFX.Motor12V"
+
+# ==============================================================================
+# PACKAGES
+# ==============================================================================
+packages:
+  # ---- BOARD — select exactly ONE ----
+  board: !include boards/rev3_3_12v.yaml       # Rev 3.3 12V (current): Input 1 / Input 2, all motor types
+  #board: !include boards/rev3_0_12v.yaml      # Rev 3.0 12V (original): one TOGGLE button, Linear Actuator only
+
+  # ---- NETWORK — select ONE ----
+  #config: !include configs/standalone.yaml         # AP-only: local web UI, no router, no Home Assistant
+  #config: !include configs/networked.yaml          # Router, no HA server (No-HA LAN): web UI only
+  config: !include configs/home_assistant.yaml      # Router + Home Assistant server: API + events + OTA
+  
+  # LAST on purpose — see base.yaml: its web_server must override the network
+  # package's, or the default ESPHome page replaces the custom UI.
+  base: !include base.yaml

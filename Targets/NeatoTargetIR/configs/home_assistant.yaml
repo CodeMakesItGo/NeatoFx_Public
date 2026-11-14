@@ -27,9 +27,10 @@ packages:
 # DASHBOARD IMPORT - Made for ESPHome
 # ==============================================================================
 # Requires the api: component (kept below), so it's enabled in this HA variant.
-# Lets the ESPHome dashboard adopt this device from its published config.
+# Lets the ESPHome dashboard adopt this device from its published config —
+# the hardware main it was built from (main_file, set in each main*.yaml).
 dashboard_import:
-  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Targets/NeatoTargetIR/main.yaml@main
+  package_import_url: github://CodeMakesItGo/NeatoFx_Public/Targets/NeatoTargetIR/${main_file}@main
   import_full_config: true
 
 # ==============================================================================
@@ -39,6 +40,9 @@ substitutions:
   # ip_addr default (${ip_base}1) is set in _shared/networked_base.yaml. It is a
   # placeholder, not a per-unit address — override it here before enabling manual_ip.
   # Override here only if this device type needs a different subnet offset.
+  # Network mode, read by packages that need a router network
+  # (integrations/target_fpp.yaml refuses to build in standalone mode).
+  network_mode: home_assistant
 
 
 # ==============================================================================
@@ -112,8 +116,11 @@ improv_serial:
 # ==============================================================================
 # FIRMWARE UPDATES - OTA via HTTP
 # ==============================================================================
+# One update channel per hardware type (update_channel, set in each main*.yaml),
+# so an LCD target is only ever offered LCD firmware, a hit-face target only
+# hit-face firmware, and so on.
 update:
   - platform: http_request
     id: firmware_update_check
     name: "Firmware Update"
-    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/target-ir/manifest.json
+    source: https://raw.githubusercontent.com/CodeMakesItGo/NeatoFx_Public/main/firmware/${update_channel}/manifest.json

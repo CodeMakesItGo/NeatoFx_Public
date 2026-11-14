@@ -4,6 +4,8 @@
  * Replaces the default ESPHome web UI with an audio-specific dashboard.
  * Communicates via ESPHome REST API and Server-Sent Events (/events).
  * Self-contained — no external dependencies, works in AP standalone mode.
+ * Firmware updates are installed from this page too (Firmware Update card,
+ * POST /update) — the default ESPHome UI is not needed for anything.
  */
 (function () {
   'use strict';
@@ -29,10 +31,9 @@
   // "{domain}/{name}" and the DOM data-eid ("{type}-{key}") line up.
   //   ESPHome REST API: /{domain}/{name}/{action}
   //   ESPHome SSE:      {"name_id": "{domain}/[{device}/]{name}", "state": ..., "value": ...}
-  // `auto: true` rows start hidden and appear when the entity reports a state —
-  // used for the two RF sections, whose entities exist only in certain builds:
-  // 'rf' (receiver) in rftx_outputs + rftx_inputs, 'rftx' (transmitter) in
-  // rftx_outputs only. See boards/common/rftx_*.yaml.
+  // `auto: true` rows start hidden and appear when the entity reports a state.
+  // The RFTX / RF entities no longer need it: they exist in every build, and
+  // their cards follow the "RFTX Mode" select instead (see applyState).
   const ENTITIES = {
     // ── Device identity (one binary for every unit; see the card note) ──
     device_id:   { type: NUM, name: 'Device ID', label: 'Device ID', min: 0, max: 99, step: 1, box: true,
@@ -69,29 +70,34 @@
     in2_timer: { type: NUM, name: 'Input 2 Output Timer', label: 'Output Timer (ms)', min: 0, max: 5000, step: 100, box: true,
                  hint: '0 = on for song duration', section: 'in2' },
 
-    // ── Aux Inputs (collapsible, auto-shown — rftx_inputs builds ONLY) ──
-    // The RFTX connector repurposed as 4 trigger inputs (RFTX0-3). These
-    // entities exist only in rftx_inputs builds, so the card appears there alone.
+    // ── RFTX Connector (collapsible) — mode + transmitter power ──
+    rftx_mode: { type: SEL, name: 'RFTX Mode', label: 'RFTX Mode', options: ['Off', 'Inputs', 'Outputs'],
+                 hint: 'Inputs = 4 trigger inputs (Aux 1-4). Outputs = RF transmitter (RF TX A-D). Off = unused',
+                 section: 'rftxconn' },
+    rf_power:  { type: SW,  name: 'RF TX Power', label: 'RF TX Power', hint: 'Transmitter supply on the connector', section: 'rftxconn' },
+
+    // ── Aux Inputs (collapsible) — shown only when RFTX Mode = Inputs ──
+    // The RFTX connector as 4 trigger inputs (RFTX0-3).
     aux1_mp3:  { type: NUM, name: 'Aux 1 MP3',          label: 'Aux 1 MP3 #', min: 0, max: 255, step: 1, box: true,
-                 hint: '0 = play nothing', auto: true, section: 'aux' },
-    aux1_seq:  { type: SW,  name: 'Aux 1 Sequential',   label: 'Aux 1 Sequential', auto: true, section: 'aux' },
-    aux1_out:  { type: SEL, name: 'Aux 1 Output',       label: 'Aux 1 Output', options: OUTPUTS, auto: true, section: 'aux' },
-    aux1_test: { type: BTN, name: 'Test Aux 1 (RFTX0)', label: 'Test Aux 1', btnText: 'Trigger', auto: true, section: 'aux' },
+                 hint: '0 = play nothing', section: 'aux' },
+    aux1_seq:  { type: SW,  name: 'Aux 1 Sequential',   label: 'Aux 1 Sequential', section: 'aux' },
+    aux1_out:  { type: SEL, name: 'Aux 1 Output',       label: 'Aux 1 Output', options: OUTPUTS, section: 'aux' },
+    aux1_test: { type: BTN, name: 'Test Aux 1 (RFTX0)', label: 'Test Aux 1', btnText: 'Trigger', section: 'aux' },
     aux2_mp3:  { type: NUM, name: 'Aux 2 MP3',          label: 'Aux 2 MP3 #', min: 0, max: 255, step: 1, box: true,
-                 hint: '0 = play nothing', auto: true, section: 'aux' },
-    aux2_seq:  { type: SW,  name: 'Aux 2 Sequential',   label: 'Aux 2 Sequential', auto: true, section: 'aux' },
-    aux2_out:  { type: SEL, name: 'Aux 2 Output',       label: 'Aux 2 Output', options: OUTPUTS, auto: true, section: 'aux' },
-    aux2_test: { type: BTN, name: 'Test Aux 2 (RFTX1)', label: 'Test Aux 2', btnText: 'Trigger', auto: true, section: 'aux' },
+                 hint: '0 = play nothing', section: 'aux' },
+    aux2_seq:  { type: SW,  name: 'Aux 2 Sequential',   label: 'Aux 2 Sequential', section: 'aux' },
+    aux2_out:  { type: SEL, name: 'Aux 2 Output',       label: 'Aux 2 Output', options: OUTPUTS, section: 'aux' },
+    aux2_test: { type: BTN, name: 'Test Aux 2 (RFTX1)', label: 'Test Aux 2', btnText: 'Trigger', section: 'aux' },
     aux3_mp3:  { type: NUM, name: 'Aux 3 MP3',          label: 'Aux 3 MP3 #', min: 0, max: 255, step: 1, box: true,
-                 hint: '0 = play nothing', auto: true, section: 'aux' },
-    aux3_seq:  { type: SW,  name: 'Aux 3 Sequential',   label: 'Aux 3 Sequential', auto: true, section: 'aux' },
-    aux3_out:  { type: SEL, name: 'Aux 3 Output',       label: 'Aux 3 Output', options: OUTPUTS, auto: true, section: 'aux' },
-    aux3_test: { type: BTN, name: 'Test Aux 3 (RFTX2)', label: 'Test Aux 3', btnText: 'Trigger', auto: true, section: 'aux' },
+                 hint: '0 = play nothing', section: 'aux' },
+    aux3_seq:  { type: SW,  name: 'Aux 3 Sequential',   label: 'Aux 3 Sequential', section: 'aux' },
+    aux3_out:  { type: SEL, name: 'Aux 3 Output',       label: 'Aux 3 Output', options: OUTPUTS, section: 'aux' },
+    aux3_test: { type: BTN, name: 'Test Aux 3 (RFTX2)', label: 'Test Aux 3', btnText: 'Trigger', section: 'aux' },
     aux4_mp3:  { type: NUM, name: 'Aux 4 MP3',          label: 'Aux 4 MP3 #', min: 0, max: 255, step: 1, box: true,
-                 hint: '0 = play nothing', auto: true, section: 'aux' },
-    aux4_seq:  { type: SW,  name: 'Aux 4 Sequential',   label: 'Aux 4 Sequential', auto: true, section: 'aux' },
-    aux4_out:  { type: SEL, name: 'Aux 4 Output',       label: 'Aux 4 Output', options: OUTPUTS, auto: true, section: 'aux' },
-    aux4_test: { type: BTN, name: 'Test Aux 4 (RFTX3)', label: 'Test Aux 4', btnText: 'Trigger', auto: true, section: 'aux' },
+                 hint: '0 = play nothing', section: 'aux' },
+    aux4_seq:  { type: SW,  name: 'Aux 4 Sequential',   label: 'Aux 4 Sequential', section: 'aux' },
+    aux4_out:  { type: SEL, name: 'Aux 4 Output',       label: 'Aux 4 Output', options: OUTPUTS, section: 'aux' },
+    aux4_test: { type: BTN, name: 'Test Aux 4 (RFTX3)', label: 'Test Aux 4', btnText: 'Trigger', section: 'aux' },
 
     // ── Outputs (collapsible) ──
     relay1:       { type: SW,  name: 'Relay 1', label: 'Relay 1', section: 'out' },
@@ -101,35 +107,30 @@
     spot2_bright: { type: NUM, name: 'SpotLight 2 Trigger Brightness', label: 'SpotLight 2 Brightness',
                     min: 0, max: 100, step: 5, unit: '%', section: 'out' },
 
-    // ── RF Receiver (collapsible, auto-shown) ──
+    // ── RF Receiver (collapsible) — independent of the RFTX connector ──
     // What an RF remote button does: which MP3 plays and which output fires.
-    // Present in rftx_outputs AND rftx_inputs builds — the on-board receiver
-    // (Remote BtnA-D) is wired up in every mode. rftx_none marks these entities
-    // internal, so nothing reports state and the whole card stays hidden.
-    // Grouped per channel (A-D) rather than interleaved with the TX switches.
-    rf_a_mp3: { type: NUM, name: 'RF A MP3',       label: 'RF A MP3 #', min: 0, max: 255, step: 1, box: true, auto: true, section: 'rf' },
-    rf_a_seq: { type: SW,  name: 'RF A Sequential', label: 'RF A Sequential', auto: true, section: 'rf' },
-    rf_a_out: { type: SEL, name: 'RF A Output',    label: 'RF A Output', options: OUTPUTS, auto: true, section: 'rf' },
-    rf_b_mp3: { type: NUM, name: 'RF B MP3',       label: 'RF B MP3 #', min: 0, max: 255, step: 1, box: true, auto: true, section: 'rf' },
-    rf_b_seq: { type: SW,  name: 'RF B Sequential', label: 'RF B Sequential', auto: true, section: 'rf' },
-    rf_b_out: { type: SEL, name: 'RF B Output',    label: 'RF B Output', options: OUTPUTS, auto: true, section: 'rf' },
-    rf_c_mp3: { type: NUM, name: 'RF C MP3',       label: 'RF C MP3 #', min: 0, max: 255, step: 1, box: true, auto: true, section: 'rf' },
-    rf_c_seq: { type: SW,  name: 'RF C Sequential', label: 'RF C Sequential', auto: true, section: 'rf' },
-    rf_c_out: { type: SEL, name: 'RF C Output',    label: 'RF C Output', options: OUTPUTS, auto: true, section: 'rf' },
-    rf_d_mp3: { type: NUM, name: 'RF D MP3',       label: 'RF D MP3 #', min: 0, max: 255, step: 1, box: true, auto: true, section: 'rf' },
-    rf_d_seq: { type: SW,  name: 'RF D Sequential', label: 'RF D Sequential', auto: true, section: 'rf' },
-    rf_d_out: { type: SEL, name: 'RF D Output',    label: 'RF D Output', options: OUTPUTS, auto: true, section: 'rf' },
+    // With RF Receiver Enabled off, the card shows only that switch.
+    rf_rx_enabled: { type: SW, name: 'RF Receiver Enabled', label: 'RF Receiver Enabled',
+                     hint: 'Off if no RF receiver is plugged in', section: 'rf' },
+    rf_a_mp3: { type: NUM, name: 'RF A MP3',       label: 'RF A MP3 #', min: 0, max: 255, step: 1, box: true, section: 'rf' },
+    rf_a_seq: { type: SW,  name: 'RF A Sequential', label: 'RF A Sequential', section: 'rf' },
+    rf_a_out: { type: SEL, name: 'RF A Output',    label: 'RF A Output', options: OUTPUTS, section: 'rf' },
+    rf_b_mp3: { type: NUM, name: 'RF B MP3',       label: 'RF B MP3 #', min: 0, max: 255, step: 1, box: true, section: 'rf' },
+    rf_b_seq: { type: SW,  name: 'RF B Sequential', label: 'RF B Sequential', section: 'rf' },
+    rf_b_out: { type: SEL, name: 'RF B Output',    label: 'RF B Output', options: OUTPUTS, section: 'rf' },
+    rf_c_mp3: { type: NUM, name: 'RF C MP3',       label: 'RF C MP3 #', min: 0, max: 255, step: 1, box: true, section: 'rf' },
+    rf_c_seq: { type: SW,  name: 'RF C Sequential', label: 'RF C Sequential', section: 'rf' },
+    rf_c_out: { type: SEL, name: 'RF C Output',    label: 'RF C Output', options: OUTPUTS, section: 'rf' },
+    rf_d_mp3: { type: NUM, name: 'RF D MP3',       label: 'RF D MP3 #', min: 0, max: 255, step: 1, box: true, section: 'rf' },
+    rf_d_seq: { type: SW,  name: 'RF D Sequential', label: 'RF D Sequential', section: 'rf' },
+    rf_d_out: { type: SEL, name: 'RF D Output',    label: 'RF D Output', options: OUTPUTS, section: 'rf' },
 
-    // ── RF Transmitter (collapsible, auto-shown — rftx_outputs builds ONLY) ──
-    // Outbound side: the RFTX connector driving an RF transmitter. Each channel
-    // switch fires a 100ms momentary pulse (the YAML turns it back off).
-    // These entities do not exist in rftx_inputs / rftx_none builds, where that
-    // connector is 4 trigger inputs or unused — so this card never appears.
-    rf_power: { type: SW,  name: 'RF TX Power',    label: 'RF TX Power', auto: true, section: 'rftx' },
-    rf_tx_a:  { type: SW,  name: 'RF TX A',        label: 'RF TX A (pulse)', auto: true, section: 'rftx' },
-    rf_tx_b:  { type: SW,  name: 'RF TX B',        label: 'RF TX B (pulse)', auto: true, section: 'rftx' },
-    rf_tx_c:  { type: SW,  name: 'RF TX C',        label: 'RF TX C (pulse)', auto: true, section: 'rftx' },
-    rf_tx_d:  { type: SW,  name: 'RF TX D',        label: 'RF TX D (pulse)', auto: true, section: 'rftx' },
+    // ── RF Transmitter (collapsible) — shown only when RFTX Mode = Outputs ──
+    // Each channel switch fires a 100ms momentary pulse (the YAML turns it back off).
+    rf_tx_a:  { type: SW,  name: 'RF TX A',        label: 'RF TX A (pulse)', section: 'rftx' },
+    rf_tx_b:  { type: SW,  name: 'RF TX B',        label: 'RF TX B (pulse)', section: 'rftx' },
+    rf_tx_c:  { type: SW,  name: 'RF TX C',        label: 'RF TX C (pulse)', section: 'rftx' },
+    rf_tx_d:  { type: SW,  name: 'RF TX D',        label: 'RF TX D (pulse)', section: 'rftx' },
 
     // ── Testing (collapsible) ──
     test_in1:   { type: BTN, name: 'Test Input 1',     label: 'Test Input 1',     btnText: 'Trigger', section: 'test' },
@@ -137,7 +138,11 @@
     test_spot1: { type: SW,  name: 'Test SpotLight 1', label: 'Test SpotLight 1', section: 'test' },
     test_spot2: { type: SW,  name: 'Test SpotLight 2', label: 'Test SpotLight 2', section: 'test' },
 
-    // ── Diagnostics (collapsible) — all read-only ──
+    // ── Diagnostics (collapsible) — read-only, except Log Level ──
+    log_level:   { type: SEL,  name: 'Log Level', label: 'Log Level',
+                   options: ['NONE', 'ERROR', 'WARN', 'INFO', 'CONFIG', 'DEBUG'],
+                   hint: 'WARN = normal. INFO / DEBUG to troubleshoot (Device Log below); back to WARN on restart',
+                   section: 'debug' },
     in1_state:   { type: BIN,  name: 'Input 1',              label: 'Input 1',       section: 'debug' },
     in2_state:   { type: BIN,  name: 'Input 2',              label: 'Input 2',       section: 'debug' },
     push_button: { type: BIN,  name: 'Push Button',          label: 'Push Button',   section: 'debug' },
@@ -215,6 +220,9 @@
   function connect() {
     es = new EventSource('/events');
 
+    // Every log line the device prints at its current Log Level (web_server
+    // forwards them over /events) — shown in Diagnostics › Device Log.
+    es.addEventListener('log', function (ev) { addLogLine(ev.data); });
     es.addEventListener('state', function (ev) {
       try { applyState(JSON.parse(ev.data)); } catch (_) {}
     });
@@ -231,8 +239,9 @@
     };
   }
 
-  // Stop SSE permanently (used when handing the page over to the default UI,
-  // so each phone holds only one /events socket)
+  // Stop SSE (used while a firmware upload runs: it frees one of the device's
+  // few HTTP sockets for the upload, and the stream would only error when the
+  // device reboots)
   function disconnect() {
     clearTimeout(retryTimer);
     if (es) {
@@ -307,6 +316,17 @@
     if (type === 'switch' || type === 'light') {
       var on = data.value === true || data.state === 'ON';
       card.classList.toggle('on', on);
+      // RF Receiver card collapses to its enable switch while the receiver is off.
+      if (objId === 'rf_rx_enabled') {
+        var rxCard = card.closest('.card');
+        if (rxCard) rxCard.classList.toggle('rx-off', !on);
+      }
+    }
+
+    // RFTX Mode decides which of the Aux Inputs / RF Transmitter cards shows.
+    if (objId === 'rftx_mode' && data.state) {
+      var appEl = document.querySelector('.app');
+      if (appEl) appEl.dataset.rftx = data.state;
     }
 
     if (type === 'number') {
@@ -343,8 +363,8 @@
     var dot = document.getElementById('live-dot');
     var txt = document.getElementById('live-txt');
     if (dot) {
-      dot.style.background  = on ? '#4ade80' : '#ef4444';
-      dot.style.boxShadow   = on ? '0 0 8px #4ade80' : 'none';
+      dot.style.background  = on ? '#25c0d9' : '#ef4444';
+      dot.style.boxShadow   = on ? '0 0 8px #25c0d9' : 'none';
     }
     if (txt) txt.textContent = on ? 'Live' : 'Reconnecting…';
   }
@@ -527,9 +547,184 @@
     return card;
   }
 
+  // ── Device log ─────────────────────────────────────────────────────────────
+  // The web server streams each log line as an SSE "log" event, in every
+  // network mode and with no internet — so troubleshooting needs neither USB
+  // nor `esphome logs`. Lines are what the device prints at its current Log
+  // Level (WARN by default, so normally quiet); there is no history from
+  // before the page connected. Only the last LOG_MAX lines are kept, and the
+  // DOM is touched only while the Diagnostics card is open, so a busy DEBUG stream
+  // costs a phone very little until someone looks at it.
+  var LOG_MAX = 300;
+  var logLines = [], logPaused = false, logBox = null, logDirty = false;
+
+  function addLogLine(raw) {
+    // Strip ANSI color codes; ESPHome lines look like "[W][tag:123]: message".
+    var text = String(raw).replace(/\x1b\[[0-9;]*m/g, '');
+    var m = text.match(/^\[([EWICDV])\]/);
+    logLines.push({ lvl: m ? m[1] : '', text: text });
+    if (logLines.length > LOG_MAX) logLines.shift();
+    logDirty = true;   // drawn by the timer in makeLogView, at most 4x a second
+  }
+
+  function renderLog() {
+    if (!logBox || logPaused || !logDirty || !logBox.offsetParent) return;  // hidden: render on open
+    logDirty = false;
+    var frag = document.createDocumentFragment();
+    logLines.forEach(function (l) {
+      var d = document.createElement('div');
+      d.className = 'log-line' + (l.lvl ? ' log-' + l.lvl : '');
+      d.textContent = l.text;
+      frag.appendChild(d);
+    });
+    logBox.textContent = '';
+    logBox.appendChild(frag);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  function makeLogView() {
+    var wrap = document.createElement('div');
+    wrap.className = 'log-wrap';
+    wrap.innerHTML =
+      '<div class="row"><span class="lbl-wrap"><span class="lbl">Device Log</span>' +
+        '<span class="note">Live log at the current Log Level (above). WARN shows only problems; pick INFO or DEBUG to see more. Starts empty — nothing from before this page opened.</span></span></div>' +
+      '<div class="log-box"></div>' +
+      '<div class="log-btns"><button class="act-btn log-pause">Pause</button>' +
+        '<button class="act-btn log-clear">Clear</button></div>';
+    logBox = wrap.querySelector('.log-box');
+    var pauseBtn = wrap.querySelector('.log-pause');
+    pauseBtn.addEventListener('click', function () {
+      logPaused = !logPaused;
+      pauseBtn.textContent = logPaused ? 'Resume' : 'Pause';
+      if (!logPaused) { logDirty = true; renderLog(); }
+    });
+    wrap.querySelector('.log-clear').addEventListener('click', function () {
+      logLines = []; logDirty = true; logBox.textContent = '';
+    });
+    // Redraw at most 4x a second (a DEBUG stream can be dozens of lines a
+    // second), and catch up when the Diagnostics card is opened.
+    setInterval(renderLog, 250);
+    return wrap;
+  }
+
+  // ── Firmware update ────────────────────────────────────────────────────────
+  // Uploads a .bin straight to the device's own OTA endpoint (POST /update,
+  // provided by `ota: - platform: web_server`), so a firmware update needs no
+  // internet and no default ESPHome UI. The same multipart field name ("update")
+  // the default UI's form uses.
+  //
+  // The file is sanity-checked before anything is sent: an ESP32 app image
+  // starts with the 0xE9 magic byte, and a *.factory.bin (bootloader +
+  // partition table + app, for USB flashing) has the partition table magic
+  // 0xAA 0x50 at 0x8000. Flashing a factory image over OTA fails on the device
+  // anyway, but only after the whole upload; catching it here is instant.
+  function makeFirmwareUpdate() {
+    var wrap = document.createElement('div');
+    wrap.innerHTML =
+      '<div class="note">Install a firmware file from this phone or computer — no internet needed. ' +
+        'Use the OTA image (<b>firmware.ota.bin</b>, or the .bin from a NeatoFx release), not <b>*.factory.bin</b>. ' +
+        'Settings and WiFi are kept. Keep this page open until the device restarts.</div>' +
+      '<div class="row">' +
+        '<input type="file" class="fw-file" accept=".bin,application/octet-stream">' +
+        '<button class="act-btn" disabled>Install</button>' +
+      '</div>' +
+      '<div class="fw-bar"><div class="fw-fill"></div></div>' +
+      '<div class="fw-msg"></div>';
+
+    var input = wrap.querySelector('.fw-file');
+    var btn   = wrap.querySelector('button');
+    var fill  = wrap.querySelector('.fw-fill');
+    var msg   = wrap.querySelector('.fw-msg');
+
+    function say(text, cls) {
+      msg.textContent = text;
+      msg.className = 'fw-msg' + (cls ? ' ' + cls : '');
+    }
+
+    input.addEventListener('change', function () {
+      fill.style.width = '0';
+      var f = input.files[0];
+      btn.disabled = !f;
+      say(f ? f.name + ' — ' + Math.round(f.size / 1024) + ' KB' : '');
+    });
+
+    function checkImage(file) {
+      return file.slice(0, 0x8002).arrayBuffer().then(function (buf) {
+        var b = new Uint8Array(buf);
+        if (b.length < 1 || b[0] !== 0xE9) return 'This is not an ESP32 firmware image.';
+        if (b.length >= 0x8002 && b[0x8000] === 0xAA && b[0x8001] === 0x50)
+          return 'This is a factory image (for USB flashing). Choose the .ota.bin instead.';
+        return null;
+      });
+    }
+
+    // After a successful upload the device reboots. Poll until it answers
+    // again, then reload so the page reflects the new firmware.
+    function waitForReboot() {
+      var tries = 0;
+      (function poll() {
+        tries++;
+        fetch('/', { cache: 'no-store' }).then(function (r) {
+          if (r.ok) location.reload();
+          else throw 0;
+        }).catch(function () {
+          if (tries < 60) setTimeout(poll, 2000);
+          else say('Installed. The device has not come back yet — refresh this page in a moment.', 'ok');
+        });
+      })();
+    }
+
+    btn.addEventListener('click', function () {
+      var file = input.files[0];
+      if (!file) return;
+      btn.disabled = true;
+      checkImage(file).then(function (problem) {
+        if (problem) { say(problem, 'err'); btn.disabled = false; return; }
+        if (!window.confirm('Install ' + file.name + '? The device restarts when it finishes.')) {
+          btn.disabled = false;
+          return;
+        }
+        input.disabled = true;
+        disconnect();
+        setLive(false);
+
+        var form = new FormData();
+        form.append('update', file, file.name);
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/update');
+        xhr.upload.onprogress = function (e) {
+          if (!e.lengthComputable) return;
+          var pct = Math.round(e.loaded * 100 / e.total);
+          fill.style.width = pct + '%';
+          say(pct < 100 ? 'Uploading… ' + pct + '%' : 'Writing firmware…');
+        };
+        xhr.onload = function () {
+          if (xhr.status === 200 && !/fail/i.test(xhr.responseText)) {
+            fill.style.width = '100%';
+            say('Installed. Restarting…', 'ok');
+            setTimeout(waitForReboot, 4000);
+          } else {
+            fail('Update failed' + (xhr.responseText ? ': ' + xhr.responseText.trim() : ' (HTTP ' + xhr.status + ')'));
+          }
+        };
+        xhr.onerror = function () { fail('Upload interrupted — check the connection and try again.'); };
+        xhr.send(form);
+      });
+    });
+
+    function fail(text) {
+      say(text, 'err');
+      fill.style.width = '0';
+      input.disabled = false;
+      btn.disabled = false;
+      connect();
+    }
+
+    return wrap;
+  }
+
   // ── CSS ────────────────────────────────────────────────────────────────────
-  // All rules are scoped under .app so nothing leaks into the default ESPHome
-  // UI if the user switches views.
+  // All rules are scoped under .app so nothing leaks into the host page.
   var CSS = [
     '.app, .app *, .app *::before, .app *::after { box-sizing: border-box; margin: 0; padding: 0; }',
 
@@ -555,7 +750,7 @@
     '.hdr-l { min-width: 0; }',
     '.hdr-name { font-size: 1.05rem; font-weight: 700; color: #fff; }',
     '.hdr-sub  { font-size: 0.72rem; color: #666; margin-top: 3px; }',
-    '.hdr-link { color: #e94560; text-decoration: none; }',
+    '.hdr-link { color: #25c0d9; text-decoration: none; }',
     '.hdr-link:hover { text-decoration: underline; }',
     '.hdr-ver  { font-size: 0.68rem; color: #4a4a68; margin-top: 3px; letter-spacing: .3px; }',
     '.hdr-id   { font-size: 0.72rem; color: #4a4a68; margin-top: 2px; letter-spacing: .3px; font-weight: 600; }',
@@ -576,15 +771,15 @@
     '}',
     '.hero-info { flex: 0 0 auto; }',
     '.hero-lbl { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 1px; color: #555; margin-bottom: 2px; }',
-    '#vol-val { font-size: 3rem; font-weight: 800; color: #e94560; line-height: 1; min-width: 56px; }',
+    '#vol-val { font-size: 3rem; font-weight: 800; color: #25c0d9; line-height: 1; min-width: 56px; }',
     '.test-btn {',
-    '  flex: 1; background: linear-gradient(135deg, #e94560 0%, #b02f4a 100%);',
-    '  color: #fff; border: none; border-radius: 12px; padding: 20px 12px;',
+    '  flex: 1; background: linear-gradient(135deg, #25c0d9 0%, #1c93a7 100%);',
+    '  color: #101116; border: none; border-radius: 12px; padding: 20px 12px;',
     '  font-size: 1rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;',
-    '  cursor: pointer; box-shadow: 0 4px 20px rgba(233,69,96,.3);',
+    '  cursor: pointer; box-shadow: 0 4px 20px rgba(37,192,217,.3);',
     '  transition: transform .1s, box-shadow .1s; -webkit-tap-highlight-color: transparent;',
     '}',
-    '.test-btn:active { transform: scale(.96); box-shadow: 0 2px 10px rgba(233,69,96,.15); }',
+    '.test-btn:active { transform: scale(.96); box-shadow: 0 2px 10px rgba(37,192,217,.15); }',
 
     /* Cards */
     '.card {',
@@ -596,7 +791,13 @@
     '  letter-spacing: 1.5px; color: #555; padding: 10px 16px 4px;',
     '}',
 
-    /* Auto-hidden rows/sections (RF — only present in rftx_outputs builds) */
+    /* RFTX mode cards: Aux Inputs only in Inputs mode, RF Transmitter only in
+       Outputs mode (data-rftx on .app is set from the RFTX Mode select) */
+    '.app:not([data-rftx="Inputs"]) .only-inputs { display: none; }',
+    '.app:not([data-rftx="Outputs"]) .only-outputs { display: none; }',
+    /* RF Receiver card: only its enable switch while the receiver is off */
+    '.rx-off > [data-eid]:not([data-eid="switch-rf_rx_enabled"]) { display: none; }',
+    /* Auto-hidden rows/sections */
     '.auto-hide { display: none !important; }',
 
     /* Toggle / row */
@@ -612,7 +813,7 @@
     '  position: relative; cursor: pointer; flex-shrink: 0;',
     '  transition: background .2s; outline: none;',
     '}',
-    '.row.on .tgl { background: #e94560; }',
+    '.row.on .tgl { background: #25c0d9; }',
     '.tgl-thumb {',
     '  width: 21px; height: 21px; background: #fff; border-radius: 50%;',
     '  position: absolute; top: 3px; left: 3px;',
@@ -633,7 +834,7 @@
 
     /* Read-only value rows (sensors) */
     '.ro-val { font-size: 0.9rem; font-weight: 600; color: #8a8ab0; text-align: right; word-break: break-all; }',
-    '.ro.on .ro-val { color: #4ade80; }',
+    '.ro.on .ro-val { color: #25c0d9; }',
 
     /* Action buttons (reset, etc.) */
     '.act-btn {',
@@ -649,7 +850,7 @@
     /* Slider */
     '.slider { padding: 12px 16px 18px; border-top: 1px solid #1e1e38; }',
     '.slider-hdr { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }',
-    '.val { font-size: 0.9rem; font-weight: 600; color: #e94560; }',
+    '.val { font-size: 0.9rem; font-weight: 600; color: #25c0d9; }',
     '.app input[type=range] {',
     '  -webkit-appearance: none; appearance: none;',
     '  width: 100%; height: 4px; background: #2a2a45; border-radius: 2px;',
@@ -657,11 +858,11 @@
     '}',
     '.app input[type=range]::-webkit-slider-thumb {',
     '  -webkit-appearance: none;',
-    '  width: 22px; height: 22px; background: #e94560; border-radius: 50%;',
-    '  box-shadow: 0 0 0 3px rgba(233,69,96,.2);',
+    '  width: 22px; height: 22px; background: #25c0d9; border-radius: 50%;',
+    '  box-shadow: 0 0 0 3px rgba(37,192,217,.2);',
     '}',
     '.app input[type=range]::-moz-range-thumb {',
-    '  width: 22px; height: 22px; background: #e94560;',
+    '  width: 22px; height: 22px; background: #25c0d9;',
     '  border-radius: 50%; border: none;',
     '}',
 
@@ -678,18 +879,32 @@
     '.adv-body.open { display: block; }',
     '.adv-open .chev { transform: rotate(180deg); }',
 
-    /* View switcher */
-    '.view-switch {',
-    '  display: flex; justify-content: center; padding: 8px 0 4px;',
+    /* Firmware update */
+    '.fw-file { flex: 1; min-width: 0; color: #aaa; font-size: 0.8rem; }',
+    '.fw-file::file-selector-button {',
+    '  background: #252540; color: #e0e0e0; border: 0; border-radius: 6px;',
+    '  padding: 6px 10px; margin-right: 8px; cursor: pointer;',
     '}',
-    '.orig-btn {',
-    '  background: none; border: 1px solid #252540; color: #3a3a5c;',
-    '  border-radius: 8px; padding: 5px 14px; font-size: 0.72rem;',
-    '  cursor: pointer; transition: color .2s, border-color .2s;',
-    '  -webkit-tap-highlight-color: transparent;',
+    '.fw-bar { height: 6px; background: #252540; border-radius: 3px; overflow: hidden; margin: 6px 0; }',
+    '.fw-fill { height: 100%; width: 0; background: #25c0d9; transition: width .2s; }',
+    '.fw-msg { font-size: 0.8rem; color: #aaa; min-height: 1.2em; }',
+    '.fw-msg.err { color: #ef4444; }',
+    '.fw-msg.ok  { color: #25c0d9; }',
+
+    /* Device log */
+    '.log-box {',
+    '  height: 240px; overflow-y: auto; background: #08080f; border: 1px solid #252540;',
+    '  border-radius: 8px; padding: 6px 8px; margin: 4px 0 6px;',
+    '  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.7rem; line-height: 1.35;',
     '}',
-    '.orig-btn:hover { color: #777; border-color: #444; }',
-    '.orig-btn:disabled { opacity: .5; cursor: default; }',
+    '.log-line { white-space: pre-wrap; word-break: break-word; color: #9a9ab8; }',
+    '.log-E { color: #ef4444; }',
+    '.log-W { color: #fbbf24; }',
+    '.log-I { color: #66e73a; }',
+    '.log-C { color: #8a8ab0; }',
+    '.log-D { color: #60a5fa; }',
+    '.log-V { color: #6f6f92; }',
+    '.log-btns { display: flex; gap: 8px; justify-content: flex-end; }',
   ].join('\n');
 
   // ── Build UI ───────────────────────────────────────────────────────────────
@@ -751,104 +966,23 @@
     // Collapsible cards
     inner.appendChild(makeCollapsible('Input 1',     sectionItems('in1')));
     inner.appendChild(makeCollapsible('Input 2',     sectionItems('in2')));
+    // RFTX connector: mode + power, then the mode's own card (Aux Inputs for
+    // Inputs, RF Transmitter for Outputs; neither for Off — see the CSS).
+    inner.appendChild(makeCollapsible('RFTX Connector', sectionItems('rftxconn')));
     var auxCard = makeCollapsible('Aux Inputs (RFTX)', sectionItems('aux'));
-    auxCard.classList.add('auto-hide');  // shown when an Aux entity reports state
-    autoCards.aux = auxCard;
+    auxCard.classList.add('only-inputs');
     inner.appendChild(auxCard);
     inner.appendChild(makeCollapsible('Outputs',     sectionItems('out')));
-    // RF is two independent cards: the receiver (what a remote button plays) and
-    // the transmitter (the RFTX connector). They are separate because the two
-    // exist in different builds — the receiver in outputs AND inputs mode, the
-    // transmitter only in outputs mode — so an inputs build shows just the one.
-    var rfCard = makeCollapsible('RF Receiver', sectionItems('rf'));
-    rfCard.classList.add('auto-hide');   // shown when an RF entity reports state
-    autoCards.rf = rfCard;
-    inner.appendChild(rfCard);
+    // The RF receiver is separate hardware from the RFTX connector: its own card.
+    inner.appendChild(makeCollapsible('RF Receiver', sectionItems('rf')));
     var rfTxCard = makeCollapsible('RF Transmitter', sectionItems('rftx'));
-    rfTxCard.classList.add('auto-hide'); // shown when an RF TX entity reports state
-    autoCards.rftx = rfTxCard;
+    rfTxCard.classList.add('only-outputs');
     inner.appendChild(rfTxCard);
     inner.appendChild(makeCollapsible('Testing',     sectionItems('test')));
-    inner.appendChild(makeCollapsible('Diagnostics', sectionItems('debug')));
+    inner.appendChild(makeCollapsible('Diagnostics', sectionItems('debug').concat([makeLogView()])));
     inner.appendChild(makeCollapsible('Reset',       sectionItems('reset')));
 
-    // View switcher — loads ESPHome default Lit UI; refresh to return.
-    // The default UI (all entities + OTA firmware upload) ships from the ESPHome
-    // CDN (js_url is disabled in YAML), so it only works when the PHONE viewing
-    // this page has internet. In networked mode the phone stays on its normal
-    // Wi-Fi (internet OK); in standalone mode the phone joins the device's own AP
-    // (no internet) and this button cannot reach the CDN — hence the label.
-    var viewSwitch = document.createElement('div');
-    viewSwitch.className = 'view-switch';
-    var origBtn = document.createElement('button');
-    origBtn.className   = 'orig-btn';
-    var BTN_LABEL = 'Switch to ESPHome UI (needs internet)';
-    origBtn.textContent = BTN_LABEL;
-    origBtn.addEventListener('click', function () {
-      if (origBtn.disabled) return;
-      origBtn.disabled    = true;
-      origBtn.textContent = 'Loading ESPHome UI…';
-
-      var s = document.createElement('script');
-      s.src = 'https://oi.esphome.io/v2/www.js';
-
-      // Guard so onload / onerror / timeout can only settle this once.
-      var settled = false;
-
-      // With no internet the request may neither load nor error — it just hangs
-      // (or a captive portal stalls). Time out so the button never sticks on
-      // "Loading…" forever.
-      var timer = setTimeout(failSwitch, 8000);
-
-      // Only tear down the custom UI once the default UI has actually loaded,
-      // so a failed load never leaves a blank page. Removing the <style> node
-      // matters: our dark background/reset rules would otherwise restyle the
-      // default UI into invisibility.
-      //
-      // A fired onload does NOT prove the real script loaded: in AP/standalone
-      // mode (no internet) or behind a captive portal/proxy, the request to
-      // oi.esphome.io can be redirected to this device and return its own HTML
-      // with a 200 — which fires onload but never defines <esp-app>. Tearing
-      // down the custom UI then left a blank page. So verify the custom element
-      // is actually registered before committing to the switch.
-      s.onload = function () {
-        if (settled) return;
-        if (window.customElements && customElements.get('esp-app')) {
-          settled = true;
-          clearTimeout(timer);
-          disconnect();
-          style.remove();
-          app.remove();
-        } else {
-          failSwitch();
-        }
-      };
-      s.onerror = failSwitch;
-
-      function failSwitch() {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        s.remove();
-        origBtn.disabled    = false;
-        origBtn.textContent = BTN_LABEL;
-        alert('Could not load the default ESPHome UI.\n\n' +
-              'It is served from the internet (oi.esphome.io). You are joined to ' +
-              'the device\'s Wi-Fi AP, which has no internet, so the request must ' +
-              'go over cellular instead — but your phone routed it to the AP and ' +
-              'it failed.\n\n' +
-              'Fixes:\n' +
-              '• iPhone: turn on Settings › Cellular › Wi-Fi Assist, ' +
-              'then tap again.\n' +
-              '• Or put the device on a Wi-Fi network that has internet and ' +
-              'view this page from a phone on that same network.\n\n' +
-              'The default UI has all entities plus firmware upload. The custom UI ' +
-              'here works with no internet at all.');
-      }
-      document.head.appendChild(s);
-    });
-    viewSwitch.appendChild(origBtn);
-    inner.appendChild(viewSwitch);
+    inner.appendChild(makeCollapsible('Firmware Update', [makeFirmwareUpdate()]));
 
     document.body.appendChild(app);
     console.log('[NEATO-UI] DOM ready');

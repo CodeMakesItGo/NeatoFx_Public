@@ -110,18 +110,16 @@ Each speaker features multiple input channels, selectable audio outputs, backgro
    #config: !include configs/standalone.yaml
    ```
 
-3. Optionally select board revision and RFTX mode in `main.yaml`:
+3. Optionally select the board revision in `main.yaml`:
    ```yaml
    # Rev 2.4/2.5/2.6 (current production):
    board: !include boards/rev2_4.yaml
    # Rev 2.3 (legacy):
    #board: !include boards/rev2_3.yaml
-
-   # RFTX connector as RF transmitter outputs (default):
-   rftx: !include boards/common/rftx_outputs.yaml
-   # RFTX connector as 4 trigger inputs:
-   #rftx: !include boards/common/rftx_inputs.yaml
    ```
+   The RFTX connector mode (**Off** / **Inputs** / **Outputs**) and the on-board
+   RF receiver (on / off) are set in the web UI, not at build time, and are kept
+   across firmware updates.
 
 4. Place your WiFi credentials in `secrets.yaml` (one directory above this repo).
    See [`_shared/secrets.template.yaml`](../../_shared/secrets.template.yaml).

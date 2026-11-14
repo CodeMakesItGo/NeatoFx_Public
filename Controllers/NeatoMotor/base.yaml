@@ -1,0 +1,88 @@
+# ==============================================================================
+# NEATO MOTOR - SHARED BASE (every Motor main includes this, LAST)
+# ==============================================================================
+# One main per board — they differ only in the board file and CAN:
+#   main_24v.yaml   Rev 4.3 24V board, with CAN (SW1 on GPIO25)
+#   main_12v.yaml   Rev 3.3 12V board, no CAN   (SW1 on GPIO4) — or Rev 3.0 12V
+# Everything they share lives here: runtime identity, the Motor Type select
+# and every drive (boards/common/drives.yaml), the custom web UI and
+# logging. What the motor does is chosen at runtime in the web UI.
+#
+# Each main includes this as its LAST package: when packages set the same key
+# the later one wins, and this web_server must override the local: true in
+# _shared/networked_base.yaml / standalone_base.yaml (pulled in by the config
+# package) or the default ESPHome page replaces the custom UI.
+# ==============================================================================
+
+packages:
+  # Runtime identity: the CAN Source Address (0-238), set from the web UI.
+  runtime_id: !include ../../_shared/runtime_id.yaml
+  # Motor Type select + DC / AC / Linear / Winch / Pulse drives
+  drives: !include boards/common/drives.yaml
+
+# Firmware / hardware version for the web UI header, published once at boot
+# from project_version (boards/common/common.yaml) and the board's hw_version.
+text_sensor:
+  - platform: template
+    name: "Firmware Version"
+    id: firmware_version_sensor
+    icon: "mdi:chip"
+    update_interval: never
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - text_sensor.template.publish:
+            id: firmware_version_sensor
+            state: "${project_version} · ${hw_version}"
+
+# ==============================================================================
+# WEB SERVER - custom web UI
+# ==============================================================================
+# Custom UI only (boards/common/custom_ui.js), embedded so it works with no
+# internet. local: false / js_url "" keep the default ESPHome UI out entirely —
+# firmware updates install from the custom UI's Firmware Update card
+# (POST /update, ota: web_server in _shared/esphome_base.yaml).
+web_server:
+  local: false
+  js_url: ""
+  js_include: "boards/common/custom_ui.js"
+
+# ==============================================================================
+# DEBUGGING - log level
+# ==============================================================================
+# Two settings:
+#   level          what is COMPILED IN. Messages below it are stripped from the
+#                  firmware and can never be shown without a reflash. DEBUG
+#                  keeps the troubleshooting detail available in the field.
+#   initial_level  what the unit RUNS at after every boot. Shipped firmware
+#                  must be WARN — tools/lint_repo.py fails any other value.
+#
+# To troubleshoot a unit, pick a louder level from the "Log Level" dropdown
+# (web UI › Diagnostics) and watch the Device Log panel under it — no USB or
+# internet needed (`esphome logs main_24v.yaml --device <ip>` also works on Home
+# Assistant builds). It drops back to WARN on the next reboot. No reflash.
+#
+# Levels, quietest first — each shows its own messages plus every one above it.
+# Select EXACTLY ONE for initial_level:
+#   NONE          nothing at all — no log output
+#   ERROR         errors only: things that failed
+#   WARN          SHIPPED: errors + warnings — quiet, and enough to diagnose a fault
+#   INFO          + normal events (drive start / stop, mode changes, WiFi connect)
+#   CONFIG        + each component's settings, printed at boot
+#   DEBUG         + detailed troubleshooting (drive and CAN activity, every state
+#                 change) — busy; streaming it can slow the web page on phones
+#   VERBOSE       + internal component chatter — very busy (needs level: VERBOSE)
+#   VERY_VERBOSE  + everything, incl. low-level traffic — floods the log and can
+#                 disturb timing (needs level: VERY_VERBOSE)
+logger:
+  level: DEBUG          # compiled in: up to DEBUG is available at runtime
+  initial_level: WARN   # runs at after every boot — keep WARN for shipped firmware
+
+# "Log Level" dropdown — changes the running level on the spot (options run
+# NONE..DEBUG, up to the compiled level). Not saved: every boot starts at
+# initial_level.
+select:
+  - platform: logger
+    name: "Log Level"

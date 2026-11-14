@@ -1,0 +1,14 @@
+{
+  "name": "NEATO Motor 12V",
+  "version": "3.2.0",
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "ota": {
+        "path": "https://github.com/CodeMakesItGo/NeatoFx_Public/releases/download/v3.2.0/motor-12v-v3.2.0.bin",
+        "md5": "00000000000000000000000000000000",
+        "summary": "First release on this board's own update channel \u2014 written by tools/release.py"
+      }
+    }
+  ]
+}

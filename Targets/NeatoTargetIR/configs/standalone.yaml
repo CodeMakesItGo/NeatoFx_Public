@@ -6,6 +6,11 @@
 # a central controller or Home Assistant integration.
 # ==============================================================================
 
+# Network mode, read by packages that need a router network
+# (integrations/target_fpp.yaml refuses to build in standalone mode).
+substitutions:
+  network_mode: standalone
+
 # Shared base packages — common to all NEATO-FX devices
 packages:
   standalone_base: !include ../../../_shared/standalone_base.yaml

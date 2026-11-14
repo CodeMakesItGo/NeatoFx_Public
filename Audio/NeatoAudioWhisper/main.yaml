@@ -11,6 +11,32 @@
 #   esphome run     main.yaml
 #   esphome logs    main.yaml
 #   Then set the Device ID from the device web interface.
+#
+# Program a unit at a specific IP address (OTA over the network — use this when
+# the .local name doesn't resolve, or to pick one unit out of several):
+#   esphome run     Audio/NeatoAudioWhisper/main.yaml --device 192.168.1.50
+#   esphome upload  Audio/NeatoAudioWhisper/main.yaml --device 192.168.1.50   # already compiled
+#   esphome logs    Audio/NeatoAudioWhisper/main.yaml --device 192.168.1.50
+# Replace 192.168.1.50 with the unit's IP (shown in its web UI under Debug, or
+# in your router's client list). Or open http://<ip>/ in a browser and install
+# a compiled firmware.ota.bin from the unit's web page (firmware update / OTA
+# section) — no internet needed. A brand-new unit with no firmware is flashed
+# over USB instead:
+#   esphome run     Audio/NeatoAudioWhisper/main.yaml --device /dev/cu.usbserial-XXXX
+#
+# ------------------------------------------------------------------------------
+# Author:   W. Jason Altice <jason.altice@neatofx.com>
+# Company:  NeatoFx — https://neatofx.com
+# Support:  jason.altice@neatofx.com
+#
+# Copyright (c) 2026 CodeMakesItGo. Released under the MIT License — see the
+# LICENSE file in the repository root for the full terms. This configuration is
+# provided "AS IS", without warranty of any kind, express or implied.
+#
+# Safety: NeatoFx devices can switch relays, motors and external power. Wiring
+# to mains voltage, motors or other hazardous loads must be done by a qualified
+# person in line with local electrical codes. You are responsible for the safe
+# installation and operation of the equipment this firmware controls.
 # ==============================================================================
 
 # ==============================================================================
@@ -22,7 +48,6 @@ substitutions:
   # each unit a unique, permanent hostname. Logical identity is the runtime
   # Device ID, assigned from the web UI and stored in flash.
   name: whisper
-  name_add_mac_suffix: "true"
   friendly_name: "NeatoFx Audio Whisper"
   runtime_name_label: "Whisper Name"
 

@@ -1,0 +1,17 @@
+# ==============================================================================
+# NEATO MOTOR CONTROLLER - HARDWARE DEFINITION (REV 3.3, 12V, NO CAN)
+# ==============================================================================
+# The Rev 3.3 12V board has no CAN transceiver, so SW1 keeps GPIO4. Everything else is
+# shared with the 24V board in common/board_io.yaml.
+#
+# Included by: main_12v.yaml
+# ==============================================================================
+
+substitutions:
+  hw_version: "Rev 3.3 12V"     # web UI header version readout
+  sw1_pin: GPIO4
+  inactive_reason: "board inactive"
+
+packages:
+  common: !include common/common.yaml
+  io: !include common/board_io.yaml

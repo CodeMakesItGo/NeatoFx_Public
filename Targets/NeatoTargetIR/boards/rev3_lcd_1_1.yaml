@@ -29,7 +29,7 @@
 # strips, servo, aux power, GND ramp, GPIO16/17/25 inputs, relay (via common).
 # The ONLY rev3 feature that cannot exist on this face is the GPIO18 external
 # trigger input — that pin is the SPI clock here. Use the GPIO25 hit trigger
-# (enable the "GPIO25 Hit Trigger" switch) as the wired-trigger substitute.
+# (set "GPIO25 Mode" to Hit Trigger Input) as the wired-trigger substitute.
 # ==============================================================================
 
 # ==============================================================================
@@ -43,13 +43,17 @@ substitutions:
   io16_gpio: GPIO16      # General I/O
   io17_gpio: GPIO17      # General I/O
   io25_gpio: GPIO25      # General I/O
+  # Same pins as plain numbers, for the runtime GPIO modes (common/gpio_io.yaml)
+  gpio16_num: "16"
+  gpio17_num: "17"
+  gpio25_num: "25"
   io34_gpio: GPIO34      # ADC input (input only)
 
   # Left Side Connector Pins (Rev 3.x specific)
   switch_12v: GPIO33     # 12V switch control
   led2_gpio: GPIO22      # Secondary LED strip
   servo_gpio: GPIO04     # Servo control
-  strip_2_led_count: "100" # Configurable LED count
+  strip_2_led_count: "100" # First-boot "LED Strip 2 LED Count" (runtime, up to strip_2_led_max)
   strip_2_internal: "false" # Visible in UI, same as Rev3
 
   # Main target LED strip — real 6x WS2812 ring on the LCD face (LED CTRL, pin 5)
@@ -79,6 +83,8 @@ substitutions:
 # ==============================================================================
 packages:
   common_components: !include common/common.yaml
+  # GPIO16 / 17 / 25 Input / Hit Trigger / Hit Pulse Output modes + GPIO34 ADC
+  gpio_io: !include common/gpio_io.yaml
   # Aux Power Mode — turns the Aux Pwr switch into On / Off / Follow Relay.
   # Rev 3.x only (Rev 1.x has no aux rail), and declared AFTER common.yaml
   # because it extends the relay_1 switch defined there.
@@ -276,59 +282,7 @@ esphome:
 # BINARY SENSORS - Digital Inputs
 # (GPIO18 external trigger omitted — that pin is the SPI clock on this face)
 # ==============================================================================
-binary_sensor:
-  # GPIO25 Hit Trigger — enable via "GPIO25 Hit Trigger" switch in the UI
-  - platform: gpio
-    pin:
-      number: ${io25_gpio}
-      mode: INPUT_PULLUP
-      inverted: true
-    name: "GPIO25 Hit Trigger Input"
-    id: gpio25_trigger_input
-    filters:
-      - delayed_on: 5ms
-      - delayed_off: 50ms
-    on_press:
-      - if:
-          condition:
-            lambda: 'return id(gpio25_hit_enabled);'
-          then:
-            - logger.log: "GPIO25 hit trigger fired"
-            - script.execute: run_hit_script
-
-  # GPIO16 Digital Input
-  - platform: gpio
-    pin:
-      number: ${io16_gpio}
-      mode: INPUT_PULLUP
-      inverted: true
-    id: gpio16_digital
-    name: "GPIO16 Digital State"
-    device_class: "motion"
-    filters:
-      - delayed_on: 50ms
-      - delayed_off: 50ms
-    on_press:
-      - logger.log: "GPIO16 state is HIGH"
-    on_release:
-      - logger.log: "GPIO16 state is LOW"
-
-  # GPIO17 Digital Input
-  - platform: gpio
-    pin:
-      number: ${io17_gpio}
-      mode: INPUT_PULLUP
-      inverted: true
-    id: gpio17_digital
-    name: "GPIO17 Digital State"
-    device_class: "motion"
-    filters:
-      - delayed_on: 10ms
-      - delayed_off: 10ms
-    on_press:
-      - logger.log: "GPIO17 state is HIGH"
-    on_release:
-      - logger.log: "GPIO17 state is LOW"
+# GPIO16 / GPIO17 / GPIO25 inputs live in common/gpio_io.yaml (runtime modes).
 
 # ==============================================================================
 # SWITCHES - Digital Outputs
@@ -386,7 +340,7 @@ output:
 
 number:
   # NOTE: id must NOT be servo_slider — that id belongs to the "Servo Idle
-  # Position" control in scripts/servo_movement_script.yaml, which is included
+  # Position" control in scripts/servo.yaml, which is included
   # alongside this board (redefinition breaks the build).
   - platform: template
     name: "Servo Test Slider"

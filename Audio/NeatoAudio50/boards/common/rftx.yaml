@@ -1,0 +1,469 @@
+# ==============================================================================
+# NEATO AUDIO 50 - RFTX CONNECTOR (RFTX0-3), MODE CHOSEN AT RUNTIME
+# ==============================================================================
+# Replaces rftx_inputs.yaml / rftx_outputs.yaml / rftx_none.yaml. The four pins
+# act together, set by the persisted "RFTX Mode" select:
+#
+#   Off      (default) pins are idle inputs; nothing triggers, nothing is driven
+#   Inputs   4 trigger inputs — pulling RFTXn to GND runs Aux n (MP3 / output)
+#   Outputs  4 RF transmitter channels — RF TX A-D pull RFTXn to GND for 100 ms
+#
+#   RFTX0  GPIO14  Aux 1 / RF TX A
+#   RFTX1  GPIO12  Aux 2 / RF TX B   (strapping pin, see below)
+#   RFTX2  GPIO19  Aux 3 / RF TX C
+#   RFTX3  GPIO18  Aux 4 / RF TX D
+#
+# The on-board RF RECEIVER (Remote A-D) is separate: boards/common/rf_receiver.yaml.
+#
+# WHY A WRONG MODE IS HARMLESS
+#   Every mode keeps the internal pull-up, and Outputs is OPEN-DRAIN: a pin only
+#   ever pulls DOWN to GND and is released (high-Z, on the pull-up) otherwise.
+#   Trigger switches wired to GND + Outputs mode -> a "press" pulls an already-
+#   grounded line to ground. Transmitter attached + Inputs/Off -> pins only read.
+#   Nothing can source current into whatever is plugged in.
+#
+# HOW OUTPUTS WORK AT RUNTIME
+#   The pins are declared as the Aux input sensors (needed for Inputs mode).
+#   Outputs re-points them with the ESP-IDF GPIO driver as INPUT_OUTPUT_OD
+#   (open-drain, sensor still reads the line). Same technique as the Target's
+#   GPIO modes.
+#
+# GPIO12 is the MTDI strapping pin: it must be LOW at reset or the 3.3 V flash
+# will not boot. The internal pull-up is applied by firmware AFTER the strapping
+# latch, so it is safe. Do NOT add an EXTERNAL pull-up to RFTX1.
+#
+# RF TX Power (GPIO4) switches the connector's transmitter supply. It is a plain
+# toggle in every mode and always boots OFF.
+# ==============================================================================
+
+select:
+  - platform: template
+    name: "RFTX Mode"
+    id: rftx_mode
+    icon: "mdi:connection"
+    options:
+      - "Off"
+      - "Inputs"
+      - "Outputs"
+    initial_option: "Off"
+    optimistic: true
+    restore_value: true
+    on_value:
+      - script.execute: rftx_apply_mode
+
+  # Aux input output routing (Inputs mode)
+  - platform: template
+    name: "Aux 1 Output"
+    id: aux1_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "PWR 1", "PWR 2"]
+
+  - platform: template
+    name: "Aux 2 Output"
+    id: aux2_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "PWR 1", "PWR 2"]
+
+  - platform: template
+    name: "Aux 3 Output"
+    id: aux3_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "PWR 1", "PWR 2"]
+
+  - platform: template
+    name: "Aux 4 Output"
+    id: aux4_output_select
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Relay 1", "Relay 2", "PWR 1", "PWR 2"]
+
+# The four RFTX pins as inputs. They only trigger in Inputs mode.
+binary_sensor:
+  - platform: gpio
+    name: "Aux 1 (RFTX0)"
+    id: aux_in_1
+    internal: true
+    pin:
+      number: GPIO14
+      mode: INPUT_PULLUP
+      inverted: true
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(rftx_mode).current_option() == "Inputs";'
+          then:
+            - logger.log: "Aux 1 Triggered"
+            - script.execute: run_aux1_script
+
+  - platform: gpio
+    name: "Aux 2 (RFTX1)"
+    id: aux_in_2
+    internal: true
+    pin:
+      number: GPIO12
+      mode: INPUT_PULLUP
+      inverted: true
+      ignore_strapping_warning: true
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(rftx_mode).current_option() == "Inputs";'
+          then:
+            - logger.log: "Aux 2 Triggered"
+            - script.execute: run_aux2_script
+
+  - platform: gpio
+    name: "Aux 3 (RFTX2)"
+    id: aux_in_3
+    internal: true
+    pin:
+      number: GPIO19
+      mode: INPUT_PULLUP
+      inverted: true
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(rftx_mode).current_option() == "Inputs";'
+          then:
+            - logger.log: "Aux 3 Triggered"
+            - script.execute: run_aux3_script
+
+  - platform: gpio
+    name: "Aux 4 (RFTX3)"
+    id: aux_in_4
+    internal: true
+    pin:
+      number: GPIO18
+      mode: INPUT_PULLUP
+      inverted: true
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(rftx_mode).current_option() == "Inputs";'
+          then:
+            - logger.log: "Aux 4 Triggered"
+            - script.execute: run_aux4_script
+
+switch:
+  # RF transmitter channels — 100 ms active-low pulse. Do nothing unless
+  # RFTX Mode is Outputs.
+  - platform: template
+    name: "RF TX A"
+    id: rf_tx_a
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: 'id(rftx_drive)(0, true);'
+      - delay: 100ms
+      - switch.turn_off: rf_tx_a
+    turn_off_action:
+      - lambda: 'id(rftx_drive)(0, false);'
+
+  - platform: template
+    name: "RF TX B"
+    id: rf_tx_b
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: 'id(rftx_drive)(1, true);'
+      - delay: 100ms
+      - switch.turn_off: rf_tx_b
+    turn_off_action:
+      - lambda: 'id(rftx_drive)(1, false);'
+
+  - platform: template
+    name: "RF TX C"
+    id: rf_tx_c
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: 'id(rftx_drive)(2, true);'
+      - delay: 100ms
+      - switch.turn_off: rf_tx_c
+    turn_off_action:
+      - lambda: 'id(rftx_drive)(2, false);'
+
+  - platform: template
+    name: "RF TX D"
+    id: rf_tx_d
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: 'id(rftx_drive)(3, true);'
+      - delay: 100ms
+      - switch.turn_off: rf_tx_d
+    turn_off_action:
+      - lambda: 'id(rftx_drive)(3, false);'
+
+  # Transmitter supply on the connector — a plain toggle in every mode.
+  - platform: gpio
+    pin: GPIO4
+    name: "RF TX Power"
+    id: rf_tx_power
+    icon: "mdi:power-plug"
+    restore_mode: ALWAYS_OFF
+
+  # Aux input (Inputs mode) sequential playback toggles
+  - platform: template
+    name: "Aux 1 Sequential"
+    id: aux1_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: template
+    name: "Aux 2 Sequential"
+    id: aux2_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: template
+    name: "Aux 3 Sequential"
+    id: aux3_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: template
+    name: "Aux 4 Sequential"
+    id: aux4_random_enable
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+# Aux input MP3 file numbers (0 = play nothing)
+number:
+  - platform: template
+    name: "Aux 1 MP3"
+    id: aux1_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+    # 0 = None (no MP3), 1-255 = specific MP3 file number
+
+  - platform: template
+    name: "Aux 2 MP3"
+    id: aux2_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+
+  - platform: template
+    name: "Aux 3 MP3"
+    id: aux3_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+
+  - platform: template
+    name: "Aux 4 MP3"
+    id: aux4_mp3_select
+    min_value: 0
+    max_value: 255
+    step: 1
+    mode: box
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+
+# Helpers shared by the lambdas above. Index 0-3 = RFTX0-3 / A-D.
+globals:
+  - id: rftx_drive
+    type: std::function<void(int, bool)>
+    restore_value: no
+    # Plain C++ (not an ESPHome lambda), so components by generated name.
+    initial_value: |-
+      [](int idx, bool on) {
+        static const gpio_num_t PIN[4] = {GPIO_NUM_14, GPIO_NUM_12, GPIO_NUM_19, GPIO_NUM_18};
+        if (idx < 0 || idx > 3 || rftx_mode->current_option() != "Outputs") return;
+        gpio_set_level(PIN[idx], on ? 0 : 1);   // on = pull to GND, off = release
+      }
+
+script:
+  # Point all four pins at the selected mode. Runs on a change and at boot.
+  - id: rftx_apply_mode
+    mode: restart
+    then:
+      - lambda: |-
+          static const gpio_num_t PIN[4] = {GPIO_NUM_14, GPIO_NUM_12, GPIO_NUM_19, GPIO_NUM_18};
+          bool out = id(rftx_mode).current_option() == "Outputs";
+          for (gpio_num_t g : PIN) {
+            if (out) {
+              gpio_set_level(g, 1);                          // released first
+              gpio_set_direction(g, GPIO_MODE_INPUT_OUTPUT_OD);
+            } else {
+              gpio_set_direction(g, GPIO_MODE_INPUT);
+            }
+            gpio_set_pull_mode(g, GPIO_PULLUP_ONLY);         // kept in every mode
+          }
+          ESP_LOGI("rftx", "RFTX mode: %s", id(rftx_mode).current_option().c_str());
+
+  # Aux input handlers and MP3 playback (unchanged from rftx_inputs.yaml)
+  - id: run_aux1_script
+    mode: parallel
+    then:
+      - script.execute: play_aux1_mp3
+
+  - id: run_aux2_script
+    mode: parallel
+    then:
+      - script.execute: play_aux2_mp3
+
+  - id: run_aux3_script
+    mode: parallel
+    then:
+      - script.execute: play_aux3_mp3
+
+  - id: run_aux4_script
+    mode: parallel
+    then:
+      - script.execute: play_aux4_mp3
+
+  - id: play_aux1_mp3
+    mode: queued
+    then:
+      - output.turn_on: amp_wake
+      - delay: 50ms
+      - output.turn_on: amp_unmute
+      - delay: 100ms
+      - lambda: |-
+          std::string output_choice = id(aux1_output_select).current_option();
+          if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
+          else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
+          else if (output_choice == "PWR 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
+          else if (output_choice == "PWR 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          int mp3_setting = (int)id(aux1_mp3_select).state;
+          if (mp3_setting == 0) { ESP_LOGW("aux1", "No MP3 assigned"); }
+          else if (id(aux1_random_enable).state) {
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
+          } else { id(dfplayer1).play_mp3(mp3_setting); }
+      - script.execute: playback_timeout
+
+  - id: play_aux2_mp3
+    mode: queued
+    then:
+      - output.turn_on: amp_wake
+      - delay: 50ms
+      - output.turn_on: amp_unmute
+      - delay: 100ms
+      - lambda: |-
+          std::string output_choice = id(aux2_output_select).current_option();
+          if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
+          else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
+          else if (output_choice == "PWR 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
+          else if (output_choice == "PWR 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          int mp3_setting = (int)id(aux2_mp3_select).state;
+          if (mp3_setting == 0) { ESP_LOGW("aux2", "No MP3 assigned"); }
+          else if (id(aux2_random_enable).state) {
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
+          } else { id(dfplayer1).play_mp3(mp3_setting); }
+      - script.execute: playback_timeout
+
+  - id: play_aux3_mp3
+    mode: queued
+    then:
+      - output.turn_on: amp_wake
+      - delay: 50ms
+      - output.turn_on: amp_unmute
+      - delay: 100ms
+      - lambda: |-
+          std::string output_choice = id(aux3_output_select).current_option();
+          if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
+          else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
+          else if (output_choice == "PWR 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
+          else if (output_choice == "PWR 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          int mp3_setting = (int)id(aux3_mp3_select).state;
+          if (mp3_setting == 0) { ESP_LOGW("aux3", "No MP3 assigned"); }
+          else if (id(aux3_random_enable).state) {
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
+          } else { id(dfplayer1).play_mp3(mp3_setting); }
+      - script.execute: playback_timeout
+
+  - id: play_aux4_mp3
+    mode: queued
+    then:
+      - output.turn_on: amp_wake
+      - delay: 50ms
+      - output.turn_on: amp_unmute
+      - delay: 100ms
+      - lambda: |-
+          std::string output_choice = id(aux4_output_select).current_option();
+          if (output_choice == "Relay 1") { id(relay_1).turn_on(); }
+          else if (output_choice == "Relay 2") { id(relay_2).turn_on(); }
+          else if (output_choice == "PWR 1") { auto call = id(spot_light_1).turn_on(); call.perform(); }
+          else if (output_choice == "PWR 2") { auto call = id(spot_light_2).turn_on(); call.perform(); }
+          int mp3_setting = (int)id(aux4_mp3_select).state;
+          if (mp3_setting == 0) { ESP_LOGW("aux4", "No MP3 assigned"); }
+          else if (id(aux4_random_enable).state) {
+            id(button_counter) += 1;
+            if (id(button_counter) > (int)id(max_mp3_files).state) id(button_counter) = 1;
+            id(dfplayer1).play_mp3(id(button_counter));
+          } else { id(dfplayer1).play_mp3(mp3_setting); }
+      - script.execute: playback_timeout
+
+# AUX test buttons (Inputs mode)
+button:
+  - platform: template
+    id: test_aux_1
+    name: "Test Aux 1 (RFTX0)"
+    on_press:
+      - script.execute: run_aux1_script
+
+  - platform: template
+    id: test_aux_2
+    name: "Test Aux 2 (RFTX1)"
+    on_press:
+      - script.execute: run_aux2_script
+
+  - platform: template
+    id: test_aux_3
+    name: "Test Aux 3 (RFTX2)"
+    on_press:
+      - script.execute: run_aux3_script
+
+  - platform: template
+    id: test_aux_4
+    name: "Test Aux 4 (RFTX3)"
+    on_press:
+      - script.execute: run_aux4_script
+
+esphome:
+  on_boot:
+    # Late, so it runs after the Aux input sensors have set the pins up.
+    - priority: -100
+      then:
+        - script.execute: rftx_apply_mode

@@ -1,0 +1,335 @@
+# ==============================================================================
+# NEATO MOTOR - DRIVE PACKAGE: WINCH (ENCODER INSTEAD OF LIMIT SWITCHES)
+# ==============================================================================
+# A winch is the standard hold-to-run motor with a position encoder in place of
+# the two limit switches. Selected at runtime by "Motor Type" = Winch
+# (boards/common/drives.yaml); Input 1 / cover open = reel OUT, Input 2 /
+# cover close = reel IN, release = stop.
+#
+# ENCODER — two Hall sensors on the SW1 / SW2 inputs (${sw1_pin} / ${sw2_pin}).
+# The same pins are the limit switches in the other motor types; here they are
+# read a second time, undebounced, and every edge on either channel is one
+# count (8 magnets x 2 sensors x 2 edges = 32 counts per revolution). The
+# direction comes from which way the motor is being driven (current_direction),
+# which is safe on a worm-gear winch: it does not coast or back-drive.
+#
+# HOME — there is no home switch (GPIO26 stays the status LED). Jog the winch to
+# its fully-retracted position and press "Set Home Here": that is count 0. The
+# count and the home flag are saved, so position survives a reboot. Until home
+# is set the winch only runs at Slow Speed and has no soft limits.
+#
+# SOFT LIMITS (once home is set; "Limit Override" bypasses both):
+#   reel IN  stops at home (count 0)
+#   reel OUT stops at the calibrated maximum (Set Max Length)
+#
+# CALIBRATION — after Set Home Here, reel out to the full length, measure the
+# cable, enter it in "Max Length (Input)" and press "Set Max Length". That saves
+# the maximum count and enables Cable Out Length and the slow zones.
+#
+# SPEED — Motor Speed (common.yaml) is the run speed; "Winch Slow Speed" is used
+# inside "Winch Slow Zone" counts of either end, and before home is set. Every
+# start ramps over "Ramp to Speed". To reverse, the running direction stops and
+# the new one ramps up from 0.
+#
+# STALL TRIP — the winch stops if either output's current stays above "Max
+# Current" (common.yaml, default 8 A) for two readings in a row (~200 ms, which
+# rides out start-up inrush). It does not depend on CAN, so the 12V board is
+# protected too; on the 24V board CAN's own over-current check also applies.
+#
+# Replaces the old rev3_winch.yaml / winch_control.yaml (separate board with a
+# GPIO26 home switch, auto-homing on boot and a direction-change ramp).
+# ==============================================================================
+
+globals:
+  # Encoder count. 0 = home (fully retracted). Saved so position survives a
+  # power cycle (the worm gear holds position unpowered).
+  - id: winch_count_global
+    type: int
+    restore_value: yes
+    initial_value: '0'
+
+  # true once "Set Home Here" has been pressed.
+  - id: winch_home_set
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+  # Calibration: encoder count and measured cable length (ft) at full length.
+  - id: winch_max_count
+    type: int
+    restore_value: yes
+    initial_value: '0'
+
+  - id: winch_max_length_ft
+    type: float
+    restore_value: yes
+    initial_value: '0.0'
+
+  - id: winch_calibrated
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+  # true = soft limits bypassed (Limit Override switch)
+  - id: winch_limit_override
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # true while a start ramp is in progress (the encoder does not adjust speed)
+  - id: winch_ramping
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Consecutive over-current readings (stall trip debounce)
+  - id: winch_overcurrent_n
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  # Speed (0..1) the winch should be running at right now.
+  - id: winch_target_speed
+    type: std::function<float()>
+    restore_value: no
+    # Plain C++ (not an ESPHome lambda): components by generated name.
+    initial_value: |-
+      []() -> float {
+        float run  = motor_speed_control->state / 100.0f;
+        float slow = winch_slow_speed->state / 100.0f;
+        if (!winch_home_set->value()) return slow;
+        int max = winch_max_count->value();
+        if (!winch_calibrated->value() || max <= 0) return run;
+        int zone = (int) winch_slow_zone->state;
+        if (zone > max / 2) zone = max / 2;
+        int c = winch_count_global->value();
+        bool out = current_direction->value();
+        bool in_slow = (out && c > max - zone) || (!out && c < zone);
+        return in_slow ? slow : run;
+      }
+
+# ==============================================================================
+# ENCODER - the SW1 / SW2 inputs read undebounced (Winch only)
+# ==============================================================================
+binary_sensor:
+  - platform: gpio
+    id: winch_hall_a
+    internal: true
+    pin:
+      number: ${sw2_pin}
+      mode: INPUT_PULLUP
+      allow_other_uses: true
+    on_press:   [ script.execute: winch_edge ]
+    on_release: [ script.execute: winch_edge ]
+
+  - platform: gpio
+    id: winch_hall_b
+    internal: true
+    pin:
+      number: ${sw1_pin}
+      mode: INPUT_PULLUP
+      allow_other_uses: true
+    on_press:   [ script.execute: winch_edge ]
+    on_release: [ script.execute: winch_edge ]
+
+sensor:
+  # Cable deployed (ft); NaN until home is set and the max length calibrated.
+  - platform: template
+    name: "Cable Out Length"
+    id: winch_position_ft
+    unit_of_measurement: "ft"
+    accuracy_decimals: 1
+    update_interval: 500ms
+    icon: "mdi:tape-measure"
+    lambda: |-
+      if (!id(winch_home_set) || !id(winch_calibrated) || id(winch_max_count) <= 0 || id(winch_max_length_ft) <= 0.0f)
+        return NAN;
+      float pos = (float) id(winch_count_global) / (float) id(winch_max_count) * id(winch_max_length_ft);
+      return std::max(0.0f, pos);
+
+  - platform: template
+    name: "Encoder Count"
+    id: winch_count_sensor
+    accuracy_decimals: 0
+    update_interval: 500ms
+    icon: "mdi:counter"
+    lambda: 'return (float) id(winch_count_global);'
+
+number:
+  - platform: template
+    name: "Winch Slow Speed"
+    id: winch_slow_speed
+    min_value: 5
+    max_value: 80
+    step: 5
+    initial_value: 40
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "%"
+    icon: "mdi:speedometer-slow"
+
+  - platform: template
+    name: "Winch Slow Zone"
+    id: winch_slow_zone
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 4
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "counts"
+    icon: "mdi:map-marker-distance"
+
+  - platform: template
+    name: "Max Length (Input)"
+    id: winch_max_length_input_ft
+    min_value: 1
+    max_value: 200
+    step: 1
+    initial_value: 20
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "ft"
+    icon: "mdi:ruler"
+
+button:
+  - platform: template
+    name: "Set Home Here"
+    id: winch_set_home_button
+    icon: "mdi:home-import-outline"
+    on_press:
+      - lambda: |-
+          id(winch_count_global) = 0;
+          id(winch_home_set) = true;
+          ESP_LOGI("winch", "Home set at the current position (count 0)");
+
+  - platform: template
+    name: "Set Max Length"
+    id: winch_set_max_button
+    icon: "mdi:content-save-cog"
+    on_press:
+      - lambda: |-
+          if (!id(winch_home_set)) { ESP_LOGW("winch", "Set Max: set home first"); return; }
+          if (id(winch_count_global) <= 0) { ESP_LOGW("winch", "Set Max: reel out first"); return; }
+          id(winch_max_count)     = id(winch_count_global);
+          id(winch_max_length_ft) = id(winch_max_length_input_ft).state;
+          id(winch_calibrated)    = true;
+          ESP_LOGI("winch", "Calibrated: max_count=%d  max_length=%.1f ft",
+                   id(winch_max_count), id(winch_max_length_ft));
+
+switch:
+  - platform: template
+    name: "Limit Override"
+    id: winch_limit_override_switch
+    icon: "mdi:shield-off-outline"
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: 'id(winch_limit_override) = true;'
+      - logger.log: "Winch: soft limits OFF"
+    turn_off_action:
+      - lambda: 'id(winch_limit_override) = false;'
+      - logger.log: "Winch: soft limits ON"
+
+script:
+  # One encoder edge: count it, enforce the soft limits, set the zone speed.
+  - id: winch_edge
+    mode: parallel
+    then:
+      - lambda: |-
+          if (id(motor_type).current_option() != "Winch" || !id(motor_running)) return;
+          bool out = id(current_direction);
+          id(winch_count_global) += out ? 1 : -1;
+          int c = id(winch_count_global);
+          if (id(winch_home_set) && !id(winch_limit_override)) {
+            bool at_max  = out && id(winch_calibrated) && id(winch_max_count) > 0 && c >= id(winch_max_count);
+            bool at_home = !out && c <= 0;
+            if (at_max || at_home) {
+              ESP_LOGI("winch", "Soft limit reached (%s, count=%d)", at_max ? "max length" : "home", c);
+              id(motor_stop_script).execute();
+              return;
+            }
+          }
+          if (id(winch_ramping)) return;
+          float spd = id(winch_target_speed)();
+          if (out) id(motor_rpwm)->set_level(spd);
+          else     id(motor_lpwm)->set_level(spd);
+
+  - id: winch_reel_out_script
+    mode: restart
+    then:
+      - script.stop: winch_reel_in_script
+      - if:
+          condition:
+            lambda: |-
+              return id(winch_home_set) && !id(winch_limit_override) && id(winch_calibrated) &&
+                     id(winch_max_count) > 0 && id(winch_count_global) >= id(winch_max_count);
+          then:
+            - logger.log: "Winch: already at max length"
+          else:
+            - lambda: |-
+                id(current_direction) = true;
+                id(motor_running)     = true;
+                id(winch_ramping)     = true;
+                id(motor_ramp_step)   = 0;
+            - output.set_level:
+                id: motor_lpwm
+                level: 0%
+            - output.turn_on: motor_r_en
+            - output.turn_on: motor_l_en
+            - repeat:
+                count: 10
+                then:
+                  - lambda: |-
+                      id(motor_rpwm)->set_level(id(winch_target_speed)() * (float)(id(motor_ramp_step) + 1) / 10.0f);
+                      id(motor_ramp_step)++;
+                  - delay: !lambda 'return (uint32_t) std::max(10.0f, id(motor_ramp_ms).state / 10.0f);'
+            - lambda: 'id(winch_ramping) = false;'
+
+  - id: winch_reel_in_script
+    mode: restart
+    then:
+      - script.stop: winch_reel_out_script
+      - if:
+          condition:
+            lambda: 'return id(winch_home_set) && !id(winch_limit_override) && id(winch_count_global) <= 0;'
+          then:
+            - logger.log: "Winch: already at home"
+          else:
+            - lambda: |-
+                id(current_direction) = false;
+                id(motor_running)     = true;
+                id(winch_ramping)     = true;
+                id(motor_ramp_step)   = 0;
+            - output.set_level:
+                id: motor_rpwm
+                level: 0%
+            - output.turn_on: motor_r_en
+            - output.turn_on: motor_l_en
+            - repeat:
+                count: 10
+                then:
+                  - lambda: |-
+                      id(motor_lpwm)->set_level(id(winch_target_speed)() * (float)(id(motor_ramp_step) + 1) / 10.0f);
+                      id(motor_ramp_step)++;
+                  - delay: !lambda 'return (uint32_t) std::max(10.0f, id(motor_ramp_ms).state / 10.0f);'
+            - lambda: 'id(winch_ramping) = false;'
+
+interval:
+  # Stall trip (see header)
+  - interval: 100ms
+    then:
+      - lambda: |-
+          if (id(motor_type).current_option() != "Winch" || !id(motor_running)) {
+            id(winch_overcurrent_n) = 0;
+            return;
+          }
+          float limit = id(motor_max_current).state;
+          bool over = id(motor_current_forward_raw).state > limit ||
+                      id(motor_current_reverse_raw).state > limit;
+          id(winch_overcurrent_n) = over ? id(winch_overcurrent_n) + 1 : 0;
+          if (id(winch_overcurrent_n) >= 2) {
+            ESP_LOGW("winch", "Stall: current above %.0f A — stopping", limit);
+            id(winch_overcurrent_n) = 0;
+            id(motor_stop_script).execute();
+          }

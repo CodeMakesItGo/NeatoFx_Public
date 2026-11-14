@@ -82,7 +82,7 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/pip
-          key: pio-${{ runner.os }}-${{ matrix.device }}-${{ hashFiles('**/main.yaml') }}
+          key: pio-${{ runner.os }}-${{ matrix.device }}-${{ hashFiles('**/main*.yaml') }}
           restore-keys: |
             pio-${{ runner.os }}-${{ matrix.device }}-
             pio-${{ runner.os }}-

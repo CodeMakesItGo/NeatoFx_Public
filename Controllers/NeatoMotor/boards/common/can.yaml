@@ -4,11 +4,11 @@
 # Standalone CAN controller. The motor talks to other controllers over CAN only
 # (no display / excavator game, no UDP, no Home Assistant API).
 #
-# Add to motor_main.yaml packages section:
-#   can: !include boards/common/can.yaml
+# Always included by main_24v.yaml (the 24V board carries the transceiver);
+# the 12V board has no CAN.
 #
 # ------------------------------------------------------------------------------
-# HARDWARE WIRING (Rev 3.0 board)
+# HARDWARE WIRING (Rev 4.3 24V board)
 # ------------------------------------------------------------------------------
 #   GPIO5 = CAN TX  (D pin on SN65HVD232 transceiver)
 #   GPIO4 = CAN RX  (R pin on SN65HVD232 transceiver)
@@ -17,7 +17,7 @@
 #   NOTE: GPIO4 was the open-limit switch; that switch has moved to GPIO25.
 #
 # ------------------------------------------------------------------------------
-# ADDRESSING — this node's address = the `id` substitution (-s id <N>)
+# ADDRESSING — this node's address = the runtime Source Address (0-238, web UI)
 # ------------------------------------------------------------------------------
 # Example below is for id = 1.
 #
@@ -127,7 +127,7 @@ canbus:
     # transmission below calls send_data() with an explicit ID, and the on_frame
     # filter below is match-all (can_id 0 / mask 0), so this default sender ID is
     # never used. The real address is the runtime `device_id` global
-    # ("Source Address" in the web UI, 0x00-0xEF).
+    # ("Source Address" in the web UI, 0-238).
     can_id: 0
     bit_rate: 250kbps        # Must match every node on the bus (display = 250k)
     on_frame:

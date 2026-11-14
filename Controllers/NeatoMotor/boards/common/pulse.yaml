@@ -1,0 +1,92 @@
+# ==============================================================================
+# NEATO MOTOR - DRIVE PACKAGE: PULSE (TWO AIR VALVES / SOLENOIDS)
+# ==============================================================================
+# Two independent one-shot outputs on the two halves of the BTN8962TA H-bridge.
+# Selected at runtime by "Motor Type" = Pulse (boards/common/drives.yaml):
+#   Input 1 press -> Output A (R side) HIGH for "Pulse Time", then off
+#   Input 2 press -> Output B (L side) HIGH for "Pulse Time", then off
+# Releasing an input does nothing — each pulse runs its full time. A re-trigger
+# restarts that output's window (mode: restart). The limit switches are ignored.
+#
+# Replaces the old rev3_pulse.yaml / pulse_control.yaml board.
+# ==============================================================================
+
+globals:
+  # true while each output is energised (motor_running = either one, so the
+  # shared Motor Idle / HA idle event work the same as the other types)
+  - id: valve_a_running
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: valve_b_running
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+number:
+  - platform: template
+    name: "Pulse Time"
+    id: pulse_ms
+    min_value: 10
+    max_value: 1000
+    step: 10
+    initial_value: 100
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: "ms"
+    icon: "mdi:timer-outline"
+
+button:
+  - platform: template
+    name: "Trigger A"
+    id: pulse_a_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute: pulse_a_script
+
+  - platform: template
+    name: "Trigger B"
+    id: pulse_b_button
+    icon: "mdi:flash"
+    on_press:
+      - script.execute: pulse_b_script
+
+script:
+  - id: pulse_a_script
+    mode: restart
+    then:
+      - lambda: |-
+          id(valve_a_running) = true;
+          id(motor_running)   = true;
+      - output.turn_on: motor_r_en
+      - output.set_level:
+          id: motor_rpwm
+          level: 100%
+      - delay: !lambda 'return (uint32_t) id(pulse_ms).state;'
+      - output.set_level:
+          id: motor_rpwm
+          level: 0%
+      - output.turn_off: motor_r_en
+      - lambda: |-
+          id(valve_a_running) = false;
+          id(motor_running)   = id(valve_b_running);
+
+  - id: pulse_b_script
+    mode: restart
+    then:
+      - lambda: |-
+          id(valve_b_running) = true;
+          id(motor_running)   = true;
+      - output.turn_on: motor_l_en
+      - output.set_level:
+          id: motor_lpwm
+          level: 100%
+      - delay: !lambda 'return (uint32_t) id(pulse_ms).state;'
+      - output.set_level:
+          id: motor_lpwm
+          level: 0%
+      - output.turn_off: motor_l_en
+      - lambda: |-
+          id(valve_b_running) = false;
+          id(motor_running)   = id(valve_a_running);

@@ -10,18 +10,25 @@
 # ==============================================================================
 # ONE BINARY PER PRODUCT
 # ----------------------
-# Products that ship a single firmware for every unit set
-#   name_add_mac_suffix: "true"
-# in their main.yaml substitutions. ESPHome then appends the last 3 bytes of the
-# MAC to both name and friendly_name at runtime, so `blaster` becomes
-# blaster-a1b2c3 — unique per device, permanent, and identical in every build.
+# name_add_mac_suffix defaults to "true" (substitutions below): ESPHome appends
+# the last 3 bytes of the MAC to both name and friendly_name at runtime, so
+# `blaster` becomes blaster-a1b2c3 — unique per device, permanent, and identical
+# in every build. That is what lets one firmware ship to every unit.
+#
+# The default is "true" on purpose. If a product forgot to set it and the
+# default were "false", every unit would get the same hostname and collide on
+# the network with no build error. With "true", forgetting it in a per-unit
+# build only adds a visible MAC suffix to that build's hostname.
 #
 # The hostname CANNOT carry a logical ID: App.pre_setup() runs before
 # preferences exist and writes into a fixed-length buffer. Logical identity
 # (player number, target number) is therefore a restore_value global exposed as
 # a number entity, assigned once from the web UI.
 #
-# Products still compiled per unit with -s id N leave this "false".
+# A build compiled per unit (-s id N, its own hostname per unit) must set
+#   name_add_mac_suffix: "false"
+# in its own substitutions. (Customer builds under Customers/ keep their own
+# copy of this file and are unaffected.)
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
@@ -59,8 +66,8 @@ esp32:
 # The uploaded binary still contains the new password, so this is needed once
 # per device. Do NOT `compile` with the override — that bakes the old password in.
 substitutions:
-  # Products shipping ONE binary override this to "true" in their main.yaml.
-  name_add_mac_suffix: "false"
+  # Default ON — see "ONE BINARY PER PRODUCT" above. Per-unit builds set "false".
+  name_add_mac_suffix: "true"
   ota_password: !secret ota_password
 
 ota:
